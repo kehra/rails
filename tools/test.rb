@@ -1,5 +1,16 @@
 # frozen_string_literal: true
 
+if ENV["COVERAGE"] == "1" || ENV["COVERAGE"] == "true"
+  require "simplecov"
+
+  SimpleCov.start "rails" do
+    add_filter "/test/"
+    add_filter "/tools/"
+    command_name File.basename(COMPONENT_ROOT)
+    coverage_dir File.join("coverage", File.basename(COMPONENT_ROOT))
+  end
+end
+
 $: << File.expand_path("test", COMPONENT_ROOT)
 
 require "bundler/setup"

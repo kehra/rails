@@ -19,3 +19,5 @@ pkg/
 /tmp/
 /yarn-error.log
 /test-reports/
+
+/coverage/
