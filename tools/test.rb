@@ -4,6 +4,9 @@ if ENV["COVERAGE"] == "1" || ENV["COVERAGE"] == "true"
   require "simplecov"
 
   SimpleCov.start "rails" do
+    enable_coverage :branch
+    minimum_coverage 75
+    minimum_coverage_by_file 55
     add_filter "/test/"
     add_filter "/tools/"
     command_name File.basename(COMPONENT_ROOT)
