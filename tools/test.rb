@@ -3,14 +3,34 @@
 if ENV["COVERAGE"] == "1" || ENV["COVERAGE"] == "true"
   require "simplecov"
 
+  component = File.basename(COMPONENT_ROOT)
+
+  minimum_coverage =
+    ENV.fetch("COVERAGE_MIN", nil) ||
+    ENV.fetch("COVERAGE_MIN_#{component.upcase}", nil)
+
+  minimum_coverage_by_file =
+    ENV.fetch("COVERAGE_MIN_BY_FILE", nil) ||
+    ENV.fetch("COVERAGE_MIN_BY_FILE_#{component.upcase}", nil)
+
   SimpleCov.start "rails" do
     enable_coverage :branch
-    minimum_coverage 75
-    minimum_coverage_by_file 55
+    if minimum_coverage
+      minimum_coverage minimum_coverage.to_f
+    else
+      minimum_coverage 75
+    end
+
+    if minimum_coverage_by_file
+      minimum_coverage_by_file minimum_coverage_by_file.to_f
+    else
+      minimum_coverage_by_file 55
+    end
+
     add_filter "/test/"
     add_filter "/tools/"
-    command_name File.basename(COMPONENT_ROOT)
-    coverage_dir File.join("coverage", File.basename(COMPONENT_ROOT))
+    command_name component
+    coverage_dir File.join("coverage", component)
   end
 end
 
