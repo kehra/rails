@@ -17,6 +17,7 @@ module RailsComponentSimpleCov
     SimpleCov.coverage_dir(coverage_dir)
     SimpleCov.start do
       enable_coverage :branch
+      primary_coverage :branch
       Array(track_paths).each do |track_path|
         track_files(track_path)
       end
