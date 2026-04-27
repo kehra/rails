@@ -8,6 +8,8 @@
 #
 # It is also good to know what is the bare minimum to get
 # Rails booted up.
+require_relative "../../../tools/component_simplecov"
+RailsComponentSimpleCov.start(component: "railties", track_paths: "railties/lib/**/*.rb")
 require "fileutils"
 require "shellwords"
 

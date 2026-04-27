@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
+require_relative "../../tools/component_simplecov"
 require_relative "../../tools/strict_warnings"
+RailsComponentSimpleCov.start(component: "activestorage", track_paths: ["activestorage/app/**/*.rb", "activestorage/lib/**/*.rb"])
 
 ENV["RAILS_ENV"] ||= "test"
 require_relative "dummy/config/environment.rb"

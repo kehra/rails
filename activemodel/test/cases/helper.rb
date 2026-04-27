@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
+require_relative "../../../tools/component_simplecov"
 require_relative "../../../tools/strict_warnings"
+RailsComponentSimpleCov.start(component: "activemodel", track_paths: "activemodel/lib/**/*.rb")
 require "active_model"
 
 # Show backtraces for deprecated behavior for quicker cleanup.

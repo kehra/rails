@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../../../tools/component_simplecov"
+RailsComponentSimpleCov.start(component: "railties", track_paths: "railties/lib/**/*.rb")
 require "active_support/test_case"
 require "active_support/testing/autorun"
 require "rails/generators/rails/app/app_generator"

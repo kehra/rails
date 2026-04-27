@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
+require_relative "../../tools/component_simplecov"
 require_relative "../../tools/strict_warnings"
+RailsComponentSimpleCov.start(component: "activesupport", track_paths: "activesupport/lib/**/*.rb")
 
 ORIG_ARGV = ARGV.dup
 

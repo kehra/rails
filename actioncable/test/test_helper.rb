@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
+require_relative "../../tools/component_simplecov"
 require_relative "../../tools/strict_warnings"
+RailsComponentSimpleCov.start(component: "actioncable", track_paths: "actioncable/lib/**/*.rb")
 require "action_cable"
 require "active_support/testing/autorun"
 require "active_support/testing/method_call_assertions"

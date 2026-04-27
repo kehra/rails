@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
+require_relative "../../tools/component_simplecov"
 require_relative "../../tools/strict_warnings"
+RailsComponentSimpleCov.start(component: "actiontext", track_paths: ["actiontext/app/**/*.rb", "actiontext/lib/**/*.rb"])
 
 # Configure Rails Environment
 ENV["RAILS_ENV"] = "test"

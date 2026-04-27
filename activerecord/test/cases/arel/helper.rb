@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../../../../tools/component_simplecov"
+RailsComponentSimpleCov.start(component: "activerecord", track_paths: "activerecord/lib/**/*.rb")
 require "active_support"
 require "minitest/autorun"
 require "arel"

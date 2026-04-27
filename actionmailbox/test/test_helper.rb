@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
+require_relative "../../tools/component_simplecov"
 require_relative "../../tools/strict_warnings"
+RailsComponentSimpleCov.start(component: "actionmailbox", track_paths: ["actionmailbox/app/**/*.rb", "actionmailbox/lib/**/*.rb"])
 
 ENV["RAILS_ENV"] = "test"
 ENV["RAILS_INBOUND_EMAIL_PASSWORD"] = "tbsy84uSV1Kt3ZJZELY2TmShPRs91E3yL4tzf96297vBCkDWgL"
