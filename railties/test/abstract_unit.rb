@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "../../tools/component_simplecov"
-RailsComponentSimpleCov.start(component: "railties", track_paths: "railties/lib/**/*.rb")
 ENV["RAILS_ENV"] ||= "test"
 
 require "stringio"

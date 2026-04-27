@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../../tools/component_simplecov"
 require_relative "../../tools/strict_warnings"
-RailsComponentSimpleCov.start(component: "activejob", track_paths: "activejob/lib/**/*.rb")
 require "active_job"
 require "support/job_buffer"
 

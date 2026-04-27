@@ -1,0 +1,12 @@
+services:
+  rails:
+    working_dir: /workspaces/rails
+    environment:
+      PGHOST: postgres
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      MYSQL_HOST: mysql
+      MYSQL_CODESPACES: "1"
+      REDIS_URL: redis://redis:6379/0
+      MEMCACHE_SERVERS: memcached:11211
+      PARALLEL_WORKERS: "1"

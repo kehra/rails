@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../../tools/component_simplecov"
 require_relative "../../tools/strict_warnings"
-RailsComponentSimpleCov.start(component: "actionpack", track_paths: "actionpack/lib/**/*.rb")
 
 $:.unshift File.expand_path("lib", __dir__)
 

@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if ! command -v ruby >/dev/null 2>&1; then
+  if [ "${RAILS_COVERAGE_INTERACTIVE_SHELL:-}" != "1" ]; then
+    export RAILS_COVERAGE_INTERACTIVE_SHELL=1
+    exec bash -i "$0" "$@"
+  fi
+fi
+
+if [ "$#" -lt 1 ]; then
+  echo "usage: tools/coverage/component_test <component> [bin/test args...]" >&2
+  exit 64
+fi
+
+component="$1"
+shift
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+export PATH="$root/railties/exe:$PATH"
+
+case "$component" in
+  actioncable|actionmailbox|actionmailer|actionpack|actiontext|actionview|activejob|activemodel|activerecord|activestorage|activesupport|railties)
+    ;;
+  *)
+    echo "unknown component: $component" >&2
+    exit 64
+    ;;
+esac
+
+export SIMPLECOV=1
+export SIMPLECOV_COMPONENT="$component"
+export SIMPLECOV_COVERAGE_DIR="${SIMPLECOV_COVERAGE_DIR:-$root/coverage/$component}"
+export RUBYOPT="-rbundler/setup -r${root}/tools/component_simplecov ${RUBYOPT:-}"
+
+if [ "$component" = "activerecord" ]; then
+  export ARCONN="${ARCONN:-sqlite3_mem}"
+fi
+
+cd "$root/$component"
+
+if [ "$component" = "railties" ] && [ "$#" -eq 0 ]; then
+  status=0
+  while IFS= read -r test_file; do
+    echo "==> railties/$test_file"
+    SIMPLECOV_COMMAND_NAME="railties:$test_file" bin/test "$test_file" || status=$?
+  done < <(find test -type f -name "*_test.rb" | sort)
+  exit "$status"
+fi
+
+export SIMPLECOV_COMMAND_NAME="${SIMPLECOV_COMMAND_NAME:-$component}"
+exec bin/test "$@"

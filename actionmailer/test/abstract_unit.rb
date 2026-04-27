@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../../tools/component_simplecov"
 require_relative "../../tools/strict_warnings"
-RailsComponentSimpleCov.start(component: "actionmailer", track_paths: "actionmailer/lib/**/*.rb")
 require "active_support/core_ext/kernel/reporting"
 
 # These are the normal settings that will be set up by Railties
