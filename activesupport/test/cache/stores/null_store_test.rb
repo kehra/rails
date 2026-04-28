@@ -9,6 +9,10 @@ class NullStoreTest < ActiveSupport::TestCase
     @cache = ActiveSupport::Cache.lookup_store(:null_store)
   end
 
+  def test_supports_cache_versioning
+    assert ActiveSupport::Cache::NullStore.supports_cache_versioning?
+  end
+
   def test_clear
     @cache.write("name", "value")
     @cache.clear
