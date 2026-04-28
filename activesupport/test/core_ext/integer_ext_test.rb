@@ -29,4 +29,11 @@ class IntegerExtTest < ActiveSupport::TestCase
     assert_equal "st", 1.ordinal
     assert_equal "th", 8.ordinal
   end
+
+  def test_months_and_years
+    assert_equal ActiveSupport::Duration.months(2), 2.months
+    assert_equal ActiveSupport::Duration.months(1), 1.month
+    assert_equal ActiveSupport::Duration.years(2), 2.years
+    assert_equal ActiveSupport::Duration.years(1), 1.year
+  end
 end
