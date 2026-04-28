@@ -81,7 +81,7 @@ class IsolationTest < ActiveSupport::TestCase
   test "forking run_in_isolation preserves marshalable failures" do
     instance = FakeResultTest.new(:test_pass)
     instance.extend ActiveSupport::Testing::Isolation::Forking
-    instance.failures << Minitest::Assertion.new("marshalable")
+    instance.failures << Minitest::UnexpectedError.new(Exception.new("marshalable"))
     instance.define_singleton_method(:fork) { |&block| catch(:exit) { block.call }; 123 }
     instance.define_singleton_method(:exit!) { |*| throw :exit }
     fake_pipe = FakePipe.new
@@ -90,7 +90,7 @@ class IsolationTest < ActiveSupport::TestCase
       Process.stub(:wait2, [123, success_status]) do
         _status, serialized = instance.run_in_isolation { }
         result = Marshal.load(serialized)
-        assert_equal "marshalable", result.failures.first.message
+        assert_match "marshalable", result.failures.first.message
       end
     end
   end
