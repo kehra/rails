@@ -14,4 +14,16 @@ class ActiveSupportTest < ActiveSupport::TestCase
   ensure
     ActiveSupport::Cache.format_version = original_format_version
   end
+
+  test "cache_format_version= sets the cache format version" do
+    original_format_version = ActiveSupport::Cache.format_version
+
+    ActiveSupport.cache_format_version = 7.0
+    assert_equal 7.0, ActiveSupport::Cache.format_version
+
+    ActiveSupport.cache_format_version = 7.1
+    assert_equal 7.1, ActiveSupport::Cache.format_version
+  ensure
+    ActiveSupport::Cache.format_version = original_format_version
+  end
 end
