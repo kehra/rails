@@ -195,6 +195,10 @@ class OrderedOptionsTest < ActiveSupport::TestCase
     assert_not_equal object.object_id, duplicate.object_id
   end
 
+  def test_ordered_options_extractable_options
+    assert_predicate ActiveSupport::OrderedOptions.new, :extractable_options?
+  end
+
   def test_ordered_options_key
     object = ActiveSupport::OrderedOptions.new
     object.one = "first value"
