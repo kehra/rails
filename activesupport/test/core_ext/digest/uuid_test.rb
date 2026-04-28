@@ -55,6 +55,10 @@ class DigestUUIDExt < ActiveSupport::TestCase
     end
   end
 
+  def test_uuid_v4
+    assert_match(/\A\h{8}-\h{4}-4\h{3}-[89ab]\h{3}-\h{12}\z/, Digest::UUID.uuid_v4)
+  end
+
   def test_nil_uuid
     assert_equal "00000000-0000-0000-0000-000000000000", Digest::UUID.nil_uuid
   end
