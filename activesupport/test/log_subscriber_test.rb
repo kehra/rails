@@ -36,6 +36,16 @@ class SyncLogSubscriberTest < ActiveSupport::TestCase
       debug "debug logs are enabled"
     end
     subscribe_log_level :debug_only, :debug
+
+    def info_only(event)
+      info "info logs are enabled"
+    end
+    subscribe_log_level :info_only, :info
+
+    def error_only(event)
+      error "error logs are enabled"
+    end
+    subscribe_log_level :error_only, :error
   end
 
   def setup
@@ -161,6 +171,40 @@ class SyncLogSubscriberTest < ActiveSupport::TestCase
     assert_equal 1, @logger.flush_count
   end
 
+  def test_flush_all_ignores_loggers_without_flush
+    set_logger(Object.new)
+    assert_nothing_raised { ActiveSupport::LogSubscriber.flush_all! }
+  end
+
+  def test_logger_defaults_to_rails_logger_when_available
+    rails_logger = @logger
+    old_rails = Object.const_get(:Rails) if Object.const_defined?(:Rails)
+    Object.send(:remove_const, :Rails) if Object.const_defined?(:Rails)
+    rails = Module.new do
+      define_singleton_method(:logger) { rails_logger }
+    end
+    Object.const_set(:Rails, rails)
+    set_logger(nil)
+
+    assert_same rails_logger, ActiveSupport::LogSubscriber.logger
+  ensure
+    set_logger(@logger)
+    Object.send(:remove_const, :Rails) if Object.const_defined?(:Rails)
+    Object.const_set(:Rails, old_rails) if defined?(old_rails) && old_rails
+  end
+
+  def test_call_noops_without_logger
+    set_logger(nil)
+    assert_nothing_raised { @log_subscriber.call(Object.new) }
+  end
+
+  def test_log_exception_noops_without_logger
+    set_logger(nil)
+    assert_error_reported do
+      @log_subscriber.send(:log_exception, "failure.my_log_subscriber", RuntimeError.new("boom"))
+    end
+  end
+
   def test_flushes_the_same_logger_just_once
     ActiveSupport::LogSubscriber.attach_to :my_log_subscriber, @log_subscriber
     ActiveSupport::LogSubscriber.attach_to :another, @log_subscriber
@@ -186,13 +230,29 @@ class SyncLogSubscriberTest < ActiveSupport::TestCase
 
   def test_subscribe_log_level
     MyLogSubscriber.logger = @logger
-    @logger.level = Logger::INFO
     MyLogSubscriber.attach_to :my_log_subscriber, @log_subscriber
-    assert_empty @logger.logged(:debug)
 
+    @logger.level = Logger::WARN
     instrument "debug_only.my_log_subscriber"
+    instrument "info_only.my_log_subscriber"
     wait
     assert_empty @logger.logged(:debug)
+    assert_empty @logger.logged(:info)
+
+    @logger.level = Logger::FATAL
+    instrument "error_only.my_log_subscriber"
+    wait
+    assert_empty @logger.logged(:error)
+
+    @logger.level = Logger::ERROR
+    instrument "error_only.my_log_subscriber"
+    wait
+    assert_not_empty @logger.logged(:error)
+
+    @logger.level = Logger::INFO
+    instrument "info_only.my_log_subscriber"
+    wait
+    assert_not_empty @logger.logged(:info)
 
     @logger.level = Logger::DEBUG
     instrument "debug_only.my_log_subscriber"
