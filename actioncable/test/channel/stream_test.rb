@@ -247,6 +247,23 @@ module ActionCable::StreamTests
       end
     end
 
+    test "stop_stream_from is a no-op for unknown broadcasting" do
+      run_in_eventmachine do
+        connection = TestConnection.new
+        channel = ChatChannel.new connection, "{id: 3}"
+        channel.subscribe_to_channel
+        channel.stream_from "room_one"
+        wait_for_async
+
+        assert_equal 1, subscribers_of(connection).size
+
+        channel.stop_stream_from "unknown_room"
+
+        assert_equal 1, subscribers_of(connection).size
+        assert_equal 1, subscribers_of(connection)["room_one"].size
+      end
+    end
+
     test "stop_stream_for" do
       run_in_eventmachine do
         connection = TestConnection.new
