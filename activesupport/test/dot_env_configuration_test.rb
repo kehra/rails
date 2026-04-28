@@ -111,6 +111,13 @@ class DotEnvConfigurationTest < ActiveSupport::TestCase
     assert_equal "2", @config.require(:two)
   end
 
+  test "ignores malformed lines" do
+    write_env_file_raw("ONE=1\nnot a key value line\nTWO=2")
+    assert_equal "1", @config.require(:one)
+    assert_equal "2", @config.require(:two)
+    assert_nil @config.option(:not)
+  end
+
   test "allows spaces around =" do
     write_env_file_raw("ONE = 1")
     assert_equal "1", @config.require(:one)
