@@ -665,6 +665,22 @@ module ActiveSupport
     ensure
       ActiveSupport.filter_parameters.pop
     end
+
+    test "event matcher rejects mismatches" do
+      event = {
+        name: "test_event",
+        payload: { key: "value" },
+        tags: { tag: true },
+        context: { request_id: "abc" },
+        source_location: { filepath: "file.rb", lineno: 42, label: "perform" }
+      }
+
+      assert_not event_matcher(name: "other_event", payload: event[:payload], tags: event[:tags], context: event[:context]).call(event)
+      assert_not event_matcher(name: "test_event", payload: { key: "other" }, tags: event[:tags], context: event[:context]).call(event)
+      assert_not event_matcher(name: "test_event", payload: event[:payload], tags: { other: true }, context: event[:context]).call(event)
+      assert_not event_matcher(name: "test_event", payload: event[:payload], tags: event[:tags], context: { other: true }).call(event)
+      assert_not event_matcher(name: "test_event", payload: event[:payload], tags: event[:tags], context: event[:context], source_location: { filepath: "other.rb" }).call(event)
+    end
   end
 
   class EncodersTest < ActiveSupport::TestCase
