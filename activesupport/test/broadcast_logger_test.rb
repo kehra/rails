@@ -79,12 +79,38 @@ module ActiveSupport
       assert_equal ::Logger::FATAL, log2.formatter
     end
 
-    test "#local_level= assigns the local_level to all loggers" do
+    test "#local_level= assigns the local_level to all loggers that support it" do
+      logger.broadcast_to(Object.new)
+
       assert_equal ::Logger::DEBUG, log1.local_level
       logger.local_level = ::Logger::FATAL
 
       assert_equal ::Logger::FATAL, log1.local_level
       assert_equal ::Logger::FATAL, log2.local_level
+    end
+
+    test "bang severity methods set the level on all loggers" do
+      logger = BroadcastLogger.new(BangLogger.new, BangLogger.new)
+
+      logger.debug!
+      assert_equal [::Logger::DEBUG, ::Logger::DEBUG], logger.broadcasts.map(&:level)
+
+      logger.info!
+      assert_equal [::Logger::INFO, ::Logger::INFO], logger.broadcasts.map(&:level)
+
+      logger.warn!
+      assert_equal [::Logger::WARN, ::Logger::WARN], logger.broadcasts.map(&:level)
+
+      logger.error!
+      assert_equal [::Logger::ERROR, ::Logger::ERROR], logger.broadcasts.map(&:level)
+
+      logger.fatal!
+      assert_equal [::Logger::FATAL, ::Logger::FATAL], logger.broadcasts.map(&:level)
+    end
+
+    test "#respond_to? checks broadcasted loggers" do
+      assert_respond_to logger, :foo
+      assert_not_respond_to logger, :non_existing
     end
 
     test "severity methods get called on all loggers" do
@@ -434,6 +460,28 @@ module ActiveSupport
       # LoggerSilence includes LoggerThreadSafeLevel which defines these as
       # methods, so we need to redefine them
       attr_accessor :level, :local_level
+    end
+
+    class BangLogger < CustomLogger
+      def debug!
+        self.level = ::Logger::DEBUG
+      end
+
+      def info!
+        self.level = ::Logger::INFO
+      end
+
+      def warn!
+        self.level = ::Logger::WARN
+      end
+
+      def error!
+        self.level = ::Logger::ERROR
+      end
+
+      def fatal!
+        self.level = ::Logger::FATAL
+      end
     end
 
     class KwargsAcceptingLogger < CustomLogger
