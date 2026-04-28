@@ -30,6 +30,22 @@ module ActiveSupport
       end
     end
 
+    def test_current_caches_until_reset
+      with_env("EDITOR" => "mate", "RAILS_EDITOR" => nil) do
+        current = Editor.current
+        ENV["EDITOR"] = "code"
+
+        assert_same current, Editor.current
+      end
+    end
+
+    def test_find_and_custom_registration
+      Editor.register("custom", "custom://%s:%d", aliases: ["custom_alias"])
+
+      assert_equal "custom://foo.rb:42", Editor.find("custom").url_for("foo.rb", 42)
+      assert_same Editor.find("custom"), Editor.find("custom_alias")
+    end
+
     private
       def with_env(kv)
         old_values = {}
