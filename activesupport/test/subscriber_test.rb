@@ -107,6 +107,81 @@ class SubscriberTest < ActiveSupport::TestCase
     assert_equal [], TestSubscriber.events
   end
 
+  def test_detach_without_attached_subscriber_is_a_noop
+    subscriber = Class.new(ActiveSupport::Subscriber)
+
+    assert_nothing_raised do
+      subscriber.detach_from :doodle
+    end
+  end
+
+  def test_methods_added_after_attach_are_subscribed
+    subscriber = Class.new(ActiveSupport::Subscriber) do
+      cattr_accessor :events
+      self.events = []
+    end
+
+    subscriber.attach_to :dynamic
+    subscriber.class_eval do
+      def late_party(event)
+        self.class.events << event
+      end
+    end
+
+    ActiveSupport::Notifications.instrument("late_party.dynamic")
+    subscriber.send(:add_event_subscriber, :late_party)
+
+    assert_equal "late_party.dynamic", subscriber.events.first.name
+  ensure
+    subscriber.detach_from :dynamic if subscriber
+  end
+
+  def test_start_and_finish_methods_are_not_subscribed
+    subscriber = Class.new(ActiveSupport::Subscriber) do
+      @events = []
+
+      class << self
+        attr_reader :events
+      end
+
+      def start(event)
+        self.class.events << event
+      end
+
+      def finish(event)
+        self.class.events << event
+      end
+    end
+
+    subscriber.attach_to :invalid
+
+    ActiveSupport::Notifications.instrument("start.invalid")
+    ActiveSupport::Notifications.instrument("finish.invalid")
+
+    assert_empty subscriber.events
+    assert_empty subscriber.send(:subscriber).patterns
+
+    subscriber.send(:remove_event_subscriber, :start)
+  ensure
+    subscriber.detach_from :invalid if subscriber
+  end
+
+  def test_detach_ignores_events_without_registered_patterns
+    subscriber = Class.new(ActiveSupport::Subscriber) do
+      def open_party(event)
+      end
+    end
+    attached_subscriber = subscriber.new
+
+    subscriber.attach_to :doodle, attached_subscriber
+    subscription = attached_subscriber.patterns.delete("open_party.doodle")
+    ActiveSupport::Notifications.unsubscribe(subscription)
+
+    assert_nothing_raised do
+      subscriber.detach_from :doodle
+    end
+  end
+
   def test_detaches_subscribers_from_inherited_methods
     PartySubscriber.attach_to :doodle
     PartySubscriber.detach_from :doodle
