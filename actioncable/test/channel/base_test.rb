@@ -101,6 +101,17 @@ class ActionCable::Channel::BaseTest < ActionCable::TestCase
     assert @channel.subscribed
   end
 
+  test "channel exposes initialization state" do
+    assert_same @connection, @channel.connection
+    assert_equal "{id: 1}", @channel.identifier
+    assert_equal({ id: 1 }, @channel.params)
+  end
+
+  test "channel delegates connection identifiers and logger" do
+    assert_same @user, @channel.current_user
+    assert_same @connection.logger, @channel.logger
+  end
+
   test "channel params" do
     assert_equal({ id: 1 }, @channel.params)
   end
