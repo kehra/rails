@@ -52,4 +52,20 @@ class ActiveSupportTest < ActiveSupport::TestCase
   ensure
     ActiveSupport.instance_variable_set(:@to_time_preserves_timezone, original_value)
   end
+
+  test "to_time_preserves_timezone= sets the configured value with a deprecation warning" do
+    original_value = ActiveSupport.instance_variable_get(:@to_time_preserves_timezone)
+
+    assert_deprecated(/to_time_preserves_timezone/, ActiveSupport.deprecator) do
+      ActiveSupport.to_time_preserves_timezone = true
+    end
+    assert_equal true, ActiveSupport.instance_variable_get(:@to_time_preserves_timezone)
+
+    assert_deprecated(/to_time_preserves_timezone/, ActiveSupport.deprecator) do
+      ActiveSupport.to_time_preserves_timezone = false
+    end
+    assert_equal false, ActiveSupport.instance_variable_get(:@to_time_preserves_timezone)
+  ensure
+    ActiveSupport.instance_variable_set(:@to_time_preserves_timezone, original_value)
+  end
 end
