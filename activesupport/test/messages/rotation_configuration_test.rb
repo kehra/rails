@@ -22,4 +22,17 @@ class MessagesRotationConfiguration < ActiveSupport::TestCase
 
     assert_equal [ [ "old raw key", cipher: "aes-256-gcm" ] ], @config.encrypted
   end
+
+  def test_rotation_without_options
+    @config.rotate :signed, "old secret"
+
+    assert_equal [ [ "old secret" ] ], @config.signed
+  end
+
+  def test_unknown_rotation_kind_is_ignored
+    @config.rotate :unknown, "old secret", digest: "SHA1"
+
+    assert_empty @config.signed
+    assert_empty @config.encrypted
+  end
 end
