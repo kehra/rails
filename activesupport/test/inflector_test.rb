@@ -727,6 +727,43 @@ class InflectorTest < ActiveSupport::TestCase
     end
   end
 
+  def test_upcase_first_handles_empty_and_non_empty_strings
+    assert_equal "", ActiveSupport::Inflector.upcase_first("")
+    assert_equal "Hello", ActiveSupport::Inflector.upcase_first("hello")
+  end
+
+  def test_downcase_first_handles_empty_and_non_empty_strings
+    assert_equal "", ActiveSupport::Inflector.downcase_first("")
+    assert_equal "hello", ActiveSupport::Inflector.downcase_first("Hello")
+  end
+
+  def test_safe_constantize_swallows_autoload_load_error_without_original_message
+    error = LoadError.new("Unable to autoload constant Foo::Bar")
+    class << error
+      undef_method :original_message if method_defined?(:original_message)
+    end
+
+    ActiveSupport::Inflector.stub(:constantize, ->(*) { raise error }) do
+      assert_nil ActiveSupport::Inflector.safe_constantize("Foo::Bar")
+    end
+  end
+
+  def test_safe_constantize_reraises_unmatched_load_error
+    error = LoadError.new("Something else failed")
+    class << error
+      undef_method :original_message if method_defined?(:original_message)
+    end
+
+    ActiveSupport::Inflector.stub(:constantize, ->(*) { raise error }) do
+      assert_raises(LoadError) { ActiveSupport::Inflector.safe_constantize("Foo::Bar") }
+    end
+  end
+
+  def test_const_regexp_handles_leading_namespace_separator
+    assert_equal "Foo(::Bar)?", ActiveSupport::Inflector.send(:const_regexp, "::Foo::Bar")
+    assert_equal "::", ActiveSupport::Inflector.send(:const_regexp, "::")
+  end
+
   def test_output_is_not_frozen_even_if_input_is_frozen
     input = "plurals"
     assert_predicate input, :frozen?
