@@ -85,6 +85,36 @@ class ReloaderTest < ActiveSupport::TestCase
     assert_equal [:before_unload, :unload, :after_unload, :body], called
   end
 
+  def test_nested_wrap_yields_without_running_again
+    called = []
+    reloader.to_run { called << :run }
+
+    reloader.wrap do
+      called << :outer
+      reloader.wrap { called << :inner }
+    end
+
+    assert_equal [:run, :outer, :inner], called
+  end
+
+  def test_require_unload_lock_is_idempotent
+    reloader = self.reloader.new
+    interlock = ActiveSupport::Dependencies.interlock
+    start_calls = 0
+    done_calls = 0
+    interlock.stub(:start_unloading, -> { start_calls += 1 }) do
+      interlock.stub(:done_unloading, -> { done_calls += 1 }) do
+        reloader.require_unload_lock!
+        reloader.require_unload_lock!
+        reloader.release_unload_lock!
+        reloader.release_unload_lock!
+      end
+    end
+
+    assert_equal 1, start_calls
+    assert_equal 1, done_calls
+  end
+
   def test_report_errors_once
     reports = ErrorCollector.record do
       assert_raises RuntimeError do
