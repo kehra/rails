@@ -777,6 +777,42 @@ class TestOrderTest < ActiveSupport::TestCase
 end
 
 
+class DeclarativeTest < ActiveSupport::TestCase
+  test "declarative test defines a test method" do
+    test_case = Class.new(ActiveSupport::TestCase) do
+      test "something useful" do
+        :ok
+      end
+    end
+
+    assert_includes test_case.instance_methods, :test_something_useful
+  end
+
+  test "declarative test without block flunks when run" do
+    test_case = Class.new(ActiveSupport::TestCase) do
+      test "nothing implemented"
+    end
+
+    error = assert_raises(Minitest::Assertion) do
+      test_case.new(:test_nothing_implemented).send(:test_nothing_implemented)
+    end
+    assert_equal "No implementation provided for nothing implemented", error.message
+  end
+
+  test "declarative test raises when already defined" do
+    test_case = Class.new(ActiveSupport::TestCase) do
+      test "duplicate" do
+      end
+    end
+
+    error = assert_raises(RuntimeError) do
+      test_case.test "duplicate" do
+      end
+    end
+    assert_match "test_duplicate is already defined", error.message
+  end
+end
+
 class ConstStubbable
   CONSTANT = 1
 end
