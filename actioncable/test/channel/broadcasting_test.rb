@@ -71,4 +71,28 @@ class ActionCable::Channel::BroadcastingTest < ActionCable::TestCase
       ChatChannel.broadcasting_for("hello")
     )
   end
+
+  test "channel instance broadcasts to model" do
+    channel = ChatChannel.new(@connection, "{id: 1}")
+
+    assert_called_with(
+      ActionCable.server,
+      :broadcast,
+      [
+        "action_cable:channel:broadcasting_test:chat:Room#1-Campfire",
+        "Hello World"
+      ]
+    ) do
+      channel.broadcast_to(Room.new(1), "Hello World")
+    end
+  end
+
+  test "channel instance returns broadcasting for model" do
+    channel = ChatChannel.new(@connection, "{id: 1}")
+
+    assert_equal(
+      "action_cable:channel:broadcasting_test:chat:Room#1-Campfire",
+      channel.broadcasting_for(Room.new(1))
+    )
+  end
 end
