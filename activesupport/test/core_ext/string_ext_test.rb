@@ -789,6 +789,19 @@ class CoreExtStringMultibyteTest < ActiveSupport::TestCase
     assert_not_predicate EUC_JP_STRING, :is_utf8?
     assert_not_predicate INVALID_UTF8_STRING, :is_utf8?
   end
+
+  def test_unicode_decompose_and_compose
+    assert_equal ["e".ord, 0x0301], ActiveSupport::Multibyte::Unicode.decompose(:canonical, ["é".ord])
+    assert_equal ["1".ord, 0x2044, "4".ord], ActiveSupport::Multibyte::Unicode.decompose(:compatibility, ["¼".ord])
+    assert_equal ["é".ord], ActiveSupport::Multibyte::Unicode.compose(["e".ord, 0x0301])
+  end
+
+  def test_unicode_tidy_bytes
+    assert_equal "", ActiveSupport::Multibyte::Unicode.tidy_bytes("")
+    assert_equal "hello", ActiveSupport::Multibyte::Unicode.tidy_bytes("hello")
+    assert_equal "€", ActiveSupport::Multibyte::Unicode.tidy_bytes("\x80".b.force_encoding(Encoding::UTF_8))
+    assert_equal "é", ActiveSupport::Multibyte::Unicode.tidy_bytes("\xE9".b, true)
+  end
 end
 
 class OutputSafetyTest < ActiveSupport::TestCase
