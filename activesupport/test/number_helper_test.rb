@@ -321,6 +321,24 @@ module ActiveSupport
         end
       end
 
+      def test_number_to_human_size_caps_at_largest_storage_unit
+        assert_equal "1050000 ZB", ActiveSupport::NumberHelper.number_to_human_size(1024**9)
+      end
+
+      def test_number_to_human_size_defaults_to_stripping_insignificant_zeros_when_locale_option_is_missing
+        converter = ActiveSupport::NumberHelper::NumberToHumanSizeConverter.new(1024, {})
+        converter.define_singleton_method(:options) do
+          @options ||= {
+            precision: 3,
+            significant: true,
+            separator: ".",
+            delimiter: ""
+          }
+        end
+
+        assert_equal "1 KB", converter.execute
+      end
+
       def test_number_to_human
         [@instance_with_helpers, TestClassWithClassNumberHelpers, ActiveSupport::NumberHelper].each do |number_helper|
           assert_equal "-123", number_helper.number_to_human(-123)
