@@ -395,6 +395,27 @@ module ActiveSupport
         end
       end
 
+      def test_number_to_human_with_invalid_custom_units
+        assert_raises ArgumentError do
+          ActiveSupport::NumberHelper.number_to_human(123, units: Object.new)
+        end
+      end
+
+      def test_number_to_human_defaults_to_stripping_insignificant_zeros_when_locale_option_is_missing
+        converter = ActiveSupport::NumberHelper::NumberToHumanConverter.new(1000, units: { thousand: "k" })
+        converter.define_singleton_method(:options) do
+          @options ||= {
+            precision: 3,
+            significant: true,
+            separator: ".",
+            delimiter: "",
+            format: "%n %u"
+          }
+        end
+
+        assert_equal "1 k", converter.execute
+      end
+
       def test_number_to_human_with_custom_format
         [@instance_with_helpers, TestClassWithClassNumberHelpers, ActiveSupport::NumberHelper].each do |number_helper|
           assert_equal "123 times Thousand", number_helper.number_to_human(123456, format: "%n times %u")
