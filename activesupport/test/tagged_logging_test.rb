@@ -25,6 +25,16 @@ class TaggedLoggingTest < ActiveSupport::TestCase
     assert_respond_to other_logger.formatter, :tagged
   end
 
+  test "works with proc formatters" do
+    logger = Logger.new(StringIO.new)
+    logger.formatter = proc { |_, _, _, message| "#{message}\n" }
+
+    tagged_logger = ActiveSupport::TaggedLogging.new(logger)
+
+    assert_instance_of Proc, tagged_logger.formatter
+    assert_respond_to tagged_logger.formatter, :tagged
+  end
+
   test "tagged once" do
     @logger.tagged("BCX") { @logger.info "Funky time" }
     assert_equal "[BCX] Funky time\n", @output.string
@@ -52,6 +62,7 @@ class TaggedLoggingTest < ActiveSupport::TestCase
 
   test "push and pop tags directly" do
     assert_equal %w(A B C), @logger.push_tags("A", ["B", "  ", ["C"]])
+    assert_equal "[A] [B] [C] ", @logger.formatter.tags_text
     @logger.info "a"
     assert_equal %w(C), @logger.pop_tags
     @logger.info "b"
@@ -132,6 +143,16 @@ class TaggedLoggingTest < ActiveSupport::TestCase
       end.join
     end
     assert_equal "[FLUSHED]\nCool story\n", @output.string
+  end
+
+  test "flush works without a superclass implementation" do
+    logger = ActiveSupport::TaggedLogging.new(Logger.new(StringIO.new))
+    logger.push_tags("BCX")
+
+    assert_nothing_raised do
+      logger.flush
+    end
+    assert_empty logger.formatter.current_tags
   end
 
   test "mixed levels of tagging" do
