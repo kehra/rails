@@ -54,6 +54,18 @@ class CacheKeyTest < ActiveSupport::TestCase
     assert_equal "foo_key", ActiveSupport::Cache.expand_cache_key(key)
   end
 
+  def test_expand_cache_key_prefers_cache_key_with_version
+    key = +"foo"
+    def key.cache_key
+      :foo_key
+    end
+    def key.cache_key_with_version
+      :foo_key_with_version
+    end
+
+    assert_equal "foo_key_with_version", ActiveSupport::Cache.expand_cache_key(key)
+  end
+
   def test_expand_cache_key_array_with_something_that_responds_to_cache_key
     key = +"foo"
     def key.cache_key

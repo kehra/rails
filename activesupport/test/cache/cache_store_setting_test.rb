@@ -27,6 +27,14 @@ class CacheStoreSettingTest < ActiveSupport::TestCase
     end
   end
 
+  def test_lookup_store_raises_for_unknown_store_adapter
+    error = assert_raises(RuntimeError) do
+      ActiveSupport::Cache.lookup_store :unknown_store
+    end
+
+    assert_match(/Could not find cache store adapter for unknown_store/, error.message)
+  end
+
   def test_mem_cache_fragment_cache_store
     assert_called_with(Dalli::Client, :new, [%w[localhost], { compress: false, serializer: Marshal }]) do
       store = ActiveSupport::Cache.lookup_store :mem_cache_store, "localhost", pool: false
