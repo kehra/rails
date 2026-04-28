@@ -683,6 +683,50 @@ class InflectorTest < ActiveSupport::TestCase
     end
   end
 
+  def test_uncountables_flatten_returns_a_copy
+    uncountables = ActiveSupport::Inflector::Inflections::Uncountables.new
+    uncountables << "equipment"
+
+    flattened = uncountables.flatten
+    flattened << "money"
+
+    assert_equal ["equipment"], uncountables.to_a
+  end
+
+  def test_locale_inflections_fall_back_to_new_locale_instance
+    original_fallbacks = I18n.fallbacks
+    I18n.fallbacks = I18n::Locale::Fallbacks.new(locale_without_rules: [:other_locale_without_rules])
+
+    inflections = ActiveSupport::Inflector.inflections(:locale_without_rules)
+
+    assert_same inflections, ActiveSupport::Inflector::Inflections.instance(:locale_without_rules)
+  ensure
+    I18n.fallbacks = original_fallbacks
+  end
+
+  def test_plural_string_rule_removes_uncountable_rule
+    ActiveSupport::Inflector.inflections do |inflect|
+      inflect.uncountable "mouse"
+      assert inflect.uncountables.uncountable?("mouse")
+
+      inflect.plural "mouse", "mice"
+
+      assert_not inflect.uncountables.uncountable?("mouse")
+    end
+  end
+
+  def test_clear_inflections_ignores_unknown_scope
+    ActiveSupport::Inflector.inflections do |inflect|
+      original_plurals = inflect.plurals.dup
+      original_singulars = inflect.singulars.dup
+
+      inflect.clear(:unknown)
+
+      assert_equal original_plurals, inflect.plurals
+      assert_equal original_singulars, inflect.singulars
+    end
+  end
+
   def test_output_is_not_frozen_even_if_input_is_frozen
     input = "plurals"
     assert_predicate input, :frozen?
