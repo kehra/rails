@@ -29,13 +29,13 @@ class ThreadPoolExecutorTest < ActiveSupport::TestCase
 
     distributor = ActiveSupport::Testing::Parallelization::RoundRobinDistributor.new(worker_count: 2)
 
-    distributor.add_test([mock_test_class, "test_foo", reporter])
-    distributor.add_test([mock_test_class, "test_bar", reporter])
-
     executor = ActiveSupport::Testing::Parallelization::ThreadPoolExecutor.new(
       size: 2,
       distributor: distributor
     )
+
+    executor << [mock_test_class, "test_foo", reporter]
+    executor << [mock_test_class, "test_bar", reporter]
 
     executor.start
     executor.shutdown
@@ -43,6 +43,74 @@ class ThreadPoolExecutorTest < ActiveSupport::TestCase
     assert_equal 2, results.size
     assert_includes results, "test_foo"
     assert_includes results, "test_bar"
+  end
+
+  test "worker loop uses minitest run_one_method when available" do
+    reporter = Minitest::CompositeReporter.new
+    results = []
+    reporter.reporters << Class.new do
+      attr_accessor :results
+      define_method(:prerecord) { |*| }
+      define_method(:record) { |result| results << result.name }
+    end.new.tap { |r| r.results = results }
+
+    mock_test_class = Class.new(Minitest::Test) do
+      def self.name = "MockTest"
+      def test_foo = assert(true)
+    end
+
+    distributor = ActiveSupport::Testing::Parallelization::RoundRobinDistributor.new(worker_count: 1)
+    executor = ActiveSupport::Testing::Parallelization::ThreadPoolExecutor.new(size: 1, distributor: distributor)
+    distributor.add_test([mock_test_class, "test_foo", reporter])
+    distributor.close
+    singleton = class << Minitest; self; end
+    original_respond_to = Minitest.method(:respond_to?)
+    original_run_one_method = Minitest.method(:run_one_method) if Minitest.respond_to?(:run_one_method)
+    singleton.send(:define_method, :respond_to?) do |name, include_private = false|
+      name == :run_one_method ? true : original_respond_to.call(name, include_private)
+    end
+    singleton.send(:define_method, :run_one_method) { |klass, method| klass.new(method).run }
+
+    executor.send(:worker_loop, 0)
+    assert_equal ["test_foo"], results
+  ensure
+    singleton.send(:define_method, :respond_to?, original_respond_to) if original_respond_to
+    if original_run_one_method
+      singleton.send(:define_method, :run_one_method, original_run_one_method)
+    else
+      singleton.send(:remove_method, :run_one_method) if Minitest.respond_to?(:run_one_method)
+    end
+  end
+
+  test "worker loop supports minitest without run_one_method" do
+    reporter = Minitest::CompositeReporter.new
+    results = []
+    reporter.reporters << Class.new do
+      attr_accessor :results
+      define_method(:prerecord) { |*| }
+      define_method(:record) { |result| results << result.name }
+    end.new.tap { |r| r.results = results }
+
+    mock_test_class = Class.new(Minitest::Test) do
+      def self.name = "MockTest"
+      def test_foo = assert(true)
+    end
+
+    distributor = ActiveSupport::Testing::Parallelization::RoundRobinDistributor.new(worker_count: 1)
+    executor = ActiveSupport::Testing::Parallelization::ThreadPoolExecutor.new(size: 1, distributor: distributor)
+    distributor.add_test([mock_test_class, "test_foo", reporter])
+    distributor.close
+
+    singleton = class << Minitest; self; end
+    original_respond_to = Minitest.method(:respond_to?)
+    singleton.send(:define_method, :respond_to?) do |name, include_private = false|
+      name == :run_one_method ? false : original_respond_to.call(name, include_private)
+    end
+
+    executor.send(:worker_loop, 0)
+    assert_equal ["test_foo"], results
+  ensure
+    singleton.send(:define_method, :respond_to?, original_respond_to) if original_respond_to
   end
 
   test "distributes work using round robin distributor" do
