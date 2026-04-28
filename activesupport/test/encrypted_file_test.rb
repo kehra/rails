@@ -43,6 +43,14 @@ class EncryptedFileTest < ActiveSupport::TestCase
     assert_equal @content, @encrypted_file.read
   end
 
+  test "raise MissingContentError when content is missing" do
+    raised = assert_raise ActiveSupport::EncryptedFile::MissingContentError do
+      @encrypted_file.read
+    end
+
+    assert_equal "Missing encrypted content file in #{@content_path}.", raised.message
+  end
+
   test "change content by key file" do
     @encrypted_file.write(@content)
     @encrypted_file.change do |file|
@@ -111,6 +119,24 @@ class EncryptedFileTest < ActiveSupport::TestCase
     end
   end
 
+  test "key returns nil when missing key is allowed" do
+    FileUtils.rm_rf @key_path
+    encrypted_file = ActiveSupport::EncryptedFile.new(content_path: @content_path, key_path: @key_path,
+      env_key: "CONTENT_KEY", raise_if_missing_key: false)
+
+    assert_nil encrypted_file.key
+  end
+
+  test "raise InvalidKeyLengthError when key is nil while writing" do
+    FileUtils.rm_rf @key_path
+    encrypted_file = ActiveSupport::EncryptedFile.new(content_path: @content_path, key_path: @key_path,
+      env_key: "CONTENT_KEY", raise_if_missing_key: false)
+
+    assert_raise ActiveSupport::EncryptedFile::InvalidKeyLengthError do
+      encrypted_file.write(@content)
+    end
+  end
+
   test "raise InvalidKeyLengthError when key is too short" do
     File.write(@key_path, ActiveSupport::EncryptedFile.generate_key[0..-2])
 
@@ -133,7 +159,8 @@ class EncryptedFileTest < ActiveSupport::TestCase
     symlink_path = File.join(@tmpdir, "content_symlink.txt.enc")
     File.symlink(@encrypted_file.content_path, symlink_path)
 
-    encrypted_file(symlink_path).write(@content)
+    ActiveSupport::EncryptedFile.new(content_path: symlink_path, key_path: @key_path,
+      env_key: "CONTENT_KEY", raise_if_missing_key: true).write(@content)
 
     assert File.symlink?(symlink_path)
     assert_equal @content, @encrypted_file.read
