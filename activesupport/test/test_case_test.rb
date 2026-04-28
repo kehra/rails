@@ -729,6 +729,36 @@ class SubclassSetupAndTeardownTest < SetupAndTeardownTest
     end
 end
 
+class SetupAndTeardownErrorHandlingTest < ActiveSupport::TestCase
+  def test_after_teardown_records_callback_errors
+    klass = Class.new(ActiveSupport::TestCase) do
+      teardown { raise "teardown boom" }
+      def noop; end
+    end
+    test = klass.new("noop")
+    test.instance_variable_set(:@__leak_checker_before_env, ENV.to_h)
+
+    test.after_teardown
+
+    assert_equal 1, test.failures.size
+    assert_instance_of Minitest::UnexpectedError, test.failures.first
+  end
+
+  def test_after_teardown_records_callback_assertions
+    klass = Class.new(ActiveSupport::TestCase) do
+      teardown { flunk "teardown assertion" }
+      def noop; end
+    end
+    test = klass.new("noop")
+    test.instance_variable_set(:@__leak_checker_before_env, ENV.to_h)
+
+    test.after_teardown
+
+    assert_equal 1, test.failures.size
+    assert_instance_of Minitest::Assertion, test.failures.first
+  end
+end
+
 class TestCaseTaggedLoggingTest < ActiveSupport::TestCase
   def before_setup
     require "stringio"
