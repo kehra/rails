@@ -25,6 +25,50 @@ class MemoryStoreTest < StoreTest
     @cache = lookup_store(expires_in: 60)
   end
 
+  def test_supports_cache_versioning
+    assert ActiveSupport::Cache::MemoryStore.supports_cache_versioning?
+  end
+
+  def test_clear_removes_entries_and_resets_size
+    @cache.write("name", "value")
+
+    @cache.clear
+
+    assert_nil @cache.read("name")
+    assert_equal 0, @cache.instance_variable_get(:@cache_size)
+  end
+
+  def test_cleanup_ignores_live_entries
+    @cache.write("name", "value")
+
+    assert_nothing_raised { @cache.cleanup }
+    assert_equal "value", @cache.read("name")
+  end
+
+  def test_cleanup_deletes_expired_entries_without_reading_first
+    key = @cache.send(:normalize_key, "expired", {})
+    @cache.send(:write_entry, key, ActiveSupport::Cache::Entry.new("value", expires_in: -1))
+
+    @cache.cleanup
+
+    assert_nil @cache.read("expired")
+  end
+
+  def test_prune_returns_while_already_pruning
+    @cache.instance_variable_set(:@pruning, true)
+
+    assert_nil @cache.prune(0)
+    assert_predicate @cache, :pruning?
+  ensure
+    @cache.instance_variable_set(:@pruning, false) if @cache
+  end
+
+  def test_inspect_includes_entries_size_and_options
+    assert_match(/entries=0/, @cache.inspect)
+    assert_match(/size=0/, @cache.inspect)
+    assert_match(/options=/, @cache.inspect)
+  end
+
   def test_increment_preserves_expiry
     @cache = lookup_store
     @cache.write("counter", 1, raw: true, expires_in: 30.seconds)
