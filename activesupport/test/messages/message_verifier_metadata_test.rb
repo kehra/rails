@@ -100,6 +100,14 @@ class MessageVerifierMetadataTest < ActiveSupport::TestCase
     end
   end
 
+  test "malformed legacy metadata JSON is treated as an invalid message format" do
+    verifier = ActiveSupport::MessageVerifier.new("secret", serializer: JSON)
+    encoded = Base64.strict_encode64('{"_rails":{"message":')
+    message = verifier.send(:sign_encoded, encoded)
+
+    assert_nil verifier.verified(message)
+  end
+
   private
     def make_codec(**options)
       ActiveSupport::MessageVerifier.new("secret", **options)
