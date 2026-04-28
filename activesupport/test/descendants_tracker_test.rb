@@ -81,6 +81,55 @@ class DescendantsTrackerTest < ActiveSupport::TestCase
     assert_equal_sets [Grandchild2], Child1.descendants
   end
 
+  test ".clear(classes) deletes descendants of the given classes" do
+    ActiveSupport::DescendantsTracker.clear(Set[Child1])
+
+    assert_equal_sets [Child2], Parent.descendants
+    assert_empty Child1.descendants
+  end
+
+  test "module singleton methods delegate to class hierarchy methods" do
+    assert_equal_sets [Child1, Child2], ActiveSupport::DescendantsTracker.subclasses(Parent)
+    assert_equal_sets [Child1, Grandchild1, Grandchild2, Child2], ActiveSupport::DescendantsTracker.descendants(Parent)
+  end
+
+  test "descendants instance method recursively collects subclasses" do
+    parent = Object.new
+    child = Object.new
+    grandchild = Object.new
+    parent.define_singleton_method(:subclasses) { [child] }
+    child.define_singleton_method(:subclasses) { [grandchild] }
+    grandchild.define_singleton_method(:subclasses) { [] }
+    descendants = ActiveSupport::DescendantsTracker.instance_method(:descendants)
+    child.define_singleton_method(:descendants) { descendants.bind_call(child) }
+    grandchild.define_singleton_method(:descendants) { descendants.bind_call(grandchild) }
+
+    assert_equal [child, grandchild], descendants.bind_call(parent)
+  end
+
+  test "weak set tracks objects" do
+    weak_set = ActiveSupport::DescendantsTracker::WeakSet.new
+    object = Object.new
+
+    weak_set << object
+
+    assert_includes weak_set.to_a, object
+  end
+
+  test "reloaded classes filtering rejects cleared classes" do
+    klass = Class.new(Parent)
+    filtered = Class.new(Parent)
+    singleton = klass.singleton_class
+    singleton.define_method(:subclasses) { [filtered] }
+    singleton.define_method(:descendants) { [filtered] }
+    singleton.prepend(ActiveSupport::DescendantsTracker::ReloadedClassesFiltering)
+
+    ActiveSupport::DescendantsTracker.clear(Set[filtered])
+
+    assert_empty klass.subclasses
+    assert_empty klass.descendants
+  end
+
   private
     def assert_equal_sets(expected, actual)
       assert_equal Set.new(expected), Set.new(actual)
