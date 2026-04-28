@@ -9,6 +9,49 @@ class ShareLockTest < ActiveSupport::TestCase
     @lock = ActiveSupport::Concurrency::ShareLock.new
   end
 
+  def test_raw_state_reports_current_thread_locks
+    @lock.sharing do
+      @lock.exclusive do
+        @lock.raw_state do |state|
+          current = state.fetch(Thread.current)
+          assert_equal Thread.current, current[:thread]
+          assert_equal 1, current[:sharing]
+          assert_equal true, current[:exclusive]
+          assert_equal false, current[:waiting]
+          assert_nil current[:purpose]
+          assert_nil current[:compatible]
+          assert_nil current[:sleeper]
+        end
+      end
+    end
+  end
+
+  def test_raw_state_reports_no_exclusive_thread
+    @lock.raw_state do |state|
+      assert_empty state
+    end
+  end
+
+  def test_stop_exclusive_without_lock_raises
+    assert_raises(RuntimeError, match: "invalid unlock") do
+      @lock.stop_exclusive
+    end
+  end
+
+  def test_nested_yield_shares_with_different_purpose_does_not_expand_outer_purpose
+    yielded = false
+
+    @lock.sharing do
+      @lock.yield_shares(purpose: :outer, compatible: [:x]) do
+        @lock.sharing do
+          @lock.yield_shares(purpose: :inner, compatible: [:x]) { yielded = true }
+        end
+      end
+    end
+
+    assert yielded
+  end
+
   def test_reentrancy
     thread = Thread.new do
       @lock.sharing   { @lock.sharing   { } }
