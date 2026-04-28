@@ -659,6 +659,14 @@ class DeprecationTest < ActiveSupport::TestCase
     end
   end
 
+  test "disallowed_warnings ignores unsupported rule objects" do
+    @deprecator.disallowed_warnings = [Object.new]
+
+    assert_deprecated(/fubar/, @deprecator) do
+      @deprecator.warn("using fubar is deprecated")
+    end
+  end
+
   test "disallowed_warnings matches all warnings when set to :all" do
     @deprecator.disallowed_warnings = :all
 
@@ -728,6 +736,14 @@ class DeprecationTest < ActiveSupport::TestCase
     @deprecator.allow([/(foo|baz) (bar|qux)/]) do
       assert_deprecated(/foo bar/, @deprecator) { @deprecator.warn("foo bar") }
       assert_deprecated(/baz qux/, @deprecator) { @deprecator.warn("baz qux") }
+      assert_disallowed(/fubar/, @deprecator) { @deprecator.warn("fubar") }
+    end
+  end
+
+  test "allow ignores unsupported rule objects" do
+    @deprecator.disallowed_warnings = :all
+
+    @deprecator.allow([Object.new]) do
       assert_disallowed(/fubar/, @deprecator) { @deprecator.warn("fubar") }
     end
   end
