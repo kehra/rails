@@ -7,6 +7,10 @@ class ActiveSupportTest < ActiveSupport::TestCase
     assert_equal Gem::Version.new(ActiveSupport::VERSION::STRING), ActiveSupport.gem_version
   end
 
+  test "version returns the active support gem version" do
+    assert_equal ActiveSupport.gem_version, ActiveSupport.version
+  end
+
   test "cache_format_version returns the cache format version" do
     original_format_version = ActiveSupport::Cache.format_version
 
