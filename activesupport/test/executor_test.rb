@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "abstract_unit"
+require "active_support/executor/test_helper"
 
 class ExecutorTest < ActiveSupport::TestCase
   class DummyError < Exception
@@ -288,6 +289,33 @@ class ExecutorTest < ActiveSupport::TestCase
     executor.perform { called << :body }
 
     assert_equal [:run, :body, :complete], called
+  end
+
+  def test_executor_test_helper_runs_test_inside_application_executor
+    called = []
+    test_executor = executor
+    application = Object.new
+    application.define_singleton_method(:executor) { test_executor }
+    rails = Module.new
+    rails.define_singleton_method(:application) { application }
+
+    base = Class.new do
+      define_method(:run) do
+        called << :test_body
+      end
+    end
+    test_case = Class.new(base) do
+      include ActiveSupport::Executor::TestHelper
+    end.new
+
+    executor.to_run { called << :run }
+    executor.to_complete { called << :complete }
+
+    stub_const(Object, :Rails, rails) do
+      test_case.run
+    end
+
+    assert_equal [:run, :test_body, :complete], called
   end
 
   private
