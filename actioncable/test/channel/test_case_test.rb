@@ -55,6 +55,12 @@ end
 class StubConnectionTest < ActionCable::Channel::TestCase
   tests SubscriptionsTestChannel
 
+  GIDIdentifier = Struct.new(:id) do
+    def to_gid_param
+      "gid://test/User/#{id}"
+    end
+  end
+
   def test_connection_identifiers
     stub_connection username: "John", admin: true
 
@@ -63,6 +69,29 @@ class StubConnectionTest < ActionCable::Channel::TestCase
     assert_equal "John", subscription.username
     assert subscription.admin
     assert_equal "John:true", connection.connection_identifier
+  end
+
+  def test_connection_stub_exposes_server_state_and_transmits_with_indifferent_access
+    stub_connection user: GIDIdentifier.new(7), token: "abc"
+
+    connection.transmit("type" => "ping")
+
+    assert_same ActionCable.server, connection.server
+    assert_same ActionCable.server.config, connection.config
+    assert_same ActionCable.server.pubsub, connection.pubsub
+    assert_instance_of ActionCable::Connection::Subscriptions, connection.subscriptions
+    assert_respond_to connection.logger, :tagged
+    assert_equal [ :user, :token ], connection.identifiers
+    assert_equal "ping", connection.transmissions.last[:type]
+    assert_equal "abc:gid://test/User/7", connection.connection_identifier
+    assert_same connection.connection_identifier, connection.connection_identifier
+  end
+
+  def test_connection_identifier_ignores_nil_identifier_names
+    stub_connection
+    connection.instance_variable_set(:@identifiers, [ nil ])
+
+    assert_equal "", connection.connection_identifier
   end
 end
 
