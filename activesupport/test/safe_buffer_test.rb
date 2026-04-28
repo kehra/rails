@@ -31,6 +31,7 @@ class SafeBufferTest < ActiveSupport::TestCase
 
   test "Should not mess with an innocuous string" do
     @buffer << "Hello"
+    @buffer.concat nil
     assert_equal "Hello", @buffer
   end
 
@@ -155,7 +156,8 @@ class SafeBufferTest < ActiveSupport::TestCase
     multiplied_safe_buffer = "<br />".html_safe * 2
     assert_predicate multiplied_safe_buffer, :html_safe?
 
-    multiplied_unsafe_buffer = @buffer.gsub("", "<>") * 2
+    @buffer.gsub!("", "<>")
+    multiplied_unsafe_buffer = @buffer * 2
     assert_not_predicate multiplied_unsafe_buffer, :html_safe?
   end
 
@@ -191,6 +193,11 @@ class SafeBufferTest < ActiveSupport::TestCase
     end
   end
 
+  test "Should safe concat on safe buffers" do
+    @buffer.safe_concat "BUSTED"
+    assert_equal "BUSTED", @buffer
+  end
+
   test "Should not fail if the returned object is not a string" do
     assert_kind_of NilClass, @buffer.slice("chipchop")
   end
@@ -199,6 +206,14 @@ class SafeBufferTest < ActiveSupport::TestCase
     new_buffer = @buffer[0, 0]
     assert_not_nil new_buffer
     assert_predicate new_buffer, :html_safe?, "should be safe"
+  end
+
+  test "Can build an explicitly unsafe safe buffer" do
+    new_buffer = @buffer.send(:string_into_safe_buffer, "unsafe", false)
+    assert_not_predicate new_buffer, :html_safe?
+
+    existing_buffer = "safe".html_safe
+    assert_same existing_buffer, @buffer.send(:string_into_safe_buffer, existing_buffer, true)
   end
 
   test "Should continue unsafe on slice" do
@@ -237,7 +252,8 @@ class SafeBufferTest < ActiveSupport::TestCase
   end
 
   test "Should continue unsafe on chr" do
-    safe_string = "<div>foo</div>"
+    safe_string = "<div>foo</div>".html_safe
+    safe_string.gsub!("foo", "bar")
 
     assert_not safe_string.html_safe?, "should not be safe"
     assert_not safe_string.chr.html_safe?, "should not be safe"

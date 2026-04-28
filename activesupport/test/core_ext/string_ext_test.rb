@@ -27,6 +27,10 @@ class StringInflectionsTest < ActiveSupport::TestCase
 
   def test_strip_heredoc_on_a_frozen_string
     assert_predicate "".strip_heredoc, :frozen?
+    assert_predicate "frozen".freeze.strip_heredoc, :frozen?
+
+    string = "  frozen".freeze
+    assert_predicate string.strip_heredoc, :frozen?
   end
 
   def test_strip_heredoc_on_a_string_with_no_lines
@@ -66,6 +70,7 @@ class StringInflectionsTest < ActiveSupport::TestCase
     assert_equal("blargles", "blargle".pluralize(0))
     assert_equal("blargle", "blargle".pluralize(1))
     assert_equal("blargles", "blargle".pluralize(2))
+    assert_equal("posts", "post".pluralize(:en))
   end
 
   test "pluralize with count = 1 still returns new string" do
@@ -786,6 +791,7 @@ class CoreExtStringMultibyteTest < ActiveSupport::TestCase
   def test_string_should_recognize_utf8_strings
     assert_predicate UTF8_STRING, :is_utf8?
     assert_predicate ASCII_STRING, :is_utf8?
+    assert_predicate UTF8_STRING.b, :is_utf8?
     assert_not_predicate EUC_JP_STRING, :is_utf8?
     assert_not_predicate INVALID_UTF8_STRING, :is_utf8?
   end
@@ -1216,5 +1222,19 @@ ACTUAL
 
   test "indents blank lines if told so" do
     assert_equal " foo\n \n bar", "foo\n\nbar".indent(1, nil, true)
+  end
+end
+
+class StringInTimeZoneTest < ActiveSupport::TestCase
+  def test_in_time_zone_with_zone
+    Time.use_zone "Eastern Time (US & Canada)" do
+      assert_equal Time.zone.parse("2000-01-01 00:00:00"), "2000-01-01 00:00:00".in_time_zone
+    end
+  end
+
+  def test_in_time_zone_without_zone
+    Time.use_zone nil do
+      assert_equal "2000-01-01 00:00:00".to_time, "2000-01-01 00:00:00".in_time_zone(nil)
+    end
   end
 end
