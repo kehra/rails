@@ -135,6 +135,11 @@ module XmlMiniTest
       assert_xml("<b type=\"dateTime\">1993-02-24T12:00:00+09:00</b>")
     end
 
+    test "#to_tag normalizes datetime type option" do
+      @xml.to_tag(:b, Time.new(1993, 02, 24, 12, 0, 0, "+09:00"), @options.merge(type: "datetime"))
+      assert_xml("<b type=\"dateTime\">1993-02-24T12:00:00+09:00</b>")
+    end
+
     test "#to_tag accepts ActiveSupport::TimeWithZone types" do
       time = ActiveSupport::TimeWithZone.new(Time.new(1993, 02, 24, 12, 0, 0, "+09:00"), ActiveSupport::TimeZone["Europe/Paris"])
       ActiveSupport::TimeWithZone.stub(:name, "ActiveSupport::TimeWithZone") do
@@ -147,6 +152,26 @@ module XmlMiniTest
       duration = 3.years + 6.months + 4.days + 12.hours + 30.minutes + 5.seconds
       @xml.to_tag(:b, duration, @options)
       assert_xml("<b type=\"duration\">P3Y6M4DT12H30M5S</b>")
+    end
+
+    test "#to_tag accepts binary types" do
+      @xml.to_tag(:b, "hi", @options.merge(type: "binary"))
+      assert_xml("<b type=\"binary\" encoding=\"base64\">aGk=\n</b>")
+    end
+
+    test "#to_tag accepts yaml types" do
+      @xml.to_tag(:b, "hello", @options.merge(type: "yaml"))
+      assert_xml("<b type=\"yaml\">--- hello\n</b>")
+    end
+
+    test "#to_tag marks nil values" do
+      @xml.to_tag(:b, nil, @options)
+      assert_xml("<b nil=\"true\"/>")
+    end
+
+    test "#to_tag uses explicit encoding" do
+      @xml.to_tag(:b, "hi", @options.merge(type: "binary", encoding: "hex"))
+      assert_xml("<b type=\"binary\" encoding=\"hex\">aGk=\n</b>")
     end
 
     test "#to_tag accepts array types" do
