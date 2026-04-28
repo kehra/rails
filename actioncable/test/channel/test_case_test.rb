@@ -127,6 +127,13 @@ class StreamsTestChannelTest < ActionCable::Channel::TestCase
 
     assert_no_streams
   end
+
+  def test_channel_stub_periodic_timer_methods_are_no_ops
+    subscribe
+
+    assert_nil subscription.start_periodic_timers
+    assert_nil subscription.stop_periodic_timers
+  end
 end
 
 class StreamsForTestChannel < ActionCable::Channel::Base
