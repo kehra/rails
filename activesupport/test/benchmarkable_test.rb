@@ -5,7 +5,8 @@ require_relative "abstract_unit"
 class BenchmarkableTest < ActiveSupport::TestCase
   include ActiveSupport::Benchmarkable
 
-  attr_reader :buffer, :logger
+  attr_reader :buffer
+  attr_accessor :logger
 
   class Buffer
     include Enumerable
@@ -34,6 +35,13 @@ class BenchmarkableTest < ActiveSupport::TestCase
     benchmark { i_was_run = true }
     assert i_was_run
     assert_last_logged
+  end
+
+  def test_without_logger
+    self.logger = nil
+
+    assert_equal :result, benchmark { :result }
+    assert_empty buffer
   end
 
   def test_with_message
