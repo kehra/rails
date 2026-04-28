@@ -72,6 +72,32 @@ class SyncLogSubscriberTest < ActiveSupport::TestCase
     assert_equal "cool, isn't it?", @logger.logged(:info).last
   end
 
+  def test_set_color_with_ansi_sequence_constant
+    ActiveSupport.colorize_logging = true
+    assert_equal "\e[35mcool\e[0m", @log_subscriber.color("cool", ActiveSupport::ColorizeLogging::MAGENTA)
+  end
+
+  def test_proxies_remaining_severity_methods_to_rails_logger
+    @log_subscriber.error "error"
+    @log_subscriber.fatal "fatal"
+    @log_subscriber.unknown "unknown"
+
+    assert_equal %w(error), @logger.logged(:error)
+    assert_equal %w(fatal), @logger.logged(:fatal)
+    assert_equal %w(unknown), @logger.logged(:unknown)
+  end
+
+  def test_logging_helpers_noop_without_logger
+    set_logger(nil)
+
+    assert_nil @log_subscriber.debug("debug")
+    assert_nil @log_subscriber.info("info")
+    assert_nil @log_subscriber.warn("warn")
+    assert_nil @log_subscriber.error("error")
+    assert_nil @log_subscriber.fatal("fatal")
+    assert_nil @log_subscriber.unknown("unknown")
+  end
+
   def test_event_is_sent_to_the_registered_class
     ActiveSupport::LogSubscriber.attach_to :my_log_subscriber, @log_subscriber
     instrument "some_event.my_log_subscriber"
