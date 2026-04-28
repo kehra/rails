@@ -3,6 +3,10 @@
 require_relative "abstract_unit"
 
 class ActiveSupportTest < ActiveSupport::TestCase
+  test "gem_version returns the active support version" do
+    assert_equal Gem::Version.new(ActiveSupport::VERSION::STRING), ActiveSupport.gem_version
+  end
+
   test "cache_format_version returns the cache format version" do
     original_format_version = ActiveSupport::Cache.format_version
 
