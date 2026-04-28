@@ -81,6 +81,56 @@ module Notifications
       ActiveSupport::Notifications.notifier = old_notifier
     end
 
+    def test_top_level_publish_api
+      event_args = nil
+      ActiveSupport::Notifications.subscribe("published") do |*args|
+        event_args = args
+      end
+      started = Time.now
+      finished = Time.now
+
+      ActiveSupport::Notifications.publish("published", started, finished, "id", key: "value")
+      @notifier.wait
+
+      assert_equal ["published", started, finished, "id", { key: "value" }], event_args
+    end
+
+    def test_top_level_publish_event_api
+      event = nil
+      ActiveSupport::Notifications.subscribe("published.event") do |e|
+        event = e
+      end
+      published_event = ActiveSupport::Notifications::Event.new("published.event", Time.now, Time.now, "id", key: "value")
+
+      ActiveSupport::Notifications.publish_event(published_event)
+      @notifier.wait
+
+      assert_same published_event, event
+    end
+
+    def test_instrument_yields_without_notifying_when_no_listeners_exist
+      old_notifier = ActiveSupport::Notifications.notifier
+      ActiveSupport::Notifications.notifier = ActiveSupport::Notifications::Fanout.new
+      yielded_payload = nil
+
+      ActiveSupport::Notifications.instrument("unlistened", key: "value") do |payload|
+        yielded_payload = payload
+      end
+
+      assert_equal({ key: "value" }, yielded_payload)
+    ensure
+      ActiveSupport::Notifications.notifier = old_notifier
+    end
+
+    def test_instrument_without_listeners_and_without_block_returns_nil
+      old_notifier = ActiveSupport::Notifications.notifier
+      ActiveSupport::Notifications.notifier = ActiveSupport::Notifications::Fanout.new
+
+      assert_nil ActiveSupport::Notifications.instrument("unlistened")
+    ensure
+      ActiveSupport::Notifications.notifier = old_notifier
+    end
+
     def test_subscribe_with_a_single_arity_lambda_listener
       event_name = nil
       listener = ->(event) do
