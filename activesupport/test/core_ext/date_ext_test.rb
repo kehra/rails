@@ -378,6 +378,7 @@ class DateExtBehaviorTest < ActiveSupport::TestCase
 
   def test_blank?
     assert_not_predicate Date.new, :blank?
+    assert_predicate Date.new, :present?
   end
 
   def test_freeze_doesnt_clobber_memoized_instance_methods
