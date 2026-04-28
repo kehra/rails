@@ -1111,6 +1111,21 @@ class OutputSafetyTest < ActiveSupport::TestCase
     assert_equal escaped_string, ERB::Util.html_escape_once(escaped_string)
   end
 
+  test "ERB::Util.json_escape escapes unsafe javascript characters" do
+    escaped = ERB::Util.json_escape(%({"name":"</script>&\u2028\u2029"}))
+
+    assert_equal %(#{'{'}"name":"\\u003c/script\\u003e\\u0026\\u2028\\u2029"#{'}'}), escaped
+    assert_not_predicate escaped, :html_safe?
+  end
+
+  test "ERB::Util.json_escape preserves html safety" do
+    assert_predicate ERB::Util.json_escape(%({"name":"<b>"}).html_safe), :html_safe?
+  end
+
+  test "ERB::Util.xml_name_escape returns blank names unchanged" do
+    assert_equal "", ERB::Util.xml_name_escape("")
+  end
+
   test "ERB::Util.xml_name_escape should escape unsafe characters for XML names" do
     unsafe_char = ">"
     safe_char = "Á"
