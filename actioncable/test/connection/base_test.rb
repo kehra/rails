@@ -21,6 +21,10 @@ class ActionCable::Connection::BaseTest < ActionCable::TestCase
     end
   end
 
+  class AsyncConnection < ActionCable::Connection::Base
+    attr_reader :websocket
+  end
+
   setup do
     @server = TestServer.new
     @server.config.allowed_request_origins = %w( http://rubyonrails.com )
@@ -68,6 +72,7 @@ class ActionCable::Connection::BaseTest < ActionCable::TestCase
 
       assert_equal [ connection ], @server.connections
       assert connection.connected
+      assert_nil connection.protocol
     end
   end
 
@@ -89,6 +94,21 @@ class ActionCable::Connection::BaseTest < ActionCable::TestCase
     end
   end
 
+  test "connection exposes server dependencies and request state" do
+    run_in_eventmachine do
+      connection = open_connection
+
+      assert_same @server, connection.server
+      assert_same @server.config, connection.config
+      assert_same @server.event_loop, connection.event_loop
+      assert_same @server.pubsub, connection.pubsub
+      assert_same @server.worker_pool, connection.worker_pool
+      assert_same connection.env, connection.env
+      assert_instance_of ActionCable::Connection::Subscriptions, connection.subscriptions
+      assert_respond_to connection.logger, :info
+    end
+  end
+
   test "connection statistics" do
     run_in_eventmachine do
       connection = open_connection
@@ -99,6 +119,60 @@ class ActionCable::Connection::BaseTest < ActionCable::TestCase
       assert_predicate statistics[:identifier], :blank?
       assert_kind_of Time, statistics[:started_at]
       assert_equal [], statistics[:subscriptions]
+      assert_nil statistics[:request_id]
+    end
+  end
+
+  test "beat transmits ping" do
+    run_in_eventmachine do
+      connection = open_connection
+
+      assert_called(connection.websocket, :transmit) do
+        connection.beat
+      end
+    end
+  end
+
+  test "receive dispatches websocket messages asynchronously" do
+    run_in_eventmachine do
+      connection = AsyncConnection.new(@server, websocket_env)
+
+      assert_called_with(connection.worker_pool, :async_invoke, [connection, :dispatch_websocket_message, "{}"] ) do
+        connection.receive "{}"
+      end
+    end
+  end
+
+  test "dispatch websocket message executes channel command when socket alive" do
+    run_in_eventmachine do
+      connection = open_connection
+      connection.process
+      wait_for_async
+
+      assert_called_with(connection.subscriptions, :execute_command, [Hash]) do
+        connection.dispatch_websocket_message({ command: "ping" }.to_json)
+      end
+    end
+  end
+
+  test "dispatch websocket message logs when socket is closed" do
+    run_in_eventmachine do
+      connection = open_connection
+
+      assert_called(connection.logger, :error) do
+        connection.dispatch_websocket_message({ command: "ping" }.to_json)
+      end
+    end
+  end
+
+  test "handle channel command runs command callbacks" do
+    run_in_eventmachine do
+      connection = open_connection
+      payload = { "command" => "ping" }
+
+      assert_called_with(connection.subscriptions, :execute_command, [payload]) do
+        connection.handle_channel_command payload
+      end
     end
   end
 
@@ -142,9 +216,11 @@ class ActionCable::Connection::BaseTest < ActionCable::TestCase
 
   private
     def open_connection
-      env = Rack::MockRequest.env_for "/test", "HTTP_CONNECTION" => "upgrade", "HTTP_UPGRADE" => "websocket",
-        "HTTP_HOST" => "localhost", "HTTP_ORIGIN" => "http://rubyonrails.com"
+      Connection.new(@server, websocket_env)
+    end
 
-      Connection.new(@server, env)
+    def websocket_env
+      Rack::MockRequest.env_for "/test", "HTTP_CONNECTION" => "upgrade", "HTTP_UPGRADE" => "websocket",
+        "HTTP_HOST" => "localhost", "HTTP_ORIGIN" => "http://rubyonrails.com"
     end
 end
