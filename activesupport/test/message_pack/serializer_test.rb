@@ -30,6 +30,24 @@ class MessagePackSerializerTest < ActiveSupport::TestCase
     end
   end
 
+  test "raises on invalid serialization signature" do
+    assert_raises RuntimeError, match: /Invalid serialization format/ do
+      load("not message pack")
+    end
+  end
+
+  test "can replace the MessagePack factory" do
+    original_factory = serializer.message_pack_factory
+    frozen_factory = ::MessagePack::Factory.new.freeze
+
+    serializer.message_pack_factory = frozen_factory
+
+    assert_same frozen_factory, serializer.message_pack_factory
+    assert_nothing_raised { serializer.warmup }
+  ensure
+    serializer.message_pack_factory = original_factory
+  end
+
   private
     def serializer
       ActiveSupport::MessagePack
