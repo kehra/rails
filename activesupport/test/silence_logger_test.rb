@@ -32,4 +32,17 @@ class LoggerSilenceTest < ActiveSupport::TestCase
 
     assert_predicate @logger, :info?
   end
+
+  test "#silence yields without changing level when silencer is disabled" do
+    previous_silencer = MyLogger.silencer
+    MyLogger.silencer = false
+    @logger.level = Logger::INFO
+
+    @logger.silence(Logger::ERROR) do |logger|
+      assert_same @logger, logger
+      assert_predicate logger, :info?
+    end
+  ensure
+    MyLogger.silencer = previous_silencer
+  end
 end
