@@ -50,6 +50,17 @@ module ActiveSupport
         assert_equal "no.block", notifier.finishes.first.first
       end
 
+      def test_instrument_records_exception_details_before_reraising
+        error = assert_raises RuntimeError do
+          instrumenter.instrument("crash", payload) { raise "Oopsies" }
+        end
+
+        assert_equal "Oopsies", error.message
+        assert_equal ["RuntimeError", "Oopsies"], payload[:exception]
+        assert_same error, payload[:exception_object]
+        assert_equal [["crash", instrumenter.id, payload, notifier.starts]], notifier.finishes
+      end
+
       def test_start
         instrumenter.start("foo", payload)
         assert_equal [["foo", instrumenter.id, payload]], notifier.starts
@@ -60,6 +71,39 @@ module ActiveSupport
         instrumenter.finish("foo", payload)
         assert_equal [["foo", instrumenter.id, payload]], notifier.finishes
         assert_empty notifier.starts
+      end
+
+      def test_finish_with_state
+        state = Object.new
+        instrumenter.finish_with_state(state, "foo", payload)
+        assert_equal [["foo", instrumenter.id, payload, state]], notifier.finishes
+        assert_empty notifier.starts
+      end
+
+      def test_build_handle_returns_a_legacy_handle
+        handle = instrumenter.build_handle("foo", payload)
+        handle.start
+        handle.finish
+
+        assert_equal [["foo", instrumenter.id, payload]], notifier.starts
+        assert_equal [["foo", instrumenter.id, payload, notifier.starts]], notifier.finishes
+      end
+
+      def test_event_time_and_end_are_nil_until_recorded
+        event = instrumenter.new_event("no.time", payload)
+
+        assert_nil event.time
+        assert_nil event.end
+      end
+
+      def test_idle_time_never_goes_below_zero
+        event = instrumenter.new_event("busy", payload)
+        event.instance_variable_set(:@time, 1.0)
+        event.instance_variable_set(:@end, 2.0)
+        event.instance_variable_set(:@cpu_time_start, 0.0)
+        event.instance_variable_set(:@cpu_time_finish, 2.0)
+
+        assert_equal 0.0, event.idle_time
       end
 
       def test_record
@@ -82,6 +126,7 @@ module ActiveSupport
         assert_equal instrumenter.id, event.transaction_id
         assert_not_nil event.time
         assert_not_nil event.end
+        assert_operator event.gc_time, :>=, 0
       end
 
       def test_record_works_without_a_block
@@ -102,6 +147,7 @@ module ActiveSupport
         end
         assert_equal "Oopsies", event.payload[:exception_object].message
       end
+
     end
   end
 end
