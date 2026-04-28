@@ -135,6 +135,25 @@ class CombinedConfigurationTest < ActiveSupport::TestCase
     end
   end
 
+  test "option returns literal default for missing key" do
+    assert_equal "fallback", @combined.option(:gone, default: "fallback")
+  end
+
+  test "option evaluates callable default for missing key" do
+    assert_equal "fallback", @combined.option(:gone, default: -> { "fallback" })
+  end
+
+  test "reload forwards to configurations that support reload" do
+    reloaded = false
+    reloadable = Object.new
+    reloadable.define_singleton_method(:reload) { reloaded = true }
+    combined = ActiveSupport::CombinedConfiguration.new(reloadable)
+
+    combined.reload
+
+    assert reloaded
+  end
+
   test "inspect does not show configuration values but shows keys as symbols" do
     secret_env_value = "secret_env_value"
     ENV["SECRET_ENV"] = secret_env_value
