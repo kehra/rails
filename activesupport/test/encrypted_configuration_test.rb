@@ -56,6 +56,17 @@ class EncryptedConfigurationTest < ActiveSupport::TestCase
     assert_equal({}, @credentials.config)
   end
 
+  test "cached configuration can be reloaded" do
+    @credentials.write({ one: "1" }.to_yaml)
+    assert_equal "1", @credentials.require(:one)
+
+    @credentials.write({ one: "2" }.to_yaml)
+    assert_equal "1", @credentials.require(:one)
+
+    @credentials.reload
+    assert_equal "2", @credentials.require(:one)
+  end
+
   test "writing with element assignment and reading with element reference" do
     @credentials[:foo] = 42
     assert_equal 42, @credentials[:foo]
@@ -80,9 +91,17 @@ class EncryptedConfigurationTest < ActiveSupport::TestCase
   test "raises helpful error when loading invalid content" do
     @credentials.write("key: value\nbad")
 
-    assert_raise(ActiveSupport::EncryptedConfiguration::InvalidContentError) do
+    error = assert_raise(ActiveSupport::EncryptedConfiguration::InvalidContentError) do
       @credentials.config
     end
+    assert_includes error.message, "Invalid YAML in '#{@credentials_config_path}'."
+    assert_includes error.message, "could not find expected ':'"
+  end
+
+  test "invalid content error message falls back without syntax error cause" do
+    error = ActiveSupport::EncryptedConfiguration::InvalidContentError.new(@credentials_config_path)
+
+    assert_equal "Invalid YAML in '#{@credentials_config_path}'.", error.message
   end
 
   test "raises helpful error when validating invalid content" do
