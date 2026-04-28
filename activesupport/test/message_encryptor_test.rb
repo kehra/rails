@@ -157,6 +157,28 @@ class MessageEncryptorTest < ActiveSupport::TestCase
     assert_match(/\A#<ActiveSupport::MessageEncryptor:0x[0-9a-f]+>\z/, encryptor.inspect)
   end
 
+  def test_key_len_uses_authenticated_encryption_default_cipher
+    old_value = ActiveSupport::MessageEncryptor.use_authenticated_message_encryption
+    ActiveSupport::MessageEncryptor.use_authenticated_message_encryption = true
+
+    assert_equal OpenSSL::Cipher.new("aes-256-gcm").key_len, ActiveSupport::MessageEncryptor.key_len
+  ensure
+    ActiveSupport::MessageEncryptor.use_authenticated_message_encryption = old_value
+  end
+
+  def test_aead_mode_rejects_truncated_auth_tag
+    encryptor = ActiveSupport::MessageEncryptor.new(@secret, cipher: "aes-256-gcm")
+
+    error = catch(:invalid_message_format) do
+      encryptor.stub(:extract_parts, ["encrypted", "iv", "short"]) do
+        encryptor.send(:decrypt, "message")
+      end
+      nil
+    end
+
+    assert_equal "truncated auth_tag", error
+  end
+
   def test_invalid_base64_argument
     assert_not_decrypted("jrcc<!--esi-->rkls<!--esx-->tyx9")
   end
