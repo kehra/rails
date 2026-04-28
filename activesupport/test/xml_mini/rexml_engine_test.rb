@@ -16,6 +16,35 @@ class REXMLEngineTest < XMLMiniEngineTest
     assert_equal({ "root" => {} }, ActiveSupport::XmlMini.parse(xml_string))
   end
 
+  def test_parse_without_valid_root_raises
+    assert_raises(REXML::ParseException) do
+      ActiveSupport::XmlMini.parse("<!-- no root -->")
+    end
+  end
+
+  def test_document_too_deep_raises
+    old_depth = ActiveSupport::XmlMini.depth
+    ActiveSupport::XmlMini.depth = 0
+
+    assert_raises(REXML::ParseException) do
+      ActiveSupport::XmlMini.parse("<root/>")
+    end
+  ensure
+    ActiveSupport::XmlMini.depth = old_depth
+  end
+
+  def test_third_repeated_child_appends_to_existing_array
+    hash = ActiveSupport::XmlMini.parse("<root><item>a</item><item>b</item><item>c</item></root>")
+
+    assert_equal ["a", "b", "c"], hash["root"]["item"].map { |item| item["__content__"] }
+  end
+
+  def test_array_value_is_wrapped_when_merged
+    hash = ActiveSupport::XmlMini_REXML.send(:merge!, {}, "items", ["a"])
+
+    assert_equal({ "items" => [["a"]] }, hash)
+  end
+
   private
     def engine
       "REXML"
