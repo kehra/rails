@@ -15,6 +15,16 @@ class FileUpdateCheckerTest < ActiveSupport::TestCase
     super
   end
 
+  test "execute_if_updated yields before executing" do
+    calls = []
+    checker = new_checker(tmpfiles) { calls << :execute }
+
+    touch(tmpfiles)
+
+    assert checker.execute_if_updated { calls << :before_execute }
+    assert_equal [:before_execute, :execute], calls
+  end
+
   test "should not reload files that appear in the future due to time travel" do
     i = 0
 
