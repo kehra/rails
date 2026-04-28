@@ -129,6 +129,13 @@ class MessageVerifierTest < ActiveSupport::TestCase
     assert_equal "Secret should not be nil.", exception.message
   end
 
+  def test_digest_option_can_be_symbolized
+    verifier = ActiveSupport::MessageVerifier.new("Hey, I'm a secret!", digest: :SHA256)
+    message = verifier.generate(@data)
+
+    assert_equal @data, verifier.verify(message)
+  end
+
   test "inspect does not show secrets" do
     assert_match(/\A#<ActiveSupport::MessageVerifier:0x[0-9a-f]+>\z/, @verifier.inspect)
   end
