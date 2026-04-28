@@ -116,6 +116,33 @@ class ParallelizationTest < ActiveSupport::TestCase
     ActiveSupport.test_order = original_order
   end if ActiveSupport::TestCase.respond_to?(:run_order)
 
+  test "parallelization exposes worker count size" do
+    parallelization = ActiveSupport::Testing::Parallelization.new(2)
+
+    assert_equal 2, parallelization.size
+  ensure
+    DRb.stop_service if defined?(DRb)
+  end
+
+  test "shutdown treats already reaped workers as dead" do
+    parallelization = ActiveSupport::Testing::Parallelization.new(1)
+    server = parallelization.instance_variable_get(:@queue_server)
+    parallelization.instance_variable_set(:@worker_pool, [123])
+    removed = nil
+    shutdown_called = false
+    server.define_singleton_method(:remove_dead_workers) { |workers| removed = workers }
+    server.define_singleton_method(:shutdown) { shutdown_called = true }
+
+    Process.stub(:waitpid, ->(*) { raise Errno::ECHILD }) do
+      parallelization.shutdown
+    end
+
+    assert_equal [123], removed
+    assert_equal true, shutdown_called
+  ensure
+    DRb.stop_service if defined?(DRb)
+  end
+
   test "shutdown handles dead workers gracefully" do
     # Use a blocking queue strategy so workers wait for work
     blocking_distributor = ActiveSupport::Testing::Parallelization::SharedQueueDistributor.new
