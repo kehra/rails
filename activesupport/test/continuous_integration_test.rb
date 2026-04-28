@@ -30,6 +30,24 @@ class ContinuousIntegrationTest < ActiveSupport::TestCase
     assert @CI.success?
   end
 
+  test "class run sets CI environment and returns the runner" do
+    ENV.delete("CI")
+
+    output = capture_io do
+      ci = ActiveSupport::ContinuousIntegration.run("CI", nil) do
+        step "Success!", "true"
+      end
+
+      assert_instance_of ActiveSupport::ContinuousIntegration, ci
+      assert_equal "true", ENV["CI"]
+      assert ci.success?
+    end.to_s
+
+    assert_match(/CI passed/, output)
+  ensure
+    ENV.delete("CI")
+  end
+
   test "run with successful and failed steps combined gives failure" do
     output = capture_io do
       assert_raises(SystemExit) do
@@ -62,6 +80,20 @@ class ContinuousIntegrationTest < ActiveSupport::TestCase
     assert_match(/↳ Also failed! failed/, output)
   end
 
+  test "failure summary skips successful entries defensively" do
+    @CI.results << [false, "actual failure"]
+    @CI.results << [true, "successful entry"]
+    @CI.define_singleton_method(:failures) { [[true, "successful entry"], [false, "actual failure"]] }
+    @CI.singleton_class.send(:private, :failures)
+
+    output = capture_io do
+      @CI.send(:execute, "CI") { }
+    end.to_s
+
+    assert_no_match(/successful entry failed/, output)
+    assert_match(/actual failure failed/, output)
+  end
+
   test "run with only one failing step does not print a failure summary" do
     output = capture_io do
       assert_raises(SystemExit) do
@@ -82,6 +114,20 @@ class ContinuousIntegrationTest < ActiveSupport::TestCase
   test "heading" do
     output = capture_io { @CI.heading "Hello", "To all of you" }.first.to_s
     assert_match(/Hello[\s\S]*To all of you/, output)
+  end
+
+  test "heading without subtitle" do
+    output = capture_io { @CI.heading "Hello" }.first.to_s
+    assert_match(/Hello/, output)
+  end
+
+  test "heading with subtitle and without padding" do
+    output = capture_io { @CI.heading "Hello", "To all of you", padding: false }.first.to_s
+    assert_equal "\e[1;32mHello\e[0m\n\e[1;90mTo all of you\e[0m\n", output
+  end
+
+  test "elapsed formatting includes minutes" do
+    assert_equal "1m1.50s", @CI.send(:format_elapsed, 61.5)
   end
 
   test "failure output" do
