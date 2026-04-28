@@ -154,6 +154,11 @@ class TimeWithZoneTest < ActiveSupport::TestCase
     assert_equal "1999-12-31T19:00:00-05:00", @twz.xmlschema
   end
 
+  def test_xmlschema_when_utc
+    twz = ActiveSupport::TimeWithZone.new(Time.utc(2000, 1, 1), ActiveSupport::TimeZone["UTC"])
+    assert_equal "2000-01-01T00:00:00Z", twz.xmlschema
+  end
+
   def test_xmlschema_with_fractional_seconds
     @twz += 0.1234560001 # advance the time by a fraction of a second
     assert_equal "1999-12-31T19:00:00.123-05:00", @twz.xmlschema(3)
@@ -577,6 +582,10 @@ class TimeWithZoneTest < ActiveSupport::TestCase
     assert_not_predicate @twz, :blank?
   end
 
+  def test_present?
+    assert_predicate @twz, :present?
+  end
+
   def test_is_a
     assert_kind_of Time, @twz
     assert_kind_of Time, @twz
@@ -719,6 +728,11 @@ class TimeWithZoneTest < ActiveSupport::TestCase
     assert_equal "1999-12-31 19:00:00.000000000 HST -10:00", @twz.change(zone: "Pacific/Honolulu").inspect
   end
 
+  def test_change_rejects_zone_and_offset_together
+    error = assert_raises(ArgumentError) { @twz.change(zone: "Hawaii", offset: "-10:00") }
+    assert_match "Can't change both :offset and :zone", error.message
+  end
+
   def test_change_at_dst_boundary
     twz = ActiveSupport::TimeWithZone.new(Time.at(1319936400).getutc, ActiveSupport::TimeZone["Madrid"])
     assert_equal twz, twz.change(min: 0)
@@ -762,6 +776,15 @@ class TimeWithZoneTest < ActiveSupport::TestCase
   def test_beginning_of_day
     assert_equal "1999-12-31 19:00:00.000000000 EST -05:00", @twz.inspect
     assert_equal "1999-12-31 00:00:00.000000000 EST -05:00", @twz.beginning_of_day.inspect
+  end
+
+  def test_all_day_wraps_range_endpoints_with_time_zone
+    range = @twz.all_day
+
+    assert_instance_of ActiveSupport::TimeWithZone, range.begin
+    assert_instance_of ActiveSupport::TimeWithZone, range.end
+    assert_equal @time_zone, range.begin.time_zone
+    assert_equal @time_zone, range.end.time_zone
   end
 
   def test_end_of_day
