@@ -84,6 +84,14 @@ class ConfigurableActiveSupport < ActiveSupport::TestCase
     assert_equal :bar, Parent.config.foo
   end
 
+  test "configure yields the configuration" do
+    Parent.configure do |config|
+      config.foo = :configured
+    end
+
+    assert_equal :configured, Parent.config.foo
+  end
+
   test "configuration is crystalizeable" do
     parent = Class.new { include ActiveSupport::Configurable }
     child  = Class.new(parent)
