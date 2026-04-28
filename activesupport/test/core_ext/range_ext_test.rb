@@ -27,6 +27,7 @@ class RangeTest < ActiveSupport::TestCase
     assert_equal "BETWEEN '1' AND '100'", (1..100).to_fs(:db)
     assert_equal ">= '1'", (1..).to_fs(:db)
     assert_equal "<= '100'", (..100).to_fs(:db)
+    assert_nil (nil..nil).to_fs(:db)
   end
 
   def test_to_fs_with_format_invalid_format
@@ -186,6 +187,7 @@ class RangeTest < ActiveSupport::TestCase
 
   def test_should_compare_other_with_exclusive_end
     assert((1..10) === (1...11))
+    assert((1...10) === (1..9))
   end
 
   def test_compare_returns_false_for_backwards
