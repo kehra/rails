@@ -68,4 +68,12 @@ class ActiveSupportTest < ActiveSupport::TestCase
   ensure
     ActiveSupport.instance_variable_set(:@to_time_preserves_timezone, original_value)
   end
+
+  test "active_support/all loads Active Support time and core extensions" do
+    require "active_support/all"
+
+    assert_equal 2.days, 48.hours
+    assert_equal Date.new(2026, 4, 29), Date.new(2026, 4, 28).advance(days: 1)
+    assert_predicate "", :blank?
+  end
 end
