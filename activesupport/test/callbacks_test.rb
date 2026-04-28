@@ -1286,6 +1286,16 @@ module CallbacksTest
   end
 
   class CallbackCoverageEdgeTest < ActiveSupport::TestCase
+    def test_empty_callback_chain_yields_block
+      klass = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        def save = run_callbacks(:save) { :saved }
+      end
+
+      assert_equal :saved, klass.new.save
+    end
+
     def test_before_callbacks_without_block_return_true
       ran = false
       klass = Class.new do
