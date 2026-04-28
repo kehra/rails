@@ -38,6 +38,17 @@ class ActionCable::Channel::PeriodicTimersTest < ActionCable::TestCase
     end
   end
 
+  test "periodic timers can be assigned on the channel class" do
+    original_timers = ChatChannel.periodic_timers
+    replacement = [[ -> { ping }, every: 10 ]]
+
+    ChatChannel.periodic_timers = replacement
+
+    assert_same replacement, ChatChannel.periodic_timers
+  ensure
+    ChatChannel.periodic_timers = original_timers
+  end
+
   test "disallow negative and zero periods" do
     [ 0, 0.0, 0.seconds, -1, -1.seconds, "foo", :foo, Object.new ].each do |invalid|
       e = assert_raise ArgumentError do
