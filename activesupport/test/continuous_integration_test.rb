@@ -319,6 +319,75 @@ class ContinuousIntegrationTest < ActiveSupport::TestCase
     end
   end
 
+  test "parallel subgroup records failure and honors fail fast" do
+    group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 2) { }
+    executed = []
+    group.define_singleton_method(:execute_task) { |_type, title, _payload| executed << title; title != "Fail" }
+
+    with_argv(["-f"]) do
+      assert_equal false, group.send(:execute_group, "Subgroup", proc do
+        step "Fail", "false"
+        step "After fail", "true"
+      end)
+    end
+    assert_equal ["Fail"], executed
+
+    group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 2) { }
+    executed = []
+    group.define_singleton_method(:execute_task) { |_type, title, _payload| executed << title; title != "Fail" }
+
+    assert_equal false, group.send(:execute_group, "Subgroup", proc do
+      step "Fail", "false"
+      step "After fail", "true"
+    end)
+    assert_equal ["Fail", "After fail"], executed
+  end
+
+  test "parallel group ignores unknown task types" do
+    group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 2) { }
+
+    assert_nil group.send(:execute_task, :unknown, "Unknown", nil)
+  end
+
+  test "parallel group deletes existing log files on cleanup" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "ci.log")
+      File.write(path, "log")
+      group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 1) { }
+      group.instance_variable_get(:@log_files) << path
+
+      group.run
+
+      assert_not File.exist?(path)
+    end
+  end
+
+  test "parallel group pty availability handles missing pty" do
+    group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 2) { }
+
+    group.stub(:require, ->(_feature) { raise LoadError }) do
+      assert_equal false, group.send(:pty_available?)
+    end
+  end
+
+  test "parallel group pty child exited status is returned" do
+    group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 2) { }
+    status = Object.new
+    def status.success? = true
+    error = PTY::ChildExited.new("child exited")
+    error.define_singleton_method(:status) { status }
+
+    PTY.stub(:spawn, ->(*) { raise error }) do
+      assert_equal true, group.send(:spawn_via_pty, ["true"]) { }
+    end
+  end
+
+  test "parallel group brief elapsed formatting includes minutes" do
+    group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 2) { }
+
+    assert_equal "1m1s", group.send(:format_elapsed_brief, 61.5)
+  end
+
   test "parallel group cleans up temp files on completion" do
     temp_files_before = Dir.glob(File.join(Dir.tmpdir, "ci-*.log"))
 
