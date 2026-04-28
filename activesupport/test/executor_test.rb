@@ -255,6 +255,41 @@ class ExecutorTest < ActiveSupport::TestCase
     assert_equal [:run, :other_run, :body, :other_complete, :complete], called
   end
 
+  def test_run_returns_null_when_already_active
+    executor.wrap do
+      assert_same ActiveSupport::ExecutionWrapper::Null, executor.run!
+    end
+  end
+
+  def test_run_with_reset_without_active_instance_runs_callbacks
+    called = []
+    executor.to_run { called << :run }
+    executor.to_complete { called << :complete }
+
+    executor.run!(reset: true).complete!
+
+    assert_equal [:run, :complete], called
+  end
+
+  def test_wrap_reraises_without_error_reporter
+    error = DummyError.new("Oops")
+    executor.stub(:error_reporter, nil) do
+      assert_raises(DummyError) do
+        executor.wrap { raise error }
+      end
+    end
+  end
+
+  def test_perform_runs_callbacks_around_block
+    called = []
+    executor.to_run { called << :run }
+    executor.to_complete { called << :complete }
+
+    executor.perform { called << :body }
+
+    assert_equal [:run, :body, :complete], called
+  end
+
   private
     def executor
       @executor ||= Class.new(ActiveSupport::Executor)
