@@ -44,6 +44,44 @@ class EventedFileUpdateCheckerTest < ActiveSupport::TestCase
     wait # wait for the events to fire
   end
 
+  test "inspect includes watched files" do
+    file = tmpfile("watched.rb")
+    checker = new_checker([file]) { }
+
+    assert_includes checker.inspect, "ActiveSupport::EventedFileUpdateChecker"
+    assert_includes checker.inspect, file
+  end
+
+  test "execute_if_updated yields before executing" do
+    calls = []
+    checker = new_checker([tmpfile("watched.rb")]) { calls << :execute }
+
+    touch(tmpfile("watched.rb"))
+
+    assert checker.execute_if_updated { calls << :before_execute }
+    assert_equal [:before_execute, :execute], calls
+  end
+
+  test "changed ignores further paths once marked updated" do
+    file = tmpfile("watched.rb")
+    core = ActiveSupport::EventedFileUpdateChecker::Core.new([file], {})
+    core.updated.make_true
+
+    assert_nothing_raised do
+      core.changed([], [], [tmpdir])
+    end
+  ensure
+    core&.stop
+  end
+
+  test "watching ignores directories" do
+    core = ActiveSupport::EventedFileUpdateChecker::Core.new([], tmpdir => ".rb")
+
+    assert_not core.watching?(tmpdir)
+  ensure
+    core&.stop
+  end
+
   test "notifies forked processes" do
     skip "Forking not available" unless Process.respond_to?(:fork)
 
