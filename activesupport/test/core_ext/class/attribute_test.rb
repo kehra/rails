@@ -167,6 +167,18 @@ class ClassAttributeTest < ActiveSupport::TestCase
     assert_equal 1, val
   end
 
+  test "raises for invalid attribute names" do
+    error = assert_raises(TypeError) { @klass.class_attribute 1 }
+    assert_equal "1 is not a symbol nor a string", error.message
+  end
+
+  test "singleton class attribute can disable generated instance reader" do
+    object = @klass.new
+    object.singleton_class.class_attribute :external_attr, default: "default_value", instance_reader: false
+
+    assert_equal "default_value", object.singleton_class.external_attr
+  end
+
   test "works when overriding private methods from an ancestor" do
     assert_nil @klass.system
     @klass.system = 1
