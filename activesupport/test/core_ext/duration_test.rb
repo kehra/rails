@@ -33,6 +33,12 @@ class DurationTest < ActiveSupport::TestCase
     assert ActiveSupport::Duration === 1.day
     assert_not (ActiveSupport::Duration === 1.day.to_i)
     assert_not (ActiveSupport::Duration === "foo")
+
+    object = Object.new
+    def object.is_a?(_klass)
+      raise NoMethodError
+    end
+    assert_not (ActiveSupport::Duration === object)
   end
 
   def test_equals
@@ -148,6 +154,9 @@ class DurationTest < ActiveSupport::TestCase
     assert_equal 7.days, 1.day * 7
     assert_instance_of ActiveSupport::Duration, 1.day * 7
     assert_equal 86400, 1.day * 1.second
+
+    error = assert_raises(TypeError) { 1.day * "foo" }
+    assert_equal "no implicit conversion of String into ActiveSupport::Duration", error.message
   end
 
   def test_divide
@@ -165,6 +174,9 @@ class DurationTest < ActiveSupport::TestCase
 
     assert_equal 1, 1.day / 1.day
     assert_kind_of Integer, 1.day / 1.hour
+
+    error = assert_raises(TypeError) { 1.day / "foo" }
+    assert_equal "no implicit conversion of String into ActiveSupport::Duration", error.message
   end
 
   def test_modulo
@@ -191,6 +203,9 @@ class DurationTest < ActiveSupport::TestCase
 
     assert_equal 1.month, 13.months % 1.year
     assert_instance_of ActiveSupport::Duration, 13.months % 1.year
+
+    error = assert_raises(TypeError) { 1.day % "foo" }
+    assert_equal "no implicit conversion of String into ActiveSupport::Duration", error.message
   end
 
   def test_date_added_with_zero_days
@@ -377,6 +392,7 @@ class DurationTest < ActiveSupport::TestCase
   def test_comparable
     assert_equal(-1, (0.seconds <=> 1.second))
     assert_equal(-1, (1.second <=> 1.minute))
+    assert_equal(-1, (1.second <=> 2))
     assert_equal(-1, (1 <=> 1.minute))
     assert_equal(0, (0.seconds <=> 0.seconds))
     assert_equal(0, (0.seconds <=> 0.minutes))
@@ -384,6 +400,17 @@ class DurationTest < ActiveSupport::TestCase
     assert_equal(1, (1.second <=> 0.second))
     assert_equal(1, (1.minute <=> 1.second))
     assert_equal(1, (61 <=> 1.minute))
+    assert_nil(1.second <=> "foo")
+  end
+
+  def test_duration_coerce
+    scalar = ActiveSupport::Duration::Scalar.new(10)
+
+    assert_equal [scalar, 1.second], 1.second.coerce(scalar)
+    coerced_duration, duration = 1.second.coerce(2.seconds)
+    assert_instance_of ActiveSupport::Duration::Scalar, coerced_duration
+    assert_equal 2, coerced_duration.value
+    assert_equal 1.second, duration
   end
 
   def test_implicit_coercion
