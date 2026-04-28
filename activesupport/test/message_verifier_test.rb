@@ -136,6 +136,16 @@ class MessageVerifierTest < ActiveSupport::TestCase
     assert_equal @data, verifier.verify(message)
   end
 
+  def test_catch_and_raise_without_error_wrapper_raises_original_error
+    error = RuntimeError.new("boom")
+
+    raised = assert_raises(RuntimeError) do
+      @verifier.send(:catch_and_raise, :boom) { throw :boom, error }
+    end
+
+    assert_same error, raised
+  end
+
   test "inspect does not show secrets" do
     assert_match(/\A#<ActiveSupport::MessageVerifier:0x[0-9a-f]+>\z/, @verifier.inspect)
   end
