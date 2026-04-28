@@ -837,6 +837,15 @@ class DeprecationTest < ActiveSupport::TestCase
     end
   end
 
+  test "warn deprecation can format callstack without method label" do
+    frame = Struct.new(:path, :lineno, :label, :absolute_path).new("/path/to/template.html.erb", 2, nil, nil)
+    @deprecator.behavior = ->(message, *) { @message = message }
+
+    @deprecator.warn("Here", [frame])
+
+    assert_equal "DEPRECATION WARNING: Here (called from /path/to/template.html.erb:2)", @message
+  end
+
   test "warn deprecation can blame code from internal methods" do
     @deprecator.behavior = ->(message, *) { @message = message }
     method_that_emits_deprecation_with_internal_method(@deprecator)
