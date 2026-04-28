@@ -63,6 +63,10 @@ class ToSentenceTest < ActiveSupport::TestCase
     assert_equal "Unknown key: :passing. Valid keys are: :words_connector, :two_words_connector, :last_word_connector, :locale", exception.message
   end
 
+  def test_to_sentence_with_locale_false
+    assert_equal "one, two, and three", ["one", "two", "three"].to_sentence(locale: false)
+  end
+
   def test_always_returns_string
     assert_instance_of String, [ActiveSupport::SafeBuffer.new("one")].to_sentence
     assert_instance_of String, [ActiveSupport::SafeBuffer.new("one"), "two"].to_sentence
@@ -101,6 +105,10 @@ class ToFsTest < ActiveSupport::TestCase
     assert_equal "1,2,3", collection.to_fs(:db)
     assert_equal "null", [].to_formatted_s(:db)
     assert_equal "4,5,6", collection.to_formatted_s(:db)
+  end
+
+  def test_to_fs_default
+    assert_equal "[1, 2]", [1, 2].to_fs
   end
 end
 
