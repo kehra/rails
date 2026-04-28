@@ -386,6 +386,30 @@ class DeprecationTest < ActiveSupport::TestCase
     end
   end
 
+  test "deprecate_constant falls back when no deprecated constants are configured" do
+    legacy = Module.new.include(ActiveSupport::Deprecation::DeprecatedConstantAccessor)
+
+    assert_raises(NameError) { legacy::MISSING }
+  end
+
+  test "deprecate_constant falls back when missing constant is not deprecated" do
+    legacy = Module.new.include(ActiveSupport::Deprecation::DeprecatedConstantAccessor)
+    legacy.deprecate_constant "OLD", "Undeprecated::Foo", deprecator: @deprecator
+
+    assert_raises(NameError) { legacy::MISSING }
+  end
+
+  test "deprecate_constant appends to existing deprecated constants" do
+    legacy = Module.new { def self.name; "Legacy"; end }
+    legacy.include ActiveSupport::Deprecation::DeprecatedConstantAccessor
+    legacy.deprecate_constant "FUBAR", "Undeprecated::Foo::BAR", deprecator: @deprecator
+    legacy.deprecate_constant "FUZZ", "Undeprecated::Foo", deprecator: @deprecator, message: "custom warning"
+
+    assert_deprecated("custom warning", @deprecator) do
+      assert_equal Undeprecated::Foo, legacy::FUZZ
+    end
+  end
+
   test "assert_deprecated raises when no deprecation warning" do
     assert_raises(Minitest::Assertion) do
       assert_deprecated(@deprecator) { 1 + 1 }
