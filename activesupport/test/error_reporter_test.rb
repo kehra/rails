@@ -183,6 +183,15 @@ class ErrorReporterTest < ActiveSupport::TestCase
     assert_same cause, new_error.cause
   end
 
+  test "#report handles errors without backtrace locations" do
+    error = RuntimeError.new("Oops")
+    def error.backtrace_locations = []
+
+    @reporter.report(error)
+
+    assert_equal [[error, true, :warning, "application", {}]], @subscriber.events
+  end
+
   test "#record passes through the return value" do
     result = @reporter.record do
       2 + 2
@@ -232,6 +241,14 @@ class ErrorReporterTest < ActiveSupport::TestCase
 
     assert_equal 1, @subscriber.events.size
     assert_equal 1, second_subscriber.events.size
+  end
+
+  test "subscribe requires a report method" do
+    error = assert_raises ArgumentError do
+      @reporter.subscribe(Object.new)
+    end
+
+    assert_equal "Error subscribers must respond to #report", error.message
   end
 
   test "can unsubscribe" do
@@ -344,6 +361,15 @@ class ErrorReporterTest < ActiveSupport::TestCase
     end
   end
 
+  test "frozen exceptions without backtrace can be reported" do
+    error = RuntimeError.new("Oops").freeze
+
+    @reporter.report(error)
+
+    assert_equal [[error, true, :warning, "application", {}]], @subscriber.events
+    assert_nil error.backtrace_locations
+  end
+
   class FailingErrorSubscriber
     Error = Class.new(StandardError)
 
@@ -384,6 +410,14 @@ class ErrorReporterTest < ActiveSupport::TestCase
     @reporter.report(error)
 
     assert_equal [[error, true, :warning, "application", { foo: :bar }]], @subscriber.events
+  end
+
+  test "error context middleware must be callable" do
+    error = assert_raises ArgumentError do
+      @reporter.add_middleware(Object.new)
+    end
+
+    assert_equal "Error context middleware must respond to #call", error.message
   end
 
   class MyErrorContextMiddleware
