@@ -711,6 +711,22 @@ class TimeZoneTest < ActiveSupport::TestCase
     assert_equal(-18_000, zone.utc_offset)
   end
 
+  def test_utc_offset_without_tzinfo_or_explicit_offset
+    zone = ActiveSupport::TimeZone.allocate
+    zone.instance_variable_set(:@name, "No TZInfo")
+    zone.instance_variable_set(:@utc_offset, nil)
+    zone.instance_variable_set(:@tzinfo, nil)
+
+    assert_nil zone.utc_offset
+  end
+
+  def test_utc_offset_without_current_period
+    tzinfo = Struct.new(:current_period).new(nil)
+    zone = ActiveSupport::TimeZone.create("No Current Period", nil, tzinfo)
+
+    assert_nil zone.utc_offset
+  end
+
   def test_utc_offset_is_not_cached_when_current_period_gets_stale
     tz = ActiveSupport::TimeZone.create("Moscow")
     travel_to(Time.utc(2014, 10, 25, 21)) do # 1 hour before TZ change
