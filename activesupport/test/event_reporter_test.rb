@@ -111,6 +111,14 @@ module ActiveSupport
       end
     end
 
+    test "#notify with caller depth beyond stack omits source location" do
+      @reporter.notify(:test_event, caller_depth: 1_000_000)
+
+      event = @subscriber.events.last
+      assert_equal "test_event", event[:name]
+      assert_not event.key?(:source_location)
+    end
+
     test "#notify filters" do
       reporter = ActiveSupport::EventReporter.new
       reporter.subscribe(@subscriber) { |event| event[:name].start_with?("user_") }
