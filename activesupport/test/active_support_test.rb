@@ -76,4 +76,13 @@ class ActiveSupportTest < ActiveSupport::TestCase
     assert_equal Date.new(2026, 4, 29), Date.new(2026, 4, 28).advance(days: 1)
     assert_predicate "", :blank?
   end
+
+  test "active_support/rails loads Rails component dependencies" do
+    require "active_support/rails"
+
+    assert_predicate "", :blank?
+    assert_respond_to Class.new, :class_attribute
+    assert_respond_to Module.new, :delegate
+    assert_kind_of ActiveSupport::Deprecation, ActiveSupport.deprecator
+  end
 end
