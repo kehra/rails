@@ -1060,6 +1060,15 @@ class TimeExtCalculationsTest < ActiveSupport::TestCase
     end
   end
 
+  def test_in_time_zone_converts_local_time_to_utc_for_time_with_zone
+    with_env_tz "US/Eastern" do
+      twz = Time.local(2005, 2, 10, 10, 30, 45).in_time_zone("Central Time (US & Canada)")
+
+      assert_equal "Central Time (US & Canada)", twz.time_zone.name
+      assert_equal Time.utc(2005, 2, 10, 15, 30, 45), twz.utc
+    end
+  end
+
   def test_past_with_time_current_as_time_with_zone
     with_env_tz "US/Eastern" do
       twz = Time.utc(2005, 2, 10, 15, 30, 45).in_time_zone("Central Time (US & Canada)")
