@@ -625,11 +625,43 @@ class DurationTest < ActiveSupport::TestCase
   # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
   def test_iso8601_parsing_wrong_patterns_with_raise
-    invalid_patterns = ["", "P", "PT", "P1YT", "T", "PW", "P1Y1W", "~P1Y", ".P1Y", "P1.5Y0.5M", "P1.5Y1M", "P1.5MT10.5S"]
+    invalid_patterns = ["", "+", "-", "+X", "P", "PT", "P1YT", "P1YT1X", "T", "PW", "P1Y1W", "~P1Y", ".P1Y", "P1.5Y0.5M", "P1.5Y1M", "P1.5MT10.5S"]
     invalid_patterns.each do |pattern|
       assert_raise ActiveSupport::Duration::ISO8601Parser::ParsingError, pattern.inspect do
         ActiveSupport::Duration.parse(pattern)
       end
+    end
+  end
+
+  def test_iso8601_parser_rejects_missing_date_marker_after_sign
+    parser = ActiveSupport::Duration::ISO8601Parser.new("X")
+    parser.mode = :sign
+
+    assert_raises ActiveSupport::Duration::ISO8601Parser::ParsingError do
+      parser.parse!
+    end
+  end
+
+  def test_iso8601_parser_rejects_unscannable_start
+    parser = ActiveSupport::Duration::ISO8601Parser.new("P1D")
+    parser.define_singleton_method(:scan) { |_pattern| nil }
+
+    assert_raises ActiveSupport::Duration::ISO8601Parser::ParsingError do
+      parser.parse!
+    end
+  end
+
+  def test_iso8601_parser_handles_unknown_internal_mode
+    parser = ActiveSupport::Duration::ISO8601Parser.new("P1D")
+    parser.mode = :unknown
+    calls = 0
+    parser.define_singleton_method(:finished?) do
+      calls += 1
+      calls > 1
+    end
+
+    assert_raises ActiveSupport::Duration::ISO8601Parser::ParsingError do
+      parser.parse!
     end
   end
 
