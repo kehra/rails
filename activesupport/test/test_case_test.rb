@@ -339,6 +339,18 @@ class AssertionsTest < ActiveSupport::TestCase
     end
   end
 
+  def test_assert_no_changes_with_nil_initial_value_failure
+    @object = nil
+
+    error = assert_raises Minitest::Assertion do
+      assert_no_changes "@object" do
+        @object = 1
+      end
+    end
+
+    assert_equal "`@object` changed.\nExpected: nil\n  Actual: 1", error.message
+  end
+
   def test_assert_no_changes_with_from_option_with_wrong_value
     assert_raises Minitest::Assertion do
       assert_no_changes "@object.num", from: -1 do
