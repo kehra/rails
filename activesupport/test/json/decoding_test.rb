@@ -103,6 +103,14 @@ class TestJSONDecoding < ActiveSupport::TestCase
     end
   end
 
+  test "JSON leaves invalid datetime strings unchanged" do
+    with_tz_default "Eastern Time (US & Canada)" do
+      with_parse_json_times(true) do
+        assert_equal({ "a" => "2007-13-01 01:12:34 Z" }, ActiveSupport::JSON.decode(%({"a": "2007-13-01 01:12:34 Z"})))
+      end
+    end
+  end
+
   def test_failed_json_decoding
     assert_raise(ActiveSupport::JSON.parse_error) { ActiveSupport::JSON.decode(%(undefined)) }
     assert_raise(ActiveSupport::JSON.parse_error) { ActiveSupport::JSON.decode(%({a: 1})) }
