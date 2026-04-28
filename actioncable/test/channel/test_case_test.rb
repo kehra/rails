@@ -11,6 +11,16 @@ class NonInferrableExplicitClassChannelTest < ActionCable::Channel::TestCase
   def test_set_channel_class_manual
     assert_equal TestTestChannel, self.class.channel_class
   end
+
+  def test_channel_class_accessor
+    original_channel_class = self.class._channel_class
+
+    self.class._channel_class = TestTestChannel
+
+    assert_equal TestTestChannel, self.class._channel_class
+  ensure
+    self.class._channel_class = original_channel_class
+  end
 end
 
 class NonInferrableSymbolNameChannelTest < ActionCable::Channel::TestCase
@@ -26,6 +36,29 @@ class NonInferrableStringNameChannelTest < ActionCable::Channel::TestCase
 
   def test_set_channel_class_manual_using_string
     assert_equal TestTestChannel, self.class.channel_class
+  end
+end
+
+class NonInferrableChannelTest < ActionCable::Channel::TestCase
+  def test_tests_rejects_unknown_channel_argument
+    error = assert_raises(ActionCable::Channel::NonInferrableChannelError) do
+      self.class.tests(Object.new)
+    end
+
+    assert_match "Unable to determine the channel to test", error.message
+  end
+
+  def test_default_channel_inference_error
+    original_channel_class = self.class._channel_class
+    self.class._channel_class = nil
+
+    error = assert_raises(ActionCable::Channel::NonInferrableChannelError) do
+      self.class.channel_class
+    end
+
+    assert_match self.class.name, error.message
+  ensure
+    self.class._channel_class = original_channel_class
   end
 end
 
@@ -111,6 +144,14 @@ class RejectionTestChannelTest < ActionCable::Channel::TestCase
     assert_equal ActionCable::INTERNAL[:message_types][:rejection],
                  connection.transmissions.last["type"]
   end
+
+  def test_perform_when_rejected
+    subscribe
+
+    assert_raises(RuntimeError, "Must be subscribed!") do
+      perform :anything
+    end
+  end
 end
 
 class StreamsTestChannel < ActionCable::Channel::Base
@@ -187,6 +228,12 @@ class StreamsForTestChannelTest < ActionCable::Channel::TestCase
     perform :unsubscribed, id: 42
 
     assert_has_no_stream_for User.new(42)
+  end
+
+  def test_not_stream_for_different_object
+    subscribe id: 42
+
+    assert_has_no_stream_for User.new(43)
   end
 end
 
