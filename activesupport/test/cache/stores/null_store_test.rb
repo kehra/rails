@@ -44,6 +44,13 @@ class NullStoreTest < ActiveSupport::TestCase
     assert_nil @cache.increment("name")
   end
 
+  def test_local_cache_increment_removes_nil_counter_value
+    @cache.with_local_cache do
+      assert_nil @cache.increment("name")
+      assert_nil @cache.read("name", raw: true)
+    end
+  end
+
   def test_increment_with_options
     time = Time.now
     @cache.increment("name", expires_in: 1.second)

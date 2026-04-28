@@ -29,6 +29,70 @@ class MemoryStoreTest < StoreTest
     assert ActiveSupport::Cache::MemoryStore.supports_cache_versioning?
   end
 
+  def test_local_store_read_entry_and_unset_local_cache
+    @cache.new_local_cache
+    local = @cache.local_cache
+    local.write_entry("key", "payload")
+
+    assert_equal "payload", local.read_entry("key")
+
+    @cache.unset_local_cache
+    assert_nil @cache.local_cache
+  end
+
+  def test_cleanup_without_local_cache_delegates_to_store
+    assert_nothing_raised { @cache.cleanup }
+  end
+
+  def test_cleanup_with_local_cache_clears_local_entries
+    @cache.with_local_cache do
+      @cache.write("name", "local")
+      @cache.send(:bypass_local_cache) { @cache.write("name", "remote") }
+
+      @cache.cleanup
+
+      assert_equal "remote", @cache.read("name")
+    end
+  end
+
+  def test_local_cache_fetch_multi_handles_recorded_misses
+    @cache.with_local_cache do
+      missing_key = @cache.send(:normalize_key, "missing", {})
+      @cache.local_cache.write_entry(missing_key, nil)
+
+      assert_equal({ "missing" => "fresh-missing" }, @cache.fetch_multi("missing") { |name| "fresh-#{name}" })
+    end
+  end
+
+  def test_local_cache_fetch_multi_handles_nil_and_expired_local_entries
+    @cache.with_local_cache do
+      invalid_key = @cache.send(:normalize_key, "invalid", {})
+      expired_key = @cache.send(:normalize_key, "expired", {})
+      @cache.local_cache.write_entry(invalid_key, @cache.send(:serialize_entry, ActiveSupport::Cache::Entry.new("invalid")))
+      @cache.local_cache.write_entry(expired_key, @cache.send(:serialize_entry, ActiveSupport::Cache::Entry.new("old", expires_in: -1)))
+
+      result = @cache.stub(:deserialize_entry, nil) do
+        @cache.fetch_multi("invalid") { |name| "fresh-#{name}" }
+      end
+      assert_nil result["invalid"]
+
+      result = @cache.fetch_multi("expired") { |name| "fresh-#{name}" }
+      assert_equal "fresh-expired", result["expired"]
+    end
+  end
+
+  def test_local_cache_read_multi_handles_nil_local_entries
+    @cache.with_local_cache do
+      invalid_key = @cache.send(:normalize_key, "invalid", {})
+      @cache.local_cache.write_entry(invalid_key, @cache.send(:serialize_entry, ActiveSupport::Cache::Entry.new("invalid")))
+
+      result = @cache.stub(:deserialize_entry, nil) do
+        @cache.send(:read_multi_entries, ["invalid"])
+      end
+      assert_equal({ "invalid" => nil }, result)
+    end
+  end
+
   def test_clear_removes_entries_and_resets_size
     @cache.write("name", "value")
 
