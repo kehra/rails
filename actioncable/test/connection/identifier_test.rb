@@ -20,6 +20,18 @@ class ActionCable::Connection::IdentifierTest < ActionCable::TestCase
     run_in_eventmachine do
       open_connection
       assert_equal "User#lifo", @connection.connection_identifier
+      assert_equal Set[:current_user], @connection.identifiers
+      assert_equal User.new("david").to_gid_param, (@connection.current_user = User.new("david")).to_gid_param
+    end
+  end
+
+  test "connection identifiers can be assigned per instance" do
+    run_in_eventmachine do
+      open_connection
+
+      @connection.identifiers = Set[:custom_user]
+
+      assert_equal Set[:custom_user], @connection.identifiers
     end
   end
 
