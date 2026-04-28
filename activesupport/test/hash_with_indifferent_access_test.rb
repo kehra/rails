@@ -1029,4 +1029,43 @@ class HashWithIndifferentAccessTest < ActiveSupport::TestCase
     assert_equal 1, proc[:a]
     assert_nil proc[:no_such]
   end
+
+  def test_extractable_options
+    assert_predicate HashWithIndifferentAccess.new, :extractable_options?
+  end
+
+  def test_store_without_value_conversion
+    nested = { a: 1 }
+    hash = HashWithIndifferentAccess.new
+
+    hash.store(:nested, nested, convert_value: false)
+
+    assert_same nested, hash[:nested]
+  end
+
+  def test_dig_without_arguments_delegates_to_hash
+    assert_raises(ArgumentError) { HashWithIndifferentAccess.new.dig }
+  end
+
+  def test_transform_values_returns_enumerator_without_block
+    enum = ActiveSupport::HashWithIndifferentAccess.new(@strings).transform_values
+
+    assert_instance_of Enumerator, enum
+    assert_equal [1, 2], enum.to_a
+  end
+
+  def test_transform_keys_returns_enumerator_without_block
+    enum = ActiveSupport::HashWithIndifferentAccess.new(@strings).transform_keys
+
+    assert_instance_of Enumerator, enum
+    assert_equal %w[a b], enum.to_a
+  end
+
+  def test_transform_keys_bang_returns_enumerator_without_block
+    hash = ActiveSupport::HashWithIndifferentAccess.new(@strings)
+    enum = hash.transform_keys!
+
+    assert_instance_of Enumerator, enum
+    assert_equal @strings, hash
+  end
 end
