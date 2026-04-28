@@ -44,6 +44,14 @@ class IntrospectionTest < ActiveSupport::TestCase
   def test_module_parents
     assert_equal [ParentA::B, ParentA, Object], ParentA::B::C.module_parents
     assert_equal [ParentA, Object], ParentA::B.module_parents
+    assert_equal [Object], Module.new.module_parents
+  end
+
+  def test_module_parents_does_not_duplicate_object
+    mod = Module.new
+    def mod.module_parent_name; "Object"; end
+
+    assert_equal [Object], mod.module_parents
   end
 
   def test_module_parent_notice_changes

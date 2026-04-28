@@ -202,6 +202,48 @@ class SideEffect
   end
 end
 
+class ModuleDeprecationTest < ActiveSupport::TestCase
+  def test_deprecate_with_active_support_deprecator
+    klass = Class.new do
+      def old_method
+        :old
+      end
+    end
+    deprecator = ActiveSupport::Deprecation.new("2.0", "test")
+
+    assert_nothing_raised do
+      klass.deprecate :old_method, deprecator: deprecator
+    end
+  end
+
+  def test_deprecate_with_custom_deprecator
+    klass = Class.new do
+      def old_method
+        :old
+      end
+    end
+    deprecator = Object.new
+    def deprecator.deprecation_warning(*)
+    end
+
+    assert_nothing_raised do
+      klass.deprecate :old_method, deprecator: deprecator
+    end
+  end
+
+  def test_deprecate_with_nil_deprecator
+    klass = Class.new do
+      def old_method
+        :old
+      end
+    end
+
+    assert_nothing_raised do
+      klass.deprecate :old_method, deprecator: nil
+    end
+  end
+end
+
 class ModuleTest < ActiveSupport::TestCase
   class ArityTester
     class << self
