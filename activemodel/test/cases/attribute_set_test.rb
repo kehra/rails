@@ -386,6 +386,65 @@ module ActiveModel
       assert_equal 40, attributes.fetch_value("age")
     end
 
+    test "lazy attribute hash materializes and delegates hash methods" do
+      type = Type::String.new
+      default_attribute = Attribute.from_database("defaulted", "default", type)
+      attributes = LazyAttributeHash.new(
+        { "name" => type, "defaulted" => type, "missing" => type },
+        { "name" => "David" },
+        {},
+        { "defaulted" => default_attribute }
+      )
+
+      assert attributes.key?("name")
+      assert attributes.key?("defaulted")
+      assert_not attributes.key?("unknown")
+      assert_equal "David", attributes["name"].value
+      assert_equal "default", attributes["defaulted"].value
+      assert_not attributes["missing"].initialized?
+      assert_nil attributes["unknown"]
+
+      attributes["assigned"] = Attribute.from_database("assigned", "value", type)
+
+      assert_equal ["assigned", "defaulted", "missing", "name"], attributes.each_key.sort
+      assert_equal "value", attributes.fetch("assigned").value
+      assert_equal ["assigned"], attributes.except("name", "defaulted", "missing").keys
+      assert_equal ["assigned", "defaulted", "missing", "name"], attributes.transform_values(&:name).values.sort
+      assert_equal ["assigned", "defaulted", "missing", "name"], attributes.each_value.map(&:name).sort
+
+      # A second delegated call uses the already materialized hash.
+      assert_equal ["assigned", "defaulted", "missing", "name"], attributes.each_value.map(&:name).sort
+    end
+
+    test "lazy attribute hash can be compared and duplicated" do
+      type = Type::String.new
+      attributes = LazyAttributeHash.new({ "name" => type }, { "name" => "David" }, {}, {})
+      same_attributes = LazyAttributeHash.new({ "name" => type }, { "name" => "David" }, {}, {})
+
+      assert_equal attributes, same_attributes
+      assert_equal attributes, { "name" => Attribute.from_database("name", "David", type) }
+
+      duped = attributes.dup
+      deep_duped = attributes.deep_dup
+
+      duped["name"] = Attribute.from_database("name", "DHH", type)
+      deep_duped["name"] = Attribute.from_database("name", "Rails", type)
+
+      assert_equal "David", attributes["name"].value
+      assert_equal "DHH", duped["name"].value
+      assert_equal "Rails", deep_duped["name"].value
+    end
+
+    test "frozen lazy attribute hash materializes without marking itself materialized" do
+      type = Type::String.new
+      attributes = LazyAttributeHash.new({ "name" => type }, { "name" => "David" }, {}, {})
+
+      attributes.freeze
+
+      assert_equal ["name"], attributes.each_value.map(&:name)
+      assert_equal ["name"], attributes.each_value.map(&:name)
+    end
+
     private
       def attributes_with_uninitialized_key
         builder = AttributeSet::Builder.new(foo: Type::Integer.new, bar: Type::Float.new)
