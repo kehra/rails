@@ -151,6 +151,14 @@ class DirtyTest < ActiveModel::TestCase
     assert_predicate @model, :name_previously_changed?
   end
 
+  test "saving preserves the value before the previous change" do
+    @model.name = "Jericho Cane"
+    @model.save
+
+    assert_nil @model.name_previously_was
+    assert_nil @model.attribute_previously_was(:name)
+  end
+
   test "checking if an attribute was previously changed to a particular value" do
     @model.name = "Ringo"
     @model.save
@@ -206,6 +214,17 @@ class DirtyTest < ActiveModel::TestCase
 
     assert_equal ActiveSupport::HashWithIndifferentAccess.new, @model.previous_changes
     assert_equal ActiveSupport::HashWithIndifferentAccess.new, @model.changed_attributes
+  end
+
+  test "clear_attribute_changes resets only the provided current changes" do
+    @model.name = "Dmitry"
+    @model.color = "Red"
+
+    @model.clear_attribute_changes([:name])
+
+    assert_not_predicate @model, :name_changed?
+    assert_predicate @model, :color_changed?
+    assert_equal({ "color" => [nil, "Red"] }, @model.changes)
   end
 
   test "restore_attributes should restore all previous data" do
