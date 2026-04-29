@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "cases/helper"
+require "active_model/attribute_methods"
+require "active_model/attribute/user_provided_default"
 
 module ActiveModel
   class AttributeTest < ActiveModel::TestCase
@@ -327,6 +329,187 @@ module ActiveModel
       attribute.value << "1"
 
       assert_equal 1, attribute.with_type(Type::Integer.new).value
+    end
+
+    test "with_type preserves changes detected in place" do
+      attribute = Attribute.from_database(:foo, +"", Type::String.new)
+      attribute.value << "1"
+
+      assert_equal 1, attribute.with_type(Type::Integer.new).value
+    end
+
+    test "with_cast_value uses the provided already cast value" do
+      attribute = Attribute.with_cast_value(:foo, "cast", Type::String.new)
+
+      assert_equal "cast", attribute.value
+      assert_equal false, attribute.changed_in_place?
+      assert_equal "cast", attribute.original_value_for_database
+      assert_equal "changed", attribute.with_cast_value("changed").value
+    end
+
+    test "null attribute casts nil and rejects writes" do
+      attribute = Attribute.null(:missing)
+
+      assert_nil attribute.value
+      assert_equal false, attribute.came_from_user?
+      assert_equal true, attribute.initialized?
+      assert_nil attribute.with_type(Type::Integer.new).value
+
+      error = assert_raises(ActiveModel::MissingAttributeError) do
+        attribute.with_value_from_database("value")
+      end
+      assert_match(/missing/, error.message)
+      assert_raises(ActiveModel::MissingAttributeError) { attribute.with_value_from_user("value") }
+      assert_raises(ActiveModel::MissingAttributeError) { attribute.with_cast_value("value") }
+    end
+
+    test "uninitialized attribute public state helpers" do
+      attribute = Attribute.uninitialized(:missing, Type::Integer.new)
+
+      assert_equal false, attribute.initialized?
+      assert_same attribute.original_value, attribute.original_value
+      assert_nil attribute.value_for_database
+      assert_not_same attribute, attribute.forgetting_assignment
+      assert_equal 1, attribute.with_type(Type::Integer.new).value { 1 }
+    end
+
+    test "serializable and base type_cast contracts" do
+      type = Type::Value.new
+      type.define_singleton_method(:serializable?) do |value, &block|
+        block.call(value) if block
+        true
+      end
+      attribute = Attribute.from_user(:foo, "value", type)
+
+      yielded = nil
+      assert_equal true, attribute.serializable? { |value| yielded = value }
+      assert_equal "value", yielded
+      assert_raises(NotImplementedError) do
+        ActiveModel::Attribute.new(:foo, "value", type).type_cast("value")
+      end
+    end
+
+    test "dup_or_share respects mutable type and duplicates read values" do
+      immutable_type = Type::Value.new
+      immutable_type.define_singleton_method(:mutable?) { false }
+      immutable = Attribute.from_database(:foo, "value", immutable_type)
+      assert_same immutable, immutable.dup_or_share
+
+      mutable_type = Type::Value.new
+      mutable_type.define_singleton_method(:mutable?) { true }
+      mutable_type.define_singleton_method(:deserialize) { |value| +value }
+      mutable = Attribute.from_database(:foo, "value", mutable_type)
+      mutable.value
+
+      duped = mutable.dup_or_share
+      assert_not_same mutable, duped
+      assert_not_same mutable.value, duped.value
+    end
+
+    test "attribute hash and coder round trip" do
+      attribute = Attribute.from_user(:foo, "1", Type::Integer.new)
+      attribute.value
+      coder = Struct.new(:map) do
+        def [](key)
+          map[key]
+        end
+
+        def []=(key, value)
+          map[key] = value
+        end
+      end.new({})
+
+      attribute.encode_with(coder)
+      restored = ActiveModel::Attribute.allocate
+      restored.init_with(coder)
+
+      assert_equal attribute.name, restored.name
+      assert_equal attribute.value_before_type_cast, restored.value_before_type_cast
+      assert_equal attribute.type, restored.type
+      assert_equal [ActiveModel::Attribute, :foo, "1", attribute.type].hash, restored.hash
+      assert_equal 1, restored.value
+
+      assigned_coder = coder.class.new({})
+      Attribute.from_database(:foo, "1", Type::Integer.new).with_value_from_user("2").encode_with(assigned_coder)
+      assert_not_nil assigned_coder.map["original_attribute"]
+
+      empty_coder = coder.class.new({})
+      ActiveModel::Attribute.new(:empty, nil, nil).encode_with(empty_coder)
+      empty_restored = ActiveModel::Attribute.allocate
+      empty_restored.init_with(empty_coder)
+      assert_nil empty_restored.value_before_type_cast
+    end
+
+    test "from user detects mass assignment constructed values" do
+      type = Type::Value.new
+      type.define_singleton_method(:value_constructed_by_mass_assignment?) { |value| value == :mass_assignment }
+
+      assert_equal false, Attribute.from_user(:foo, :mass_assignment, type).came_from_user?
+      assert_equal true, Attribute.from_user(:foo, :direct, type).came_from_user?
+    end
+
+    test "from database forgetting assignment uses serialized value after persistence state is known" do
+      type = Type::String.new
+      attribute = Attribute.from_database(:foo, "old", type)
+      assert_equal "old", attribute.value_for_database
+
+      forgotten = attribute.forgetting_assignment
+      assert_equal "old", forgotten.value
+    end
+
+    test "from database accepts an already cast value" do
+      attribute = Attribute.from_database(:foo, "raw", Type::String.new, "cast")
+
+      assert_equal "cast", attribute.value
+    end
+
+    test "user provided default uses database default as original attribute" do
+      database = Attribute.from_database(:foo, "1", Type::Integer.new)
+      default = database.with_user_default("2")
+
+      assert_equal 2, default.value
+      assert_equal 1, default.original_value
+      assert_predicate default, :changed?
+    end
+
+    test "user provided default proc memoizes and dup_or_share duplicates proc defaults" do
+      calls = 0
+      default = Attribute.from_database(:foo, nil, Type::Integer.new).with_user_default(-> { calls += 1; "3" })
+
+      assert_equal "3", default.value_before_type_cast
+      assert_equal "3", default.value_before_type_cast
+      assert_equal 1, calls
+      assert_not_same default, default.dup_or_share
+    end
+
+    test "user provided default preserves user value through type and marshal round trips" do
+      default = Attribute.from_database(:foo, "1", Type::Integer.new).with_user_default("2")
+      default.value
+      retagged = default.with_type(Type::String.new)
+
+      assert_equal "2", retagged.value
+
+      restored = ActiveModel::Attribute::UserProvidedDefault.allocate
+      restored.marshal_load(default.marshal_dump)
+
+      assert_equal default.name, restored.name
+      assert_equal default.value_before_type_cast, restored.value_before_type_cast
+      assert_equal default.value, restored.value
+    end
+
+    test "user provided default can be derived from an assigned attribute and dumped before value is read" do
+      database = Attribute.from_database(:foo, "1", Type::Integer.new)
+      assigned = database.with_value_from_user("2")
+      default = assigned.with_user_default("3")
+
+      assert_equal 1, default.original_value
+      assert_same default, default.dup_or_share
+
+      restored = ActiveModel::Attribute::UserProvidedDefault.allocate
+      restored.marshal_load(default.marshal_dump)
+
+      assert_equal "3", restored.value_before_type_cast
+      assert_equal 3, restored.value
     end
   end
 end
