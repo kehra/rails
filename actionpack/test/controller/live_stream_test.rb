@@ -189,6 +189,12 @@ module ActionController
         end
       end
 
+      def send_stream_with_default_content_type
+        send_stream(filename: "sample.unknown") do |stream|
+          stream.write "unknown"
+        end
+      end
+
       def blocking_stream
         response.headers["Content-Type"] = "text/event-stream"
         %w{ hello world }.each do |word|
@@ -444,6 +450,45 @@ module ActionController
       content_type = @response.headers.fetch("Content-Type")
       assert_equal String, content_type.class
       assert_equal "text/csv", content_type
+    end
+
+    def test_send_stream_with_default_content_type
+      get :send_stream_with_default_content_type
+
+      assert_equal "unknown", @response.body
+      assert_equal "application/octet-stream", @response.headers.fetch("Content-Type")
+    end
+
+    def test_live_module_streaming_excluded_keys_accessors
+      original = ActionController::Live.live_streaming_excluded_keys
+      ActionController::Live.live_streaming_excluded_keys = [:custom_state]
+
+      assert_equal [:custom_state], ActionController::Live.live_streaming_excluded_keys
+    ensure
+      ActionController::Live.live_streaming_excluded_keys = original
+    end
+
+    def test_live_make_response_uses_live_response_for_http11
+      request = ActionController::TestRequest.create(self.class)
+      request.set_header("SERVER_PROTOCOL", "HTTP/1.1")
+
+      response = @controller.class.make_response!(request)
+
+      assert_instance_of ActionController::Live::Response, response
+      assert_same request, response.request
+    end
+
+    def test_live_response_body_does_not_close_when_response_disappears_after_assignment
+      controller = @controller.class.new
+      fake_response = Object.new
+      closed = false
+      fake_response.define_singleton_method(:body=) { |body| body }
+      fake_response.define_singleton_method(:close) { closed = true }
+      responses = [fake_response, nil]
+      controller.define_singleton_method(:response) { responses.shift }
+
+      assert_nothing_raised { controller.response_body = "body" }
+      assert_not closed
     end
 
     def test_delayed_autoload_after_write_within_interlock_hook
