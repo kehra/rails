@@ -206,6 +206,60 @@ class AttributeMethodsTest < ActiveModel::TestCase
     assert_equal({ "bar" => "foo" }, klass.attribute_aliases)
   end
 
+  test "#attribute_alias and #attribute_alias? expose alias lookup" do
+    klass = Class.new(ModelWithAttributes) do
+      alias_attribute :bar, :foo
+    end
+
+    assert klass.attribute_alias?(:bar)
+    assert_not klass.attribute_alias?(:foo)
+    assert_equal "foo", klass.attribute_alias(:bar)
+    assert_nil klass.attribute_alias(:foo)
+  end
+
+  test "#attribute_method_prefix dispatches to prefixed attribute handler" do
+    klass = Class.new do
+      include ActiveModel::AttributeMethods
+
+      attr_accessor :attributes
+      attribute_method_prefix "clear_"
+      define_attribute_methods :name
+
+      private
+        def clear_attribute(name)
+          attributes.delete(name)
+        end
+    end
+
+    model = klass.new
+    model.attributes = { "name" => "David" }
+
+    assert_equal "David", model.attributes["name"]
+    model.clear_name
+    assert_not model.attributes.key?("name")
+  end
+
+  test "#attribute_method_affix dispatches to affixed attribute handler" do
+    klass = Class.new do
+      include ActiveModel::AttributeMethods
+
+      attr_accessor :attributes
+      attribute_method_affix prefix: "reset_", suffix: "_to_default!"
+      define_attribute_methods :name
+
+      private
+        def reset_attribute_to_default!(name)
+          attributes[name] = "Default Name"
+        end
+    end
+
+    model = klass.new
+    model.attributes = { "name" => "David" }
+
+    model.reset_name_to_default!
+    assert_equal "Default Name", model.attributes["name"]
+  end
+
   test "#define_attribute_methods generates attribute methods with spaces in their names" do
     ModelWithAttributesWithSpaces.define_attribute_methods(:'foo bar')
 
