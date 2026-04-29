@@ -780,6 +780,33 @@ class EtagRenderTest < ActionController::TestCase
     @controller.class.etaggers = original_class_etaggers
     @controller.etaggers = original_instance_etaggers if defined?(@controller) && @controller
   end
+
+  def test_etag_with_template_digest_accessors
+    original_class_setting = @controller.class.etag_with_template_digest
+    original_instance_setting = @controller.etag_with_template_digest
+
+    @controller.class.etag_with_template_digest = false
+    assert_not @controller.class.etag_with_template_digest
+    assert_not @controller.etag_with_template_digest
+
+    @controller.etag_with_template_digest = true
+    assert @controller.etag_with_template_digest
+    assert_not @controller.class.etag_with_template_digest
+  ensure
+    @controller.class.etag_with_template_digest = original_class_setting
+    @controller.etag_with_template_digest = original_instance_setting if defined?(@controller) && @controller
+  end
+
+  def test_disabling_template_digest_omits_template_digest_from_etag
+    original_setting = @controller.class.etag_with_template_digest
+    @controller.class.etag_with_template_digest = false
+
+    get :with_template
+    assert_response :ok
+    assert_equal weak_etag([ "ab", :cde, [ :f ] ]), @response.etag
+  ensure
+    @controller.class.etag_with_template_digest = original_setting
+  end
 end
 
 class NamespacedEtagRenderTest < ActionController::TestCase
