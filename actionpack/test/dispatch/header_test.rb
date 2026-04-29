@@ -7,6 +7,13 @@ class HeaderTest < ActiveSupport::TestCase
     ActionDispatch::Http::Headers.new ActionDispatch::Request.new hash
   end
 
+  test ".from_hash wraps an env hash in request headers" do
+    headers = ActionDispatch::Http::Headers.from_hash("HTTP_USER_AGENT" => "Rails Test")
+
+    assert_instance_of ActionDispatch::Http::Headers, headers
+    assert_equal "Rails Test", headers["User-Agent"]
+  end
+
   setup do
     @headers = make_headers(
       "CONTENT_TYPE" => "text/plain",
