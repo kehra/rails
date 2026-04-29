@@ -84,6 +84,19 @@ module ActiveModel
       assert_equal Type::Value.new, klass.type_for_attribute("bar")
     end
 
+    test ".type_for_attribute yields to the given block for an unregistered attribute" do
+      klass = class_with { attribute :foo, TYPE_1 }
+      yielded_name = nil
+
+      type = klass.type_for_attribute(:bar) do |name|
+        yielded_name = name
+        TYPE_2
+      end
+
+      assert_same TYPE_2, type
+      assert_equal "bar", yielded_name
+    end
+
     test "new attributes can be registered at any time" do
       klass = class_with { attribute :foo, TYPE_1 }
       assert_includes klass._default_attributes, "foo"
