@@ -298,6 +298,22 @@ class StaticTest < ActiveSupport::TestCase
     assert_html "/foo/other-index.html", get("/foo")
   end
 
+  def test_file_handler_call_serves_static_file_or_not_found
+    handler = ActionDispatch::FileHandler.new(@root)
+
+    assert_html "/foo/bar.html", Rack::MockResponse.new(*handler.call(Rack::MockRequest.env_for("/foo/bar.html")))
+    assert_equal 404, handler.call(Rack::MockRequest.env_for("/missing-file"))[0]
+  end
+
+  def test_serves_noncompressible_static_file
+    with_static_file "/foo/image.png" do |file|
+      response = get(file)
+
+      assert_equal file, response.body
+      assert_equal "image/png", response.headers["content-type"]
+    end
+  end
+
   # Windows doesn't allow \ / : * ? " < > | in filenames
   unless Gem.win_platform?
     def test_serves_static_file_with_colon
