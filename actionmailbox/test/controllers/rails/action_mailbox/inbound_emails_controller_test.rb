@@ -3,6 +3,36 @@
 require "test_helper"
 
 class Rails::Conductor::ActionMailbox::InboundEmailsControllerTest < ActionDispatch::IntegrationTest
+  test "list inbound emails" do
+    inbound_email = create_inbound_email_from_fixture("welcome.eml")
+
+    with_rails_env("development") do
+      get rails_conductor_inbound_emails_path
+    end
+
+    assert_response :ok
+    assert_includes response.body, inbound_email.message_id
+  end
+
+  test "new inbound email form" do
+    with_rails_env("development") do
+      get new_rails_conductor_inbound_email_path
+    end
+
+    assert_response :ok
+  end
+
+  test "show inbound email" do
+    inbound_email = create_inbound_email_from_fixture("welcome.eml")
+
+    with_rails_env("development") do
+      get rails_conductor_inbound_email_path(inbound_email)
+    end
+
+    assert_response :ok
+    assert_includes response.body, inbound_email.message_id
+  end
+
   test "create inbound email" do
     with_rails_env("development") do
       assert_difference -> { ActionMailbox::InboundEmail.count }, +1 do
@@ -93,6 +123,32 @@ class Rails::Conductor::ActionMailbox::InboundEmailsControllerTest < ActionDispa
       mail = ActionMailbox::InboundEmail.last.mail
       assert_equal 0, mail.attachments.count
     end
+  end
+
+  test "incinerate inbound email" do
+    inbound_email = create_inbound_email_from_fixture("welcome.eml", status: :delivered)
+    inbound_email.update_column :updated_at, (ActionMailbox.incinerate_after + 1.day).ago
+
+    with_rails_env("development") do
+      assert_difference -> { ActionMailbox::InboundEmail.count }, -1 do
+        post rails_conductor_inbound_email_incinerate_path(inbound_email)
+      end
+    end
+
+    assert_redirected_to rails_conductor_inbound_emails_url
+  end
+
+  test "reroute inbound email" do
+    inbound_email = create_inbound_email_from_fixture("welcome.eml", status: :failed)
+
+    with_rails_env("development") do
+      assert_enqueued_with job: ActionMailbox::RoutingJob, args: [ inbound_email ] do
+        post rails_conductor_inbound_email_reroute_path(inbound_email)
+      end
+    end
+
+    assert_predicate inbound_email.reload, :pending?
+    assert_redirected_to rails_conductor_inbound_email_url(inbound_email)
   end
 
   private
