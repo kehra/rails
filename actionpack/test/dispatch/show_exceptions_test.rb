@@ -2,6 +2,16 @@
 
 require "abstract_unit"
 
+class PublicExceptionsTest < ActiveSupport::TestCase
+  def test_public_path_accessor
+    app = ActionDispatch::PublicExceptions.new("/original")
+
+    assert_equal "/original", app.public_path
+    app.public_path = "/changed"
+    assert_equal "/changed", app.public_path
+  end
+end
+
 class ShowExceptionsTest < ActionDispatch::IntegrationTest
   class Boomer
     def call(env)
