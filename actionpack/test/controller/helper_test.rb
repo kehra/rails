@@ -125,6 +125,39 @@ class HelperTest < ActiveSupport::TestCase
     assert_includes master_helper_methods, :delegate_method
   end
 
+  def test_helper_accessors_on_instances_and_classes
+    helper_module = Module.new
+    @controller_class._helpers = helper_module
+    assert_same helper_module, @controller_class._helpers
+    assert_same helper_module, @controller_class.new._helpers
+
+    methods = [ :delegate_method ]
+    @controller_class._helper_methods = methods
+    assert_equal methods, @controller_class._helper_methods
+    assert_equal methods, @controller_class.new._helper_methods
+
+    replacement_methods = [ :delegate_method_arg ]
+    controller = @controller_class.new
+    controller._helper_methods = replacement_methods
+    assert_equal replacement_methods, controller._helper_methods
+  end
+
+  def test_helper_ignores_modules_already_included
+    @controller_class.helper LocalAbcHelper
+    helper_count = @controller_class._helpers.ancestors.count(LocalAbcHelper)
+
+    @controller_class.helper LocalAbcHelper
+
+    assert_equal helper_count, @controller_class._helpers.ancestors.count(LocalAbcHelper)
+  end
+
+  def test_clear_helpers_on_anonymous_controller_preserves_helper_methods_without_default_helper
+    @controller_class.helper_method :delegate_method
+
+    assert_nothing_raised { @controller_class.clear_helpers }
+    assert_includes master_helper_methods, :delegate_method
+  end
+
   def test_helper_method_arg
     assert_nothing_raised { @controller_class.helper_method :delegate_method_arg }
     assert_equal({ hi: :there }, @controller_class.new.helpers.delegate_method_arg({ hi: :there }))
