@@ -37,6 +37,20 @@ class ActionMailbox::Base::StateTest < ActiveSupport::TestCase
     assert_equal "I was processed", $processed
   end
 
+  test "mailbox exposes inbound email, mail, logger, and delegated state changes" do
+    mailbox = ActionMailbox::Base.new(@inbound_email)
+
+    assert_same @inbound_email, mailbox.inbound_email
+    assert_equal "I was processed", mailbox.mail.subject
+    assert_same ActionMailbox.logger, mailbox.logger
+    assert_nil mailbox.process
+
+    mailbox.delivered!
+    assert_predicate @inbound_email, :delivered?
+    mailbox.bounced!
+    assert_predicate @inbound_email, :bounced?
+  end
+
   test "unsuccessful mailbox processing leaves inbound email in failed state" do
     UnsuccessfulMailbox.receive @inbound_email
     assert_predicate @inbound_email, :failed?
