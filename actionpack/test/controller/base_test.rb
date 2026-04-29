@@ -282,6 +282,37 @@ class UrlOptionsTest < ActionController::TestCase
     end
   end
 
+  def test_url_options_uses_original_script_name_when_present
+    with_routing do |set|
+      set.draw do
+        get "from_view", to: "url_options#from_view", as: :from_view
+      end
+
+      get :from_view, params: { route: "from_view_url" }
+      @controller.remove_instance_variable(:@_url_options)
+      @request.define_singleton_method(:original_script_name) { "/original" }
+
+      assert_equal "/original", @controller.url_options[:original_script_name]
+    end
+  end
+
+  def test_url_options_uses_engine_script_name_for_different_route_set
+    with_routing do |set|
+      set.draw do
+        get "from_view", to: "url_options#from_view", as: :from_view
+      end
+
+      get :from_view, params: { route: "from_view_url" }
+      @controller.remove_instance_variable(:@_url_options)
+      engine_routes = ActionDispatch::Routing::RouteSet.new
+      @request.routes = ActionDispatch::Routing::RouteSet.new
+      @controller.singleton_class.define_method(:_routes) { engine_routes }
+      @request.set_header(engine_routes.env_key, "/engine")
+
+      assert_equal "/engine", @controller.url_options[:script_name]
+    end
+  end
+
   def test_url_helpers_does_not_become_actions
     with_routing do |set|
       set.draw do
