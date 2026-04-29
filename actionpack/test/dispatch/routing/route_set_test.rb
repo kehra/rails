@@ -187,6 +187,88 @@ module ActionDispatch
         assert_nil route
       end
 
+      test "route set exposes initialization accessors and default config" do
+        assert_equal false, @set.api_only?
+        assert_nil @set.default_scope
+        @set.default_scope = { module: :admin }
+        assert_equal({ module: :admin }, @set.default_scope)
+        assert_equal({}, @set.default_url_options)
+        @set.default_url_options = { host: "example.com" }
+        assert_equal({ host: "example.com" }, @set.default_url_options)
+        assert_equal false, @set.disable_clear_and_finalize
+        @set.disable_clear_and_finalize = true
+        assert_equal true, @set.disable_clear_and_finalize
+        assert_equal [], @set.draw_paths
+        @set.draw_paths = ["config/routes.rb"]
+        assert_equal ["config/routes.rb"], @set.draw_paths
+        assert_match(/ROUTES_\d+_SCRIPT_NAME/, @set.env_key)
+        assert_same @set.set, @set.routes
+        assert_same @set.set, @set.set = @set.set
+        assert_same @set.router, @set.router = @set.router
+        assert_same @set.formatter, @set.formatter = @set.formatter
+        assert_same @set.named_routes, @set.named_routes = @set.named_routes
+        assert_same @set.resources_path_names, @set.resources_path_names = @set.resources_path_names
+        assert_equal({ new: "new", edit: "edit" }, ActionDispatch::Routing::RouteSet.default_resources_path_names)
+        assert_equal({}, @set.polymorphic_mappings)
+        assert_same ActionDispatch::Request, @set.request_class
+        assert_instance_of ActionDispatch::Request, @set.__send__(:make_request, Rack::MockRequest.env_for("/"))
+      end
+
+      test "new_with_config copies supported config values" do
+        config = Struct.new(:relative_url_root, :api_only, :default_scope).new("/blog", true, { module: :admin })
+        route_set = ActionDispatch::Routing::RouteSet.new_with_config(config)
+
+        assert_equal "/blog", route_set.relative_url_root
+        assert_equal true, route_set.api_only?
+        assert_equal({ module: :admin }, route_set.default_scope)
+
+        default_route_set = ActionDispatch::Routing::RouteSet.new_with_config(Object.new)
+
+        assert_nil default_route_set.relative_url_root
+        assert_equal false, default_route_set.api_only?
+        assert_nil default_route_set.default_scope
+      end
+
+      test "eager load loads router routes and formatter" do
+        draw do
+          get "foo/:id", to: SimpleApp.new("foo#show"), as: :foo
+        end
+
+        assert_nil @set.eager_load!
+      end
+
+      test "dispatcher serves controller responses and reports dispatcher" do
+        controller = Class.new do
+          def self.make_response!(request)
+            [:response, request]
+          end
+
+          def self.dispatch(action, request, response)
+            [200, { "Content-Type" => "text/plain" }, ["#{action}:#{response.first}:#{request.path_parameters[:id]}"]]
+          end
+        end
+        request = Struct.new(:path_parameters, :controller_class).new({ action: "show", id: "1" }, controller)
+        dispatcher = ActionDispatch::Routing::RouteSet::Dispatcher.new(true)
+
+        assert_equal true, dispatcher.dispatcher?
+        assert_equal [200, { "Content-Type" => "text/plain" }, ["show:response:1"]], dispatcher.serve(request)
+      end
+
+      test "dispatcher routing error behavior follows raise flag" do
+        request = Object.new
+        def request.path_parameters
+          { action: "show" }
+        end
+        def request.controller_class
+          raise ActionController::RoutingError, "missing"
+        end
+
+        assert_equal [404, { ActionDispatch::Constants::X_CASCADE => "pass" }, []], ActionDispatch::Routing::RouteSet::Dispatcher.new(false).serve(request)
+        assert_raises(ActionController::RoutingError) do
+          ActionDispatch::Routing::RouteSet::Dispatcher.new(true).serve(request)
+        end
+      end
+
       private
         def draw(&block)
           @set.draw(&block)
