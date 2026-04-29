@@ -54,6 +54,69 @@ module ActionDispatch
 
     class_eval "def index; raise TestError; end", "lib/file.rb", 42
 
+    test "reader accessors expose initialized exception state" do
+      exception = TestError.new("boom")
+      wrapper = ExceptionWrapper.new(@cleaner, exception)
+
+      assert_same @cleaner, wrapper.backtrace_cleaner
+      assert_same exception, wrapper.exception
+      assert_equal "ActionDispatch::ExceptionWrapperTest::TestError", wrapper.exception_class_name
+      assert_equal [], wrapper.wrapped_causes
+    end
+
+    test "configuration accessors are exposed on class and instances" do
+      wrapper = ExceptionWrapper.new(nil, TestError.new("boom"))
+      original_responses = ExceptionWrapper.rescue_responses
+      original_templates = ExceptionWrapper.rescue_templates
+      original_wrappers = ExceptionWrapper.wrapper_exceptions
+      original_silent = ExceptionWrapper.silent_exceptions
+
+      responses = original_responses.merge("ActionDispatch::ExceptionWrapperTest::TestError" => :bad_request)
+      templates = original_templates.merge("ActionDispatch::ExceptionWrapperTest::TestError" => "test_error")
+      wrappers = original_wrappers + ["ActionDispatch::ExceptionWrapperTest::TestError"]
+      silent = original_silent + ["ActionDispatch::ExceptionWrapperTest::TestError"]
+
+      ExceptionWrapper.rescue_responses = responses
+      ExceptionWrapper.rescue_templates = templates
+      ExceptionWrapper.wrapper_exceptions = wrappers
+      ExceptionWrapper.silent_exceptions = silent
+
+      assert_same responses, ExceptionWrapper.rescue_responses
+      assert_same responses, wrapper.rescue_responses
+      assert_same templates, ExceptionWrapper.rescue_templates
+      assert_same templates, wrapper.rescue_templates
+      assert_same wrappers, ExceptionWrapper.wrapper_exceptions
+      assert_same wrappers, wrapper.wrapper_exceptions
+      assert_same silent, ExceptionWrapper.silent_exceptions
+      assert_same silent, wrapper.silent_exceptions
+
+      wrapper.rescue_responses = original_responses
+      wrapper.rescue_templates = original_templates
+      wrapper.wrapper_exceptions = original_wrappers
+      wrapper.silent_exceptions = original_silent
+
+      assert_same original_responses, ExceptionWrapper.rescue_responses
+      assert_same original_templates, ExceptionWrapper.rescue_templates
+      assert_same original_wrappers, ExceptionWrapper.wrapper_exceptions
+      assert_same original_silent, ExceptionWrapper.silent_exceptions
+    ensure
+      ExceptionWrapper.rescue_responses = original_responses
+      ExceptionWrapper.rescue_templates = original_templates
+      ExceptionWrapper.wrapper_exceptions = original_wrappers
+      ExceptionWrapper.silent_exceptions = original_silent
+    end
+
+    test "diagnostics and internal_server_error are not ExceptionWrapper accessors" do
+      assert_not_respond_to ExceptionWrapper, :diagnostics
+      assert_not_respond_to ExceptionWrapper, :diagnostics=
+      assert_not_respond_to ExceptionWrapper, :internal_server_error
+      assert_not_respond_to ExceptionWrapper, :internal_server_error=
+      assert_not ExceptionWrapper.method_defined?(:diagnostics)
+      assert_not ExceptionWrapper.method_defined?(:diagnostics=)
+      assert_not ExceptionWrapper.method_defined?(:internal_server_error)
+      assert_not ExceptionWrapper.method_defined?(:internal_server_error=)
+    end
+
     test "#source_extracts fetches source fragments for every backtrace entry" do
       exception = begin index; rescue TestError => ex; ex; end
 
