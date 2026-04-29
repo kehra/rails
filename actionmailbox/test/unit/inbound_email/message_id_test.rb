@@ -12,4 +12,11 @@ class ActionMailbox::InboundEmail::MessageIdTest < ActiveSupport::TestCase
     inbound_email = create_inbound_email_from_source "Date: Fri, 28 Sep 2018 11:08:55 -0700\r\nTo: a@example.com\r\nMime-Version: 1.0\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: 7bit\r\n\r\nHello!"
     assert_not_nil inbound_email.message_id
   end
+
+  test "duplicate message id returns nil" do
+    source = file_fixture("welcome.eml").read
+
+    assert create_inbound_email_from_source(source)
+    assert_nil create_inbound_email_from_source(source)
+  end
 end

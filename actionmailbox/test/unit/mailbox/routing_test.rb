@@ -29,6 +29,22 @@ class ActionMailbox::Base::RoutingTest < ActiveSupport::TestCase
     end
   end
 
+  test "route_later enqueues routing job" do
+    inbound_email = create_inbound_email_from_fixture "welcome.eml", status: :processing
+
+    assert_enqueued_with job: ActionMailbox::RoutingJob, args: [ inbound_email ] do
+      inbound_email.route_later
+    end
+  end
+
+  test "route delegates to ApplicationMailbox" do
+    inbound_email = create_inbound_email_from_fixture "welcome.eml", status: :processing
+
+    inbound_email.route
+
+    assert_equal "Discussion: Let's debate these attachments", $processed
+  end
+
   test "mailbox_for" do
     inbound_email = create_inbound_email_from_fixture "welcome.eml", status: :pending
     assert_equal RepliesMailbox, ApplicationMailbox.mailbox_for(inbound_email)
