@@ -29,6 +29,19 @@ class ActionText::ContentTest < ActiveSupport::TestCase
     assert_equal content, Marshal.load(Marshal.dump(content))
   end
 
+  test "serialization load and dump variants" do
+    content = content_from_html("<p>Hello!</p>")
+    rich_text = ActionText::RichText.new(body: "<p>Rich!</p>")
+
+    assert_nil ActionText::Content.load(nil)
+    assert_equal "<p>Hello!</p>", ActionText::Content.load("<p>Hello!</p>").to_html
+    assert_nil ActionText::Content.dump(nil)
+    assert_equal "<p>Hello!</p>", ActionText::Content.dump(content)
+    assert_equal "<p>Rich!</p>", ActionText::Content.dump(rich_text)
+    assert_equal "<p>String!</p>", ActionText::Content.dump("<p>String!</p>")
+    assert_equal "<p>Hello!</p>", ActionText::Content._load("<p>Hello!</p>").to_html
+  end
+
   test "roundtrips HTML without additional newlines" do
     html = "<div>a<br></div>"
     content = content_from_html(html)
