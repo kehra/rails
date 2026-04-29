@@ -7,7 +7,20 @@ module ActiveModel
     class FloatTest < ActiveModel::TestCase
       def test_type_cast_float
         type = Type::Float.new
+        assert_equal :float, type.type
         assert_equal 1.0, type.cast("1")
+        assert_equal ::Float::INFINITY, type.cast("Infinity")
+        assert_equal(-::Float::INFINITY, type.cast("-Infinity"))
+        assert_predicate type.cast("NaN"), :nan?
+      end
+
+      def test_type_cast_for_schema
+        type = Type::Float.new
+
+        assert_equal "::Float::NAN", type.type_cast_for_schema(::Float::NAN)
+        assert_equal "::Float::INFINITY", type.type_cast_for_schema(::Float::INFINITY)
+        assert_equal "-::Float::INFINITY", type.type_cast_for_schema(-::Float::INFINITY)
+        assert_equal "1.5", type.type_cast_for_schema(1.5)
       end
 
       def test_type_cast_float_from_invalid_string

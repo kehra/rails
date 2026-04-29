@@ -7,6 +7,7 @@ module ActiveModel
     class BooleanTest < ActiveModel::TestCase
       def test_type_cast_boolean
         type = Type::Boolean.new
+        assert_equal :boolean, type.type
         assert_nil type.cast("")
         assert_nil type.cast(nil)
 
@@ -48,6 +49,16 @@ module ActiveModel
         assert_equal false, type.cast(:FALSE)
         assert_equal false, type.cast(:off)
         assert_equal false, type.cast(:OFF)
+      end
+
+      def test_serialize_boolean
+        type = Type::Boolean.new
+
+        assert_nil type.serialize("")
+        assert_equal false, type.serialize("0")
+        assert_equal true, type.serialize("1")
+        assert_equal false, type.serialize_cast_value(false)
+        assert_equal true, type.serialize_cast_value(true)
       end
     end
   end

@@ -1,12 +1,14 @@
 # frozen_string_literal: true
 
 require "cases/helper"
+require "active_support/core_ext/date/conversions"
 
 module ActiveModel
   module Type
     class DateTest < ActiveModel::TestCase
       def test_type_cast_date
         type = Type::Date.new
+        assert_equal :date, type.type
         assert_nil type.cast(nil)
         assert_nil type.cast("")
         assert_nil type.cast(" ")
@@ -14,10 +16,20 @@ module ActiveModel
         assert_nil type.cast(" " * 129)
 
         now = ::Time.now.utc
+        date = ::Date.new(now.year, now.mon, now.mday)
         values_hash = { 1 => now.year, 2 => now.mon, 3 => now.mday }
         date_string = now.strftime("%F")
         assert_equal date_string, type.cast(date_string).strftime("%F")
         assert_equal date_string, type.cast(values_hash).strftime("%F")
+        value = Object.new
+        value.define_singleton_method(:to_date) { date }
+        assert_equal date, type.cast(value)
+      end
+
+      def test_type_cast_for_schema
+        type = Type::Date.new
+
+        assert_equal '"2000-01-02"', type.type_cast_for_schema(::Date.new(2000, 1, 2))
       end
 
       def test_returns_correct_year

@@ -7,6 +7,7 @@ module ActiveModel
     class DateTimeTest < ActiveModel::TestCase
       def test_type_cast_datetime_and_timestamp
         type = Type::DateTime.new
+        assert_equal :datetime, type.type
         assert_nil type.cast(nil)
         assert_nil type.cast("")
         assert_nil type.cast("  ")

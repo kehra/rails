@@ -7,9 +7,16 @@ module ActiveModel
     class DecimalTest < ActiveModel::TestCase
       def test_type_cast_decimal
         type = Decimal.new
+        assert_equal :decimal, type.type
         assert_equal BigDecimal("0"), type.cast(BigDecimal("0"))
         assert_equal BigDecimal("123"), type.cast(123.0)
         assert_equal BigDecimal("1"), type.cast(:"1")
+      end
+
+      def test_type_cast_for_schema
+        type = Decimal.new
+
+        assert_equal '"0.12e1"', type.type_cast_for_schema(BigDecimal("1.2"))
       end
 
       def test_type_cast_decimal_from_invalid_string
