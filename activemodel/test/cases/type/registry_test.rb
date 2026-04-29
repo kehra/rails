@@ -16,6 +16,36 @@ module ActiveModel
         assert_equal [{}, {}], registry.lookup(:bar, 2, {}) # Array.new(2, {})
       end
 
+      test "duplicated registry keeps independent registrations" do
+        registry = Type::Registry.new
+        registry.register(:foo, ::String)
+
+        duplicated = registry.dup
+        duplicated.register(:foo, ::Array)
+
+        assert_equal "", registry.lookup(:foo)
+        assert_equal [], duplicated.lookup(:foo)
+      end
+
+      test "class registration works when proc ruby2 keywords support is unavailable" do
+        original = Proc.instance_method(:respond_to?)
+        old_verbose = $VERBOSE
+        $VERBOSE = nil
+        Proc.define_method(:respond_to?) do |name, include_private = false|
+          name == :ruby2_keywords ? false : original.bind_call(self, name, include_private)
+        end
+        $VERBOSE = old_verbose
+
+        registry = Type::Registry.new
+        registry.register(:foo, ::String)
+
+        assert_equal "", registry.lookup(:foo)
+      ensure
+        $VERBOSE = nil
+        Proc.define_method(:respond_to?, original) if original
+        $VERBOSE = old_verbose
+      end
+
       test "a block can be registered" do
         registry = Type::Registry.new
         registry.register(:foo) do |type, *args|

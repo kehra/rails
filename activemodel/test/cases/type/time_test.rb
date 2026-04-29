@@ -45,6 +45,30 @@ module ActiveModel
         end
       end
 
+      def test_user_input_in_time_zone_with_time_value
+        ::Time.use_zone("Pacific Time (US & Canada)") do
+          type = Type::Time.new
+          value = ::Time.utc(2024, 5, 6, 7, 8, 9)
+          converted = type.user_input_in_time_zone(value)
+
+          assert_equal 1999, converted.year
+          assert_equal 12, converted.month
+          assert_equal 31, converted.day
+          assert_equal 23, converted.hour
+        end
+      end
+
+      def test_user_input_in_time_zone_with_date_value
+        ::Time.use_zone("Pacific Time (US & Canada)") do
+          type = Type::Time.new
+          converted = type.user_input_in_time_zone(::Date.new(2024, 5, 6))
+
+          assert_equal 2024, converted.year
+          assert_equal 5, converted.month
+          assert_equal 6, converted.day
+        end
+      end
+
       test "serialize_cast_value is equivalent to serialize after cast" do
         type = Type::Time.new(precision: 1)
         value = type.cast("1999-12-31T12:34:56.789-10:00")

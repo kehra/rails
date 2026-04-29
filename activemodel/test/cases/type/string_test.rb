@@ -20,6 +20,26 @@ module ActiveModel
         assert_equal hash, type.serialize(hash)
       end
 
+      test "changed in place only compares string values" do
+        type = Type::String.new
+
+        assert type.changed_in_place?("old", "new")
+        assert_not type.changed_in_place?("same", "same")
+        assert_nil type.changed_in_place?("1", 1)
+      end
+
+      test "can build an immutable string with the same configuration" do
+        type = Type::String.new(true: "yes", false: "no", limit: 10, precision: 1, scale: 2)
+        immutable = type.to_immutable_string
+
+        assert_instance_of Type::ImmutableString, immutable
+        assert_equal "yes", immutable.cast(true)
+        assert_equal "no", immutable.cast(false)
+        assert_equal 10, immutable.limit
+        assert_equal 1, immutable.precision
+        assert_equal 2, immutable.scale
+      end
+
       test "cast strings are mutable" do
         type = Type::String.new
 
