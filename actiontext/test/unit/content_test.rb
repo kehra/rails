@@ -7,7 +7,21 @@ class ActionText::ContentTest < ActiveSupport::TestCase
     html = "<div>test</div>"
     content = content_from_html(html)
     assert_equal content, content_from_html(html)
+    assert_equal content, Class.new(ActionText::Content).new(html)
     assert_not_equal content, html
+  end
+
+  test "basic predicates serialization and inspection" do
+    content = content_from_html("<div>hello</div>")
+    blank_content = content_from_html("")
+
+    assert_predicate content, :present?
+    assert_not_predicate content, :blank?
+    assert_not_predicate content, :empty?
+    assert_predicate content.html_safe, :html_safe?
+    assert_predicate blank_content, :blank?
+    assert_equal "<div>hello</div>", content.as_json
+    assert_equal '#<ActionText::Content "<div>hello</div>">', content.inspect
   end
 
   test "marshal serialization" do
@@ -25,6 +39,17 @@ class ActionText::ContentTest < ActiveSupport::TestCase
     html = '<a href="http://example.com/1">1</a><br><a href="http://example.com/1">1</a>'
     content = content_from_html(html)
     assert_equal ["http://example.com/1"], content.links
+  end
+
+  test "extracts attachables and appends attachables" do
+    attachable = create_file_blob(filename: "racecar.jpg", content_type: "image/jpeg")
+    content = content_from_html("<p>hello</p>")
+
+    appended = content.append_attachables([attachable])
+
+    assert_equal [attachable], appended.attachables
+    assert_includes appended.to_html, "<p>hello</p>"
+    assert_includes appended.to_html, attachable.attachable_sgid
   end
 
   test "extracts attachables" do
@@ -95,6 +120,12 @@ class ActionText::ContentTest < ActiveSupport::TestCase
     content = content_from_html(html)
 
     assert_equal "☒", content.to_plain_text
+  end
+
+  test "converts content to markdown" do
+    content = content_from_html("<h1>Hello</h1><p><strong>world</strong></p>")
+
+    assert_equal "# Hello\n\n**world**", content.to_markdown.strip
   end
 
   test "converts Trix-formatted attachments" do
