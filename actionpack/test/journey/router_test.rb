@@ -636,6 +636,26 @@ module ActionDispatch
         assert_equal false, unknown.call(request.new("GET"))
       end
 
+      def test_journey_format_escapes_and_evaluates_nested_parts
+        path_param = ActionDispatch::Journey::Format.required_path(:path)
+        id_param = ActionDispatch::Journey::Format.required_segment(:id)
+        format_param = ActionDispatch::Journey::Format.required_segment(:format)
+        format = ActionDispatch::Journey::Format.new([
+          "/files/",
+          path_param,
+          "/",
+          id_param,
+          ActionDispatch::Journey::Format.new([".", format_param]),
+        ])
+
+        assert_equal :path, path_param.name
+        assert_equal "a/b%20c", path_param.escape("a/b c")
+        assert_equal "a%2Fb%20c", id_param.escape("a/b c")
+        assert_equal "/files/a/b%20c/a%2Fb%20c.json", format.evaluate(path: "a/b c", id: "a/b c", format: "json")
+        assert_equal "/files/a/1", format.evaluate(path: "a", id: 1)
+        assert_not_respond_to format, :escape
+      end
+
       private
         def _generate(route_name, options, recall)
           if recall
