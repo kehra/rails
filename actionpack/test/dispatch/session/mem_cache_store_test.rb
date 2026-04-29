@@ -186,6 +186,19 @@ class MemCacheStoreTest < ActionDispatch::IntegrationTest
     $stderr.puts "Skipping MemCacheStoreTest tests. Start memcached and try again."
   end
 
+  def test_initialize_uses_expires_as_expire_after_default
+    require "action_dispatch/middleware/session/mem_cache_store"
+
+    store = ActionDispatch::Session::MemCacheStore.new(
+      ->(_) { [200, {}, []] },
+      key: "_session_id",
+      expires: 30,
+      memcache_server: "localhost:11211",
+    )
+
+    assert_equal 30, store.instance_variable_get(:@default_options)[:expire_after]
+  end
+
   private
     def app
       @app ||= self.class.build_app do |middleware|
