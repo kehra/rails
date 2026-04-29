@@ -115,6 +115,24 @@ class FragmentCachingTest < ActionController::TestCase
     assert_nil @store.read("views/name")
   end
 
+  def test_expire_fragment_with_caching_disabled
+    @store.write("views/name", "value")
+    @controller.perform_caching = false
+
+    assert_nil @controller.expire_fragment("name")
+    assert_equal "value", @store.read("views/name")
+  end
+
+  def test_fragment_cache_keys_instance_accessors
+    original_keys = @controller.fragment_cache_keys
+    key = -> { "instance" }
+    @controller.fragment_cache_keys = [ key ]
+
+    assert_equal [ key ], @controller.fragment_cache_keys
+  ensure
+    @controller.fragment_cache_keys = original_keys
+  end
+
   def test_expire_fragment_with_regexp
     @store.write("views/name", "value")
     @store.write("views/another_name", "another_value")
