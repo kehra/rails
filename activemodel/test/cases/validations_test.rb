@@ -167,6 +167,27 @@ class ValidationsTest < ActiveModel::TestCase
     assert_equal ["will never be valid"], t.errors["title"]
   end
 
+  def test_validate_with_array_contexts
+    Topic.validate(on: [:publishing, :updating]) do |topic|
+      topic.errors.add(:title, "is not ready")
+    end
+
+    topic = Topic.new(title: "Title")
+
+    assert_predicate topic, :valid?
+
+    assert topic.invalid?(:publishing)
+    assert_equal ["is not ready"], topic.errors[:title]
+
+    assert topic.invalid?([:archiving, :updating])
+    assert_equal ["is not ready"], topic.errors[:title]
+  end
+
+  def test_attribute_method_predicate
+    assert Topic.attribute_method?(:title)
+    assert_not Topic.attribute_method?(:missing_attribute)
+  end
+
   def test_validates_with_array_condition_does_not_mutate_the_array
     opts = []
     Topic.validate(if: opts, on: :create) { }
