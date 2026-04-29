@@ -20,9 +20,21 @@ class TestResponseTest < ActiveSupport::TestCase
     assert_response_code_range 400..499, :client_error?
   end
 
+  test "builds test response from generic response" do
+    source = ActionDispatch::Response.create(201, { "Content-Type" => "text/plain" }, ["created"])
+
+    response = ActionDispatch::TestResponse.from_response(source)
+
+    assert_equal 201, response.status
+    assert_equal "text/plain", response.media_type
+    assert_equal "created", response.body
+  end
+
   test "response parsing" do
     response = ActionDispatch::TestResponse.create(200, {}, "")
+    assert_same response.response_parser, response.response_parser
     assert_equal response.body, response.parsed_body
+    assert_same response.parsed_body, response.parsed_body
 
     response = ActionDispatch::TestResponse.create(200, { "Content-Type" => "application/json" }, '{ "foo": "fighters" }')
     assert_kind_of ActiveSupport::HashWithIndifferentAccess, response.parsed_body
