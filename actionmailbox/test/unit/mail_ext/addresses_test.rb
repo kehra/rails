@@ -50,5 +50,24 @@ module MailExt
     test "x_forwarded_to addresses use address objects" do
       assert_equal "example.com", @mail.x_forwarded_to_addresses.first.domain
     end
+
+    test "missing address headers return empty address collections" do
+      mail = Mail.new
+
+      assert_nil mail.from_address
+      assert_nil mail.reply_to_address
+      assert_empty mail.to_addresses
+      assert_empty mail.cc_addresses
+      assert_empty mail.bcc_addresses
+      assert_empty mail.recipients_addresses
+    end
+
+    test "address list supports older mail fields" do
+      address_list = Struct.new(:addresses).new([ Mail::Address.new("legacy@example.com") ])
+      field = Struct.new(:address_list).new(address_list)
+      mail = Mail.new
+
+      assert_equal address_list, mail.send(:address_list, field)
+    end
   end
 end

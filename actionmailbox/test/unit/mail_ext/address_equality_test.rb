@@ -7,5 +7,9 @@ module MailExt
     test "two addresses with the same address are equal" do
       assert_equal Mail::Address.new("david@basecamp.com"), Mail::Address.new("david@basecamp.com")
     end
+
+    test "address is not equal to a non address" do
+      assert_not_equal Mail::Address.new("david@basecamp.com"), "david@basecamp.com"
+    end
   end
 end
