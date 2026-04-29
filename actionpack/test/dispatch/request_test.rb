@@ -1600,10 +1600,14 @@ class RequestCoreAccessors < BaseRequestTest
     assert_equal "request-id", request.request_id
     assert_equal "request-id", request.uuid
     assert_equal "puma", request.server_software
+    env = Rack::MockRequest.env_for("/")
+    env.delete("SERVER_SOFTWARE")
+    assert_nil ActionDispatch::Request.new(env).server_software
     assert_equal :patch, request.request_method_symbol
     assert_equal :patch, request.method_symbol
     assert_instance_of ActionDispatch::Http::Headers, request.headers
     assert_same request.rack_request, request.rack_request
+    assert_instance_of ActionDispatch::Request, ActionDispatch::Request.empty
   end
 
   test "authorization checks proxy header fallbacks in order" do
@@ -1612,9 +1616,13 @@ class RequestCoreAccessors < BaseRequestTest
     assert_equal "Bearer redirect", stub_request("REDIRECT_X_HTTP_AUTHORIZATION" => "Bearer redirect").authorization
   end
 
-  test "body and content length handle cached raw post and transfer encoding" do
+  test "body and content length handle cached raw post, streams, and transfer encoding" do
     request = stub_request("RAW_POST_DATA" => "hello")
     assert_equal "hello", request.body.read
+
+    input = StringIO.new("stream body".b)
+    request = ActionDispatch::Request.new(Rack::MockRequest.env_for("/", "rack.input" => input))
+    assert_same input, request.body
 
     request = stub_request("rack.input" => StringIO.new("chunked body".b), "HTTP_TRANSFER_ENCODING" => "chunked")
     assert_equal 12, request.content_length
@@ -1640,6 +1648,10 @@ class RequestCoreAccessors < BaseRequestTest
     assert_equal "http://www.example.org/original?x=1", request.original_url
   end
 
+  test "early hints are ignored when no callback is configured" do
+    assert_nil stub_request.send_early_hints("link" => "</style.css>")
+  end
+
   test "route uri pattern caches missing and existing route patterns" do
     request = stub_request
     assert_nil request.route_uri_pattern
@@ -1651,15 +1663,36 @@ class RequestCoreAccessors < BaseRequestTest
     assert_equal "/posts/:id", request.route_uri_pattern
   end
 
-  test "controller class helpers handle missing and absent controller names" do
+  class SampleController
+    def self.action_encoding_template(_action)
+      false
+    end
+  end
+
+  module ExplodingNamespace
+    def self.const_missing(name)
+      raise NameError.new("nested boom", :NestedBoom)
+    end
+  end
+
+  test "controller class helpers resolve, miss, pass through, and re-raise nested errors" do
     request = stub_request
     assert_equal ActionDispatch::Request::PASS_NOT_FOUND, request.controller_class_for(nil)
     assert_equal ActionDispatch::Request::PASS_NOT_FOUND, request.controller_class
+    assert_equal RequestCoreAccessors::SampleController, request.controller_class_for("request_core_accessors/sample")
+
+    request.path_parameters = { controller: "request_core_accessors/sample" }
+    assert_equal RequestCoreAccessors::SampleController, request.controller_class
+    assert_equal "index", request.path_parameters[:action]
 
     error = assert_raises(ActionDispatch::MissingController) do
       request.controller_class_for("missing")
     end
     assert_match(/uninitialized constant MissingController/, error.message)
+
+    assert_raises(NameError) do
+      request.controller_class_for("request_core_accessors/exploding_namespace/missing")
+    end
   end
 
   test "csrf callbacks are delegated only when controller supports them" do
