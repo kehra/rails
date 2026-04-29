@@ -20,6 +20,27 @@ class Workshop
   end
 end
 
+class UrlHelperDefaultUrlForTest < ActiveSupport::TestCase
+  class Context
+    include ActionView::Helpers::UrlHelper
+
+    attr_accessor :controller
+  end
+
+  def setup
+    @context = Context.new
+  end
+
+  def test_default_url_for_handles_back_and_rejects_hashes
+    request = Struct.new(:env).new({ "HTTP_REFERER" => "http://example.com/back" })
+    @context.controller = Struct.new(:request).new(request)
+
+    assert_equal "/literal", @context.url_for("/literal")
+    assert_equal "http://example.com/back", @context.url_for(:back)
+    assert_raises(ArgumentError) { @context.url_for(controller: "posts") }
+  end
+end
+
 class UrlHelperTest < ActiveSupport::TestCase
   # In a few cases, the helper proxies to 'controller'
   # or request.
@@ -1058,6 +1079,41 @@ class UrlHelperTest < ActiveSupport::TestCase
     options = { class: "special" }
     phone_to "1234567890", "ME!", options
     assert_equal({ class: "special" }, options)
+  end
+
+  def test_link_to_if_with_full_arity_block
+    assert_equal "Fallback Showing / custom", link_to_if(false, "Showing", url_hash, class: "custom") { |name, options, html_options|
+      "Fallback #{name} #{url_for(options)} #{html_options[:class]}"
+    }
+  end
+
+  def test_link_to_with_remote_options_without_html_options
+    assert_dom_equal %{<a data-remote="true" href="/">Remote</a>}, link_to("Remote", hash_for(remote: true), nil)
+  end
+
+  def test_current_page_without_request_raises
+    @request = nil
+    assert_raises(RuntimeError) { current_page?(url_hash) }
+  end
+
+  def test_url_helper_hidden_fields_can_omit_autocomplete
+    old_remove_hidden_field_autocomplete = ActionView::Base.remove_hidden_field_autocomplete
+    ActionView::Base.remove_hidden_field_autocomplete = true
+    self.request_forgery = true
+
+    assert_dom_equal %{<form method="post" action="http://www.example.com" class="button_to"><input type="hidden" name="_method" value="delete" /><button type="submit">Destroy</button><input name="form_token" type="hidden" value="secret" /><input type="hidden" name="nested[value]" value="1" /></form>},
+      button_to("Destroy", "http://www.example.com", method: :delete, params: { nested: { value: 1 } })
+  ensure
+    ActionView::Base.remove_hidden_field_autocomplete = old_remove_hidden_field_autocomplete
+    self.request_forgery = false
+  end
+
+  def test_url_helper_private_method_branches_used_by_public_helpers
+    assert_equal :post, send(:method_for_options, Struct.new(:to_model).new(Workshop.new(nil)))
+    assert_equal false, send(:method_not_get_method?, nil)
+    html_options = { "rel" => "nofollow" }
+    send(:add_method_to_attributes!, html_options, :delete)
+    assert_equal "nofollow", html_options["rel"]
   end
 
   def protect_against_forgery?
