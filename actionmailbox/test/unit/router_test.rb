@@ -42,6 +42,20 @@ module ActionMailbox
       assert_equal inbound_email.mail, $processed_mail
     end
 
+    test "route exposes address mailbox name and mailbox class" do
+      route = ActionMailbox::Router::Route.new("first@example.com", to: :first)
+
+      assert_equal "first@example.com", route.address
+      assert_equal :first, route.mailbox_name
+      assert_equal FirstMailbox, route.mailbox_class
+    end
+
+    test "routing error accepts a message" do
+      error = ActionMailbox::Router::RoutingError.new("No route")
+
+      assert_equal "No route", error.message
+    end
+
     test "single string routing on cc" do
       @router.add_routes("first@example.com" => :first)
 
