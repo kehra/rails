@@ -43,4 +43,23 @@ class WorkerTest < ActionCable::TestCase
     @worker.invoke @receiver, :process, "Hello", connection: @receiver.connection
     assert_equal [ :process, "Hello" ], @receiver.last_action
   end
+
+  test "with_database_connections tags Active Record logger" do
+    active_record = Module.new
+    base = Class.new
+    logger = ActiveSupport::TaggedLogging.new(ActiveSupport::Logger.new(StringIO.new))
+    base.define_singleton_method(:logger) { logger }
+    active_record.const_set(:Base, base)
+
+    Object.const_set(:ActiveRecord, active_record)
+    @worker.connection = @receiver.connection
+
+    called = false
+    @worker.with_database_connections { called = true }
+
+    assert called
+  ensure
+    @worker.connection = nil
+    Object.send(:remove_const, :ActiveRecord) if Object.const_defined?(:ActiveRecord)
+  end
 end
