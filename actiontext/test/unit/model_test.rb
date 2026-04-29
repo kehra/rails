@@ -15,6 +15,45 @@ class ActionText::ModelTest < ActiveSupport::TestCase
     assert_equal "Hello world", message.content.to_plain_text
   end
 
+  test "rich text editor html conversion" do
+    rich_text = ActionText::RichText.new(body: "<p><strong>Hello</strong> world</p>")
+    assert_equal "<p><strong>Hello</strong> world</p>", rich_text.to_editor_html
+
+    assert_nil ActionText::RichText.new(body: nil).to_editor_html
+  end
+
+  test "rich text trix html delegates to editor html" do
+    rich_text = ActionText::RichText.new(body: "<p>Hello world</p>")
+
+    assert_deprecated(ActionText.deprecator) do
+      assert_equal rich_text.to_editor_html, rich_text.to_trix_html
+    end
+  end
+
+  test "rich text class editor accessors" do
+    original_editor = ActionText::RichText.editor
+    original_editors = ActionText::RichText.editors
+    editor = Object.new
+    editors = { custom: editor }
+
+    ActionText::RichText.editor = editor
+    ActionText::RichText.editors = editors
+
+    assert_same editor, ActionText::RichText.editor
+    assert_same editors, ActionText::RichText.editors
+  ensure
+    ActionText::RichText.editor = original_editor
+    ActionText::RichText.editors = original_editors
+  end
+
+  test "rich text association contracts" do
+    blob = create_file_blob(filename: "racecar.jpg", content_type: "image/jpeg")
+    message = Message.create!(subject: "Greetings", content: ActionText::Content.new("Hello world").append_attachables(blob))
+
+    assert_same message, message.content.record
+    assert_equal [blob], message.content.embeds.map(&:blob)
+  end
+
   test "without content" do
     assert_difference("ActionText::RichText.count" => 0) do
       message = Message.create!(subject: "Greetings")

@@ -3,6 +3,14 @@
 require "test_helper"
 
 class ActionText::ModelEncryptionTest < ActiveSupport::TestCase
+  test "encrypted rich text stores encrypted serialized body" do
+    message = EncryptedMessage.create!(subject: "Greetings", content: "Secret message")
+
+    assert_instance_of ActionText::EncryptedRichText, message.content
+    assert_not_equal "Secret message", message.content.ciphertext_for(:body)
+    assert_equal "Secret message", message.reload.content.to_plain_text
+  end
+
   test "encrypt content based on :encrypted option at declaration time" do
     encrypted_message = EncryptedMessage.create!(subject: "Greetings", content: "Hey there")
     assert_encrypted_rich_text_attribute encrypted_message, :content, "Hey there"
