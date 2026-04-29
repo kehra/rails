@@ -2,6 +2,7 @@
 
 require "cases/helper"
 require "active_model/attribute_set"
+require "active_support/core_ext/hash/reverse_merge"
 require "json"
 
 module ActiveModel
@@ -317,6 +318,72 @@ module ActiveModel
       dup = attribute_set.deep_dup
       dup[:foo].value << "2"
       assert_not_equal attribute_set[:foo].value, dup[:foo].value
+    end
+
+    test "direct attribute set exposes its enumerable and hash-like contract" do
+      attributes = AttributeSet.new(
+        "name" => Attribute.from_database("name", "David", Type::String.new),
+        "age" => Attribute.from_database("age", "40", Type::Integer.new)
+      )
+
+      assert_equal ["name", "age"], attributes.each_value.map(&:name)
+      assert_equal "David", attributes.fetch("name").value
+      assert_equal ["name"], attributes.except("age").keys
+      assert_equal({ "name" => Type::String.new, "age" => Type::Integer.new }, attributes.cast_types)
+      assert attributes.key?("name")
+      assert attributes.include?("age")
+      assert_not attributes.key?("unknown")
+      assert_equal "unknown", attributes["unknown"].name
+    end
+
+    test "direct attribute set writes cast values and array assignments" do
+      attributes = AttributeSet.new({})
+
+      attributes["name"] = Attribute.from_database("name", "David", Type::String.new)
+      attributes["admin"] = Attribute.from_database("admin", false, Type::Boolean.new)
+      attributes.write_cast_value("admin", true)
+
+      assert_equal "David", attributes.fetch_value("name")
+      assert_equal true, attributes.fetch_value("admin")
+      assert_equal true, attributes.values_before_type_cast["admin"]
+      assert_equal true, attributes.values_for_database["admin"]
+    end
+
+    test "direct attribute set refuses user writes when frozen" do
+      attributes = AttributeSet.new(
+        "name" => Attribute.from_database("name", "David", Type::String.new)
+      )
+
+      attributes.freeze
+
+      assert_raise(FrozenError) { attributes.write_from_user("name", "DHH") }
+    end
+
+    test "reset clears initialized attributes and ignores missing ones" do
+      attributes = AttributeSet.new(
+        "name" => Attribute.from_database("name", "David", Type::String.new)
+      )
+
+      attributes.reset("unknown")
+      assert_equal "David", attributes.fetch_value("name")
+
+      attributes.reset("name")
+      assert_nil attributes.fetch_value("name")
+      assert_equal({ "name" => nil }, attributes.to_hash)
+    end
+
+    test "reverse_merge mutates with missing target attributes and returns self" do
+      attributes = AttributeSet.new(
+        "name" => Attribute.from_database("name", "David", Type::String.new)
+      )
+      target_attributes = AttributeSet.new(
+        "name" => Attribute.from_database("name", "Ignored", Type::String.new),
+        "age" => Attribute.from_database("age", "40", Type::Integer.new)
+      )
+
+      assert_same attributes, attributes.reverse_merge!(target_attributes)
+      assert_equal "David", attributes.fetch_value("name")
+      assert_equal 40, attributes.fetch_value("age")
     end
 
     private
