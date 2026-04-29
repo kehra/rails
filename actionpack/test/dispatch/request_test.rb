@@ -1583,6 +1583,116 @@ class RequestSession < BaseRequestTest
   end
 end
 
+class RequestCoreAccessors < BaseRequestTest
+  test "header and env accessors expose request state" do
+    request = stub_request(
+      "REQUEST_METHOD" => "PATCH",
+      "HTTP_AUTHORIZATION" => "Bearer primary",
+      "action_dispatch.http_auth_salt" => "salt",
+      "action_dispatch.logger" => :logger,
+      "action_dispatch.request_id" => "request-id",
+      "SERVER_SOFTWARE" => "Puma 6.0"
+    )
+
+    assert request.key?("REQUEST_METHOD")
+    assert_equal "salt", request.http_auth_salt
+    assert_equal :logger, request.logger
+    assert_equal "request-id", request.request_id
+    assert_equal "request-id", request.uuid
+    assert_equal "puma", request.server_software
+    assert_equal :patch, request.request_method_symbol
+    assert_equal :patch, request.method_symbol
+    assert_instance_of ActionDispatch::Http::Headers, request.headers
+    assert_same request.rack_request, request.rack_request
+  end
+
+  test "authorization checks proxy header fallbacks in order" do
+    assert_equal "Bearer x-http", stub_request("X-HTTP_AUTHORIZATION" => "Bearer x-http").authorization
+    assert_equal "Bearer x_http", stub_request("X_HTTP_AUTHORIZATION" => "Bearer x_http").authorization
+    assert_equal "Bearer redirect", stub_request("REDIRECT_X_HTTP_AUTHORIZATION" => "Bearer redirect").authorization
+  end
+
+  test "body and content length handle cached raw post and transfer encoding" do
+    request = stub_request("RAW_POST_DATA" => "hello")
+    assert_equal "hello", request.body.read
+
+    request = stub_request("rack.input" => StringIO.new("chunked body".b), "HTTP_TRANSFER_ENCODING" => "chunked")
+    assert_equal 12, request.content_length
+    assert_equal "chunked body", request.raw_post
+  end
+
+  test "request path and remote helpers memoize env values" do
+    request = stub_request(
+      "REMOTE_ADDR" => "127.0.0.1",
+      "action_dispatch.remote_ip" => "127.0.0.1",
+      "ORIGINAL_FULLPATH" => "/original?x=1",
+      "PATH_INFO" => "/current",
+      "QUERY_STRING" => "page=1"
+    )
+
+    assert_predicate request, :local?
+    assert_equal "127.0.0.1", request.ip
+    assert_equal "127.0.0.1", request.remote_ip
+    request.remote_ip = "10.0.0.2"
+    assert_equal "10.0.0.2", request.remote_ip
+    assert_equal "/original?x=1", request.original_fullpath
+    assert_equal "/current?page=1", request.fullpath
+    assert_equal "http://www.example.org/original?x=1", request.original_url
+  end
+
+  test "route uri pattern caches missing and existing route patterns" do
+    request = stub_request
+    assert_nil request.route_uri_pattern
+
+    route = Struct.new(:path).new(Struct.new(:spec).new("/posts/:id"))
+    request.set_header("action_dispatch.route", route)
+    assert_equal "/posts/:id", request.route_uri_pattern
+    request.set_header("action_dispatch.route", Struct.new(:path).new(Struct.new(:spec).new("/changed")))
+    assert_equal "/posts/:id", request.route_uri_pattern
+  end
+
+  test "controller class helpers handle missing and absent controller names" do
+    request = stub_request
+    assert_equal ActionDispatch::Request::PASS_NOT_FOUND, request.controller_class_for(nil)
+    assert_equal ActionDispatch::Request::PASS_NOT_FOUND, request.controller_class
+
+    error = assert_raises(ActionDispatch::MissingController) do
+      request.controller_class_for("missing")
+    end
+    assert_match(/uninitialized constant MissingController/, error.message)
+  end
+
+  test "csrf callbacks are delegated only when controller supports them" do
+    controller = Struct.new(:events) do
+      def reset_csrf_token(request)
+        events << [:reset, request]
+      end
+
+      def commit_csrf_token(request)
+        events << [:commit, request]
+      end
+    end.new([])
+
+    request = stub_request
+    request.controller_instance = controller
+    request.reset_csrf_token
+    request.commit_csrf_token
+
+    assert_equal [[:reset, request], [:commit, request]], controller.events
+
+    request.controller_instance = Object.new
+    assert_nothing_raised { request.reset_csrf_token }
+    assert_nothing_raised { request.commit_csrf_token }
+  end
+
+  test "empty no-op request hooks and parameter writer guards" do
+    request = stub_request
+    assert_nil request.commit_flash
+    assert_nil request.commit_cookie_jar!
+    assert_raises(RuntimeError) { request.request_parameters = nil }
+  end
+end
+
 class RequestBearerToken < BaseRequestTest
   test "bearer_token returns token from Authorization header" do
     request = stub_request("HTTP_AUTHORIZATION" => "Bearer my-secret-token")
