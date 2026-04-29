@@ -27,6 +27,20 @@ class QueryParserTest < ActiveSupport::TestCase
     assert_equal [["a", "aa"], ["b", "bb;c=cc"]], parsed_pairs("a=aa&b=bb;c=cc")
   end
 
+  test "skips empty pairs" do
+    assert_equal [["a", "aa"], ["b", "bb"]], parsed_pairs("a=aa&&b=bb&")
+  end
+
+  test "deprecated strict query string separator accessors store class state" do
+    ActionDispatch.deprecator.silence do
+      original = ActionDispatch::QueryParser.strict_query_string_separator
+      ActionDispatch::QueryParser.strict_query_string_separator = true
+      assert_equal true, ActionDispatch::QueryParser.strict_query_string_separator
+    ensure
+      ActionDispatch::QueryParser.strict_query_string_separator = original
+    end
+  end
+
   private
     def parsed_pairs(query, separator = nil)
       ActionDispatch::QueryParser.each_pair(query, separator).to_a
