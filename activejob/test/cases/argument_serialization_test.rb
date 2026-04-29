@@ -198,6 +198,18 @@ class ArgumentSerializationTest < ActiveSupport::TestCase
     )
   end
 
+  test "should maintain ruby2 keyword hash marker" do
+    keyword_hash = Hash.ruby2_keywords_hash({ a: 1, "b" => 2 })
+    serialized = ActiveJob::Arguments.serialize([keyword_hash]).first
+
+    assert_equal ["a"], serialized["_aj_ruby2_keywords"]
+    assert_not serialized.key?("_aj_symbol_keys")
+
+    deserialized = ActiveJob::Arguments.deserialize([serialized]).first
+    assert_equal({ a: 1, "b" => 2 }, deserialized)
+    assert Hash.ruby2_keywords_hash?(deserialized)
+  end
+
   test "should maintain hash with indifferent access" do
     symbol_key = { a: 1 }
     string_key = { "a" => 1 }
