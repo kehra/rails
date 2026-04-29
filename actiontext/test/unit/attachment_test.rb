@@ -9,6 +9,27 @@ class ActionText::AttachmentTest < ActiveSupport::TestCase
     assert_equal "Captioned", attachment.caption
   end
 
+  test "from_attachables filters invalid attachables" do
+    empty_attachable = Object.new
+    def empty_attachable.to_rich_text_attributes(*) = {}
+
+    assert_equal [attachable], ActionText::Attachment.from_attachables([attachable, empty_attachable]).map(&:attachable)
+  end
+
+  test "from_attributes returns nil for empty rich text attributes" do
+    assert_nil ActionText::Attachment.from_attributes(unknown: "ignored")
+  end
+
+  test "tag name accessors" do
+    original = ActionText::Attachment.tag_name
+
+    ActionText::Attachment.tag_name = "custom-attachment"
+    assert_equal "custom-attachment", ActionText::Attachment.tag_name
+    assert_equal "custom-attachment", ActionText::Attachment.from_attributes(sgid: attachable.attachable_sgid).node.name
+  ensure
+    ActionText::Attachment.tag_name = original
+  end
+
   test "proxies missing methods to attachable" do
     attachable.instance_eval { def proxied; "proxied"; end }
     attachment = ActionText::Attachment.from_attachable(attachable)
@@ -55,6 +76,21 @@ class ActionText::AttachmentTest < ActiveSupport::TestCase
   test "converts to plain text" do
     assert_equal "[Vroom vroom]", ActionText::Attachment.from_attachable(attachable, caption: "Vroom vroom").to_plain_text
     assert_equal "[racecar.jpg]", ActionText::Attachment.from_attachable(attachable).to_plain_text
+    assert_equal "Caption only", ActionText::Attachment.from_attributes({ caption: "Caption only" }, Object.new).to_plain_text
+  end
+
+  test "converts to markdown" do
+    assert_equal "\\[Vroom vroom\\]", ActionText::Attachment.from_attachable(attachable, caption: "Vroom vroom").to_markdown
+    assert_equal "\\[racecar.jpg\\]", ActionText::Attachment.from_attachable(attachable).to_markdown
+    assert_equal "Caption only", ActionText::Attachment.from_attributes({ caption: "Caption only" }, Object.new).to_markdown
+  end
+
+  test "full attributes prefer node sgid over attachable sgid" do
+    other = create_file_blob(filename: "report.txt", content_type: "text/plain")
+    attachment = ActionText::Attachment.from_attributes({ sgid: other.attachable_sgid, caption: "Caption" }, attachable)
+
+    assert_equal other.attachable_sgid, attachment.full_attributes["sgid"]
+    assert_equal "Caption", attachment.with_full_attributes.caption
   end
 
   test "converts HTML content attachment" do
