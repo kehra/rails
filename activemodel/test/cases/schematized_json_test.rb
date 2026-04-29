@@ -71,6 +71,19 @@ class SchematizedJsonTest < ActiveModel::TestCase
     assert_equal "goodbye", @account.settings.greeting
   end
 
+  test "has_json works without save callbacks" do
+    klass = Class.new do
+      include ActiveModel::Attributes
+      include ActiveModel::SchematizedJson
+
+      attribute :settings
+      has_json :settings, enabled: false
+    end
+
+    record = klass.new
+    assert_not record.settings.enabled?
+  end
+
   test "schema defaults will not overwrite attribute defaults" do
     assert_not @account.flags_with_defaults.staff?
     assert @account.flags_with_defaults.early_adopter?
