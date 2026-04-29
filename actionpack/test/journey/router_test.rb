@@ -543,6 +543,99 @@ module ActionDispatch
         assert_raises(ActionController::UrlGenerationError) { missing_route.params }
       end
 
+      def test_route_public_readers_and_generation_helpers
+        get "/photos/:id", as: "photo", id: /\d+/, to: "photos#show"
+        route = routes.first
+
+        assert_instance_of ActionDispatch::Routing::RouteSet::Dispatcher, route.app
+        assert_same route.path, route.path
+        assert_equal({ controller: "photos", action: "show" }, route.defaults)
+        assert_equal({}, route.constraints)
+        assert_equal "photo", route.name
+        assert_equal 0, route.precedence
+        assert_equal [:id, :format], route.parts
+        assert_equal [:id, :format], route.segments.map(&:to_sym)
+        assert_equal [:id], route.required_parts
+        assert_equal [:controller, :action], route.required_defaults.keys
+        assert_equal [:id, :controller, :action], route.required_keys
+        assert route.required_default?(:controller)
+        assert_match(/\/photos\/1/, route.format(id: 1))
+        assert_equal(/\d+/, route.requirements[:id])
+        assert_equal(-1, route.score({}))
+        assert_operator route.score("id" => true), :>, 0
+        assert_equal false, route.glob?
+        assert_equal true, route.dispatcher?
+        assert_equal "", route.ip.source
+        assert_equal true, route.requires_matching_verb?
+        assert_equal "GET", route.verb
+        assert_nil route.eager_load!
+      end
+
+      def test_route_glob_and_ip_constraint_helpers
+        get "/*path", ip: /127\.0\.0\.1/, to: "files#show"
+        route = routes.first
+
+        assert_equal true, route.glob?
+        assert_equal(/127\.0\.0\.1/, route.ip)
+      end
+
+      def test_route_matches_all_constraint_value_types
+        get "/foo", to: "foo#bar"
+        base = routes.first
+        request = Struct.new(:request_method, :subdomain, :format, :xhr, :archived, :port, keyword_init: true) do
+          def get?; request_method == "GET"; end
+          def xhr?; xhr; end
+          def archived?; archived; end
+        end.new(request_method: "GET", subdomain: "api", format: "html", xhr: true, archived: false, port: 3001)
+        route = ActionDispatch::Journey::Route.new(
+          name: "constrained",
+          app: @app,
+          path: base.path,
+          constraints: { subdomain: /api/, format: ["html"], xhr?: true, archived?: false, port: 3000..4000 },
+          defaults: base.defaults,
+          via: [:get],
+        )
+
+        assert_equal true, route.matches?(request)
+        request.format = "json"
+        assert_equal false, route.matches?(request)
+      end
+
+      def test_route_verb_matchers
+        request = Struct.new(:request_method) do
+          def get?; request_method == "GET"; end
+          def post?; request_method == "POST"; end
+          def delete?; request_method == "DELETE"; end
+        end
+
+        ActionDispatch::Journey::Route::VerbMatchers::VERBS.each do |verb|
+          matcher = ActionDispatch::Journey::Route::VerbMatchers.const_get(verb)
+          matching_request = Object.new
+          matching_request.define_singleton_method(:request_method) { verb }
+          matching_request.define_singleton_method("#{verb.downcase}?") { true }
+
+          assert_equal verb, matcher.verb
+          assert_equal true, matcher.call(matching_request)
+        end
+
+        assert_equal true, ActionDispatch::Journey::Route::VerbMatchers::GET.call(request.new("GET"))
+        assert_equal false, ActionDispatch::Journey::Route::VerbMatchers::DELETE.call(request.new("GET"))
+        assert_equal "", ActionDispatch::Journey::Route::VerbMatchers::All.verb
+        assert_equal true, ActionDispatch::Journey::Route::VerbMatchers::All.call(request.new("PATCH"))
+        assert_same ActionDispatch::Journey::Route::VerbMatchers::All, ActionDispatch::Journey::Route::VerbMatchers.for([:all])
+        assert_same ActionDispatch::Journey::Route::VerbMatchers::GET, ActionDispatch::Journey::Route::VerbMatchers.for([:get])
+
+        or_matcher = ActionDispatch::Journey::Route::VerbMatchers.for([:get, :post])
+        assert_equal "GET|POST", or_matcher.verb
+        assert_equal true, or_matcher.call(request.new("POST"))
+        assert_equal false, or_matcher.call(request.new("DELETE"))
+
+        unknown = ActionDispatch::Journey::Route::VerbMatchers.for([:propfind])
+        assert_equal "PROPFIND", unknown.verb
+        assert_equal true, unknown.call(request.new("PROPFIND"))
+        assert_equal false, unknown.call(request.new("GET"))
+      end
+
       private
         def _generate(route_name, options, recall)
           if recall
