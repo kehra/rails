@@ -445,6 +445,41 @@ module ActiveModel
       assert_equal ["name"], attributes.each_value.map(&:name)
     end
 
+    test "yaml encoder stores concise attributes and restores default types" do
+      default_type = Type::String.new
+      custom_type = Type::Integer.new
+      default_types = { "name" => default_type, "age" => default_type }
+      attribute_set = AttributeSet.new(
+        "name" => Attribute.from_database("name", "David", default_type),
+        "age" => Attribute.from_database("age", "40", custom_type)
+      )
+      coder = {}
+
+      AttributeSet::YAMLEncoder.encode(attribute_set, coder, default_types)
+
+      encoded_name, encoded_age = coder.fetch("concise_attributes")
+      assert_nil encoded_name.type
+      assert_same custom_type, encoded_age.type
+
+      decoded = AttributeSet::YAMLEncoder.decode(coder, default_types)
+
+      assert_instance_of AttributeSet, decoded
+      assert_same default_type, decoded["name"].type
+      assert_same custom_type, decoded["age"].type
+      assert_equal "David", decoded.fetch_value("name")
+      assert_equal 40, decoded.fetch_value("age")
+    end
+
+    test "yaml encoder decodes legacy attributes payloads" do
+      attributes = AttributeSet.new(
+        "name" => Attribute.from_database("name", "David", Type::String.new)
+      )
+
+      decoded = AttributeSet::YAMLEncoder.decode({ "attributes" => attributes }, {})
+
+      assert_same attributes, decoded
+    end
+
     private
       def attributes_with_uninitialized_key
         builder = AttributeSet::Builder.new(foo: Type::Integer.new, bar: Type::Float.new)
