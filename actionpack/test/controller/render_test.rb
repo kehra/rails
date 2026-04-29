@@ -295,6 +295,15 @@ class TestController < ActionController::Base
     raise "should not reach this line"
   end
 
+  def head_with_hash_status
+    head({ ok: true })
+  end
+
+  def head_twice
+    head :ok
+    head :ok
+  end
+
   def head_with_no_content
     # Fill in the headers with dummy data to make
     # sure they get removed during the testing
@@ -1032,6 +1041,19 @@ class HeadRenderTest < ActionController::TestCase
   def test_head_returns_truthy_value
     assert_nothing_raised do
       get :head_and_return
+    end
+  end
+
+  def test_head_rejects_hash_status
+    error = assert_raises(ArgumentError) do
+      get :head_with_hash_status
+    end
+    assert_match(/is not a valid value for `status`/, error.message)
+  end
+
+  def test_head_raises_after_response_body_is_set
+    assert_raises(AbstractController::DoubleRenderError) do
+      get :head_twice
     end
   end
 
