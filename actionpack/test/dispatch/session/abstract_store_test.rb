@@ -7,7 +7,7 @@ module ActionDispatch
   module Session
     class AbstractStoreTest < ActiveSupport::TestCase
       class MemoryStore < AbstractStore
-        def initialize(app)
+        def initialize(app, options = {})
           @sessions = {}
           super
         end
@@ -61,6 +61,18 @@ module ActionDispatch
         assert_raise TypeError do
           session.update("Not hashable")
         end
+      end
+
+      def test_compatibility_initialize_sets_default_session_key
+        assert_equal "_session_id", MemoryStore.new(app).key
+        assert_equal "custom_session", MemoryStore.new(app, key: "custom_session").key
+      end
+
+      def test_compatibility_generate_sid_returns_utf8_hex_string
+        sid = MemoryStore.new(app).generate_sid
+
+        assert_equal Encoding::UTF_8, sid.encoding
+        assert_match(/\A[0-9a-f]{32}\z/, sid)
       end
 
       private
