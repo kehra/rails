@@ -60,6 +60,18 @@ module AbstractController
         assert_equal [Mime[:js], [:bar], {}], collector.responses[2][0, 3]
         assert_equal :baz, collector.responses[2][3].call
       end
+
+      test "generate_method_for_mime accepts symbols" do
+        AbstractController::Collector.remove_method :json
+        AbstractController::Collector.generate_method_for_mime :json
+        collector = MyCollector.new
+
+        collector.json
+
+        assert_equal [Mime[:json], [], {}, nil], collector.responses.last
+      ensure
+        AbstractController::Collector.generate_method_for_mime :json unless AbstractController::Collector.method_defined?(:json)
+      end
     end
   end
 end
