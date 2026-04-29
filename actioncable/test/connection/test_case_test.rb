@@ -21,10 +21,42 @@ end
 class ConnectionSimpleTest < ActionCable::Connection::TestCase
   tests SimpleConnection
 
+  def test_connection_class_accessor
+    original_connection_class = self.class._connection_class
+
+    self.class._connection_class = SimpleConnection
+
+    assert_equal SimpleConnection, self.class._connection_class
+  ensure
+    self.class._connection_class = original_connection_class
+  end
+
+  def test_connection_class_can_be_set_with_string_or_symbol
+    original_connection_class = self.class._connection_class
+
+    self.class.tests "simple_connection"
+    assert_equal SimpleConnection, self.class.connection_class
+
+    self.class.tests :simple_connection
+    assert_equal SimpleConnection, self.class.connection_class
+  ensure
+    self.class._connection_class = original_connection_class
+  end
+
+  def test_tests_rejects_unknown_connection_argument
+    error = assert_raises(ActionCable::Connection::NonInferrableConnectionError) do
+      self.class.tests(Object.new)
+    end
+
+    assert_match "Unable to determine the connection to test", error.message
+  end
+
   def test_connected
     connect
 
     assert_nil connection.user_id
+    assert_kind_of ActionCable::Connection::TaggedLoggerProxy, connection.logger
+    assert_kind_of ActionCable::Connection::TestRequest, connection.request
   end
 
   def test_url_params
@@ -65,6 +97,42 @@ class ConnectionSimpleTest < ActionCable::Connection::TestCase
     disconnect
 
     assert_equal "456", SimpleConnection.disconnected_user_id
+  end
+
+  def test_disconnect_without_connection_raises
+    assert_raises(RuntimeError, "Must be connected!") do
+      disconnect
+    end
+  end
+end
+
+class NoCallbacksConnection < ActionCable::Connection::Base
+end
+
+class NoCallbacksConnectionTest < ActionCable::Connection::TestCase
+  tests NoCallbacksConnection
+
+  def test_connect_and_disconnect_without_callbacks
+    connect
+    assert_instance_of NoCallbacksConnection, connection
+
+    disconnect
+    assert_nil connection
+  end
+end
+
+class NonInferrableConnectionTest < ActionCable::Connection::TestCase
+  def test_default_connection_inference_error
+    original_connection_class = self.class._connection_class
+    self.class._connection_class = nil
+
+    error = assert_raises(ActionCable::Connection::NonInferrableConnectionError) do
+      self.class.connection_class
+    end
+
+    assert_match self.class.name, error.message
+  ensure
+    self.class._connection_class = original_connection_class
   end
 end
 
