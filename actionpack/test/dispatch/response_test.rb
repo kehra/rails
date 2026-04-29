@@ -287,6 +287,45 @@ class ResponseTest < ActiveSupport::TestCase
     assert_equal('"202cb962ac59075b964b07152d234b70"', resp.etag)
   end
 
+  test "date and last modified accessors parse and expose HTTP dates" do
+    now = Time.utc(2026, 4, 29, 3, 20, 0)
+    resp = ActionDispatch::Response.new
+
+    assert_nil resp.date
+    assert_not_predicate resp, :date?
+    assert_nil resp.last_modified
+    assert_not_predicate resp, :last_modified?
+
+    resp.date = now
+    resp.last_modified = now
+
+    assert_predicate resp, :date?
+    assert_predicate resp, :last_modified?
+    assert_equal now, resp.date
+    assert_equal now, resp.last_modified
+    assert_equal now.httpdate, resp.headers["Date"]
+    assert_equal now.httpdate, resp.headers["Last-Modified"]
+  end
+
+  test "etag writer uses weak validators" do
+    resp = ActionDispatch::Response.new
+
+    resp.etag = "abc"
+
+    assert_predicate resp, :etag?
+    assert_predicate resp, :weak_etag?
+    assert_not_predicate resp, :strong_etag?
+    assert_equal "W/\"900150983cd24fb0d6963f7d28e17f72\"", resp.etag
+  end
+
+  test "strong etag predicate is false when etag is missing" do
+    resp = ActionDispatch::Response.new
+
+    assert_not_predicate resp, :etag?
+    assert_not_predicate resp, :weak_etag?
+    assert_not_predicate resp, :strong_etag?
+  end
+
   test "read charset and content type" do
     resp = ActionDispatch::Response.new.tap { |response|
       response.charset = "utf-16"
