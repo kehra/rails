@@ -31,6 +31,22 @@ class ActionText::ModelEncryptionTest < ActiveSupport::TestCase
     assert_encrypted_rich_text_attribute(message, :content, content)
   end
 
+  test "decrypt includes encrypted rich text attributes" do
+    content = "<p>the space force is still here</p>"
+    message = EncryptedMessage.create!(subject: "Greetings", content: content)
+
+    assert_nothing_raised { message.decrypt }
+    assert_equal content, message.reload.content.body.to_html
+  end
+
+  test "decrypt skips rich text attributes that are not encrypted" do
+    content = "<p>clear text remains clear</p>"
+    message = Message.create!(subject: "Greetings", content: content)
+
+    assert_nothing_raised { message.decrypt }
+    assert_equal content, message.reload.content.body.to_html
+  end
+
   private
     def assert_encrypted_rich_text_attribute(model, attribute_name, expected_value)
       assert_not_equal expected_value, model.send(attribute_name).ciphertext_for(:body)
