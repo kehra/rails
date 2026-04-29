@@ -43,3 +43,22 @@ class SetDriverToSeleniumHeadlessFirefoxTest < DrivenBySeleniumWithHeadlessFiref
     assert_equal :selenium, Capybara.current_driver
   end
 end
+
+class DefaultsDriverAndServerTest < ActionDispatch::SystemTestCase
+  test "uses default driver when subclass does not configure one" do
+    assert_instance_of ActionDispatch::SystemTesting::Driver, self.class.driver
+  end
+
+  test "served_by configures capybara server" do
+    old_host = Capybara.server_host
+    old_port = Capybara.server_port
+
+    self.class.served_by(host: "127.0.0.2", port: 3002)
+
+    assert_equal "127.0.0.2", Capybara.server_host
+    assert_equal 3002, Capybara.server_port
+  ensure
+    Capybara.server_host = old_host
+    Capybara.server_port = old_port
+  end
+end
