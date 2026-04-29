@@ -39,6 +39,29 @@ class ParameterizedTest < ActiveSupport::TestCase
     assert_nil(@mail.from)
   end
 
+  test "params can be assigned directly on a mailer instance" do
+    mailer = ParamsMailer.new
+    mailer.params = { inviter: "david@basecamp.com" }
+
+    assert_equal({ inviter: "david@basecamp.com" }, mailer.params)
+  end
+
+  test "unknown parameterized action raises through method_missing" do
+    mailer = ParamsMailer.with(inviter: "david@basecamp.com")
+
+    assert_raises(NoMethodError) do
+      mailer.anything
+    end
+  end
+
+  test "deliver_later after accessing a parameterized message is disallowed" do
+    @mail.message
+
+    assert_raises(RuntimeError) do
+      @mail.deliver_later
+    end
+  end
+
   test "enqueue the email with params" do
     args = [
       "ParamsMailer",
