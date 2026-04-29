@@ -174,6 +174,29 @@ class ErrorsTest < ActiveModel::TestCase
     assert_equal error, person.errors.objects.first
   end
 
+  test "add with strict true raises strict validation failed" do
+    person = Person.new
+
+    error = assert_raises ActiveModel::StrictValidationFailed do
+      person.errors.add(:name, :blank, strict: true)
+    end
+
+    assert_equal "name can't be blank", error.message
+    assert_empty person.errors
+  end
+
+  test "add with custom strict exception raises that exception" do
+    exception_class = Class.new(StandardError)
+    person = Person.new
+
+    error = assert_raises exception_class do
+      person.errors.add(:name, :blank, strict: exception_class)
+    end
+
+    assert_equal "name can't be blank", error.message
+    assert_empty person.errors
+  end
+
   test "add, with type as symbol" do
     person = Person.new
     person.errors.add(:name, :blank)
@@ -685,6 +708,20 @@ class ErrorsTest < ActiveModel::TestCase
     person.errors.each do |error|
       assert_same person, error.base
     end
+  end
+
+  test "import can override attribute and type" do
+    original = ActiveModel::Errors.new(Person.new)
+    error = original.add(:name, :invalid)
+
+    person = Person.new
+    person.errors.import(error, attribute: "city", type: "blank")
+
+    imported = person.errors.objects.first
+    assert_instance_of ActiveModel::NestedError, imported
+    assert_equal :city, imported.attribute
+    assert_equal :blank, imported.type
+    assert_same error, imported.inner_error
   end
 
   test "merge errors" do
