@@ -21,7 +21,7 @@ module AbstractController
       end
     end
 
-    class UrlForTest < ActiveSupport::TestCase
+    class AbstractUrlForTest < ActiveSupport::TestCase
       def setup
         UrlForController.clear_action_methods!
         RoutedUrlForController.clear_action_methods!
