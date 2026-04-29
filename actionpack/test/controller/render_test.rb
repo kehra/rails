@@ -910,6 +910,14 @@ class ImplicitRenderTest < ActionController::TestCase
     assert_response :success
   end
 
+  def test_method_for_action_prefers_explicit_action_method
+    assert_equal "empty_action", @controller.send(:method_for_action, "empty_action")
+  end
+
+  def test_method_for_action_returns_nil_without_action_or_template
+    assert_nil @controller.send(:method_for_action, "missing_action")
+  end
+
   def test_implicit_unknown_format_response
     assert_raises(ActionController::UnknownFormat) do
       get :empty_action_with_template, format: "json"
