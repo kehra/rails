@@ -265,6 +265,29 @@ class TemplateDigestorTest < ActionView::TestCase
     end
   end
 
+  def test_digest_accepts_nil_dependencies
+    finder.digest_cache.clear
+
+    assert_match(/\A[0-9a-f]{32}\z/, ActionView::Digestor.digest(name: "comments/_comment", format: nil, finder: finder, dependencies: nil))
+  end
+
+  def test_interpolated_tree_missing_node_does_not_log
+    old_logger = ActionView::Base.logger
+    log = StringIO.new
+    ActionView::Base.logger = Logger.new(log)
+
+    tree = ActionView::Digestor.tree('comments/#{dynamic_partial}', finder)
+
+    assert_instance_of ActionView::Digestor::Missing, tree
+    assert_empty log.string
+  ensure
+    ActionView::Base.logger = old_logger
+  end
+
+  def test_null_logger_accepts_debug_messages
+    assert_nil ActionView::Digestor::NullLogger.debug("ignored")
+  end
+
   def test_dependencies_via_options_results_in_different_digest
     digest_plain        = digest("comments/_comment")
     digest_fridge       = digest("comments/_comment", dependencies: ["fridge"])
