@@ -49,4 +49,34 @@ class ActionMailbox::Base::RoutingTest < ActiveSupport::TestCase
     inbound_email = create_inbound_email_from_fixture "welcome.eml", status: :pending
     assert_equal RepliesMailbox, ApplicationMailbox.mailbox_for(inbound_email)
   end
+
+  test "router accessors and class routing helpers delegate to configured router" do
+    original_router = ApplicationMailbox.router
+    calls = []
+    fake_router = Object.new
+    fake_router.define_singleton_method(:add_routes) { |routes| calls << [ :add_routes, routes ] }
+    fake_router.define_singleton_method(:route) { |inbound_email| calls << [ :route, inbound_email ] }
+    fake_router.define_singleton_method(:mailbox_for) { |inbound_email| calls << [ :mailbox_for, inbound_email ]; RepliesMailbox }
+
+    ApplicationMailbox.router = fake_router
+    inbound_email = create_inbound_email_from_fixture "welcome.eml", status: :processing
+
+    assert_same fake_router, ApplicationMailbox.router
+    assert_same fake_router, ApplicationMailbox.new(inbound_email).router
+    mailbox = ApplicationMailbox.new(inbound_email)
+    mailbox.router = fake_router
+    assert_same fake_router, mailbox.router
+
+    ApplicationMailbox.routing "support@example.com" => :replies
+    ApplicationMailbox.route inbound_email
+    assert_equal RepliesMailbox, ApplicationMailbox.mailbox_for(inbound_email)
+
+    assert_equal [
+      [ :add_routes, { "support@example.com" => :replies } ],
+      [ :route, inbound_email ],
+      [ :mailbox_for, inbound_email ]
+    ], calls
+  ensure
+    ApplicationMailbox.router = original_router
+  end
 end
