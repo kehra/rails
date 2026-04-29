@@ -57,11 +57,25 @@ class QueueAdapterTest < ActiveJob::TestCase
     _queue_adapter_name_was = ActiveJob::Base._queue_adapter_name
     ActiveJob::Base._queue_adapter = ActiveJob::Base._queue_adapter_name = nil
 
+    assert_kind_of ActiveJob::QueueAdapters::AsyncAdapter, ActiveJob::Base.queue_adapter
+
+    ActiveJob::Base._queue_adapter = ActiveJob::Base._queue_adapter_name = nil
     assert_equal "async", ActiveJob::Base.queue_adapter_name
     assert_kind_of ActiveJob::QueueAdapters::AsyncAdapter, ActiveJob::Base.queue_adapter
   ensure
     ActiveJob::Base._queue_adapter = _queue_adapter_was
     ActiveJob::Base._queue_adapter_name = _queue_adapter_name_was
+  end
+
+  test "abstract adapter documents required enqueue APIs and stopping predicate" do
+    adapter = ActiveJob::QueueAdapters::AbstractAdapter.new
+
+    assert_raises(NotImplementedError) { adapter.enqueue(Object.new) }
+    assert_raises(NotImplementedError) { adapter.enqueue_at(Object.new, Time.now.to_f) }
+    assert_equal false, adapter.stopping?
+
+    adapter.stopping = Object.new
+    assert_equal true, adapter.stopping?
   end
 
   test "should extract a reasonable name from a class instance" do

@@ -137,6 +137,17 @@ class EnqueueAfterTransactionCommitTest < ActiveSupport::TestCase
     end
   end
 
+  test "#perform_later enqueues immediately when enqueue_after_transaction_commit is false" do
+    fake_active_record = FakeActiveRecord.new(false)
+    stub_const(Object, :ActiveRecord, fake_active_record, exists: false) do
+      ImmediateJob.enqueue_after_transaction_commit = false
+
+      assert_no_difference -> { fake_active_record.calls } do
+        assert_instance_of ImmediateJob, ImmediateJob.perform_later
+      end
+    end
+  end
+
   test "ActiveJob.perform_all_later waits for transactions to complete before enqueuing jobs with `enqueue_after_transaction_commit`" do
     fake_active_record = FakeActiveRecord.new
     stub_const(Object, :ActiveRecord, fake_active_record, exists: false) do
@@ -144,6 +155,19 @@ class EnqueueAfterTransactionCommitTest < ActiveSupport::TestCase
 
       assert_difference -> { fake_active_record.calls }, +1 do
         ActiveJob.perform_all_later(TestJob.new, TestJob.new)
+      end
+    end
+  end
+
+  test "ActiveJob.perform_all_later enqueues immediate jobs without after commit callback" do
+    fake_active_record = FakeActiveRecord.new(false)
+    stub_const(Object, :ActiveRecord, fake_active_record, exists: false) do
+      immediate_job = ImmediateJob.new
+
+      assert_notification("enqueue_all.active_job", jobs: [immediate_job], enqueued_count: 1) do
+        assert_no_difference -> { fake_active_record.calls } do
+          ActiveJob.perform_all_later(immediate_job)
+        end
       end
     end
   end
