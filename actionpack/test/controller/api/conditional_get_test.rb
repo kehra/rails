@@ -106,6 +106,24 @@ class ConditionalGetApiTest < ActionController::TestCase
     end
   end
 
+  def test_strict_freshness_without_conditional_headers_is_stale
+    with_strict_freshness(true) do
+      get :one
+
+      assert_response :success
+    end
+  end
+
+  def test_strict_freshness_instance_accessors_delegate_to_class_setting
+    old_value = ActionDispatch::Http::Cache::Request.strict_freshness
+
+    @request.strict_freshness = true
+    assert_equal true, @request.strict_freshness
+    assert_equal true, ActionDispatch::Http::Cache::Request.strict_freshness
+  ensure
+    ActionDispatch::Http::Cache::Request.strict_freshness = old_value
+  end
+
   def test_both_should_be_used_when_strict_freshness_is_false
     with_strict_freshness(false) do
       # stale because the etag match but the last modified doesn't
