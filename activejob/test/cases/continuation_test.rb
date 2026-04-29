@@ -19,6 +19,28 @@ class ActiveJob::TestContinuation < ActiveSupport::TestCase
     include ActiveJob::Continuable
   end
 
+  class MethodStepJob < ContinuableJob
+    def perform(step_name)
+      step step_name
+    end
+
+    def no_arguments
+      "done"
+    end
+
+    def one_argument(step)
+      step.name
+    end
+
+    def two_arguments(first, second)
+      [first, second]
+    end
+
+    def keyword_argument(value:)
+      value
+    end
+  end
+
   IteratingRecord = Struct.new(:id, :name) do
     cattr_accessor :records
 
@@ -41,6 +63,29 @@ class ActiveJob::TestContinuation < ActiveSupport::TestCase
         end
       end
     end
+  end
+
+  test "step without block invokes zero and one arity methods" do
+    assert_nothing_raised do
+      MethodStepJob.perform_now(:no_arguments)
+      MethodStepJob.perform_now(:one_argument)
+    end
+  end
+
+  test "step without block rejects methods with too many arguments" do
+    error = assert_raises(ArgumentError) do
+      MethodStepJob.perform_now(:two_arguments)
+    end
+
+    assert_equal "Step method 'two_arguments' must accept 0 or 1 arguments", error.message
+  end
+
+  test "step without block rejects methods with keyword arguments" do
+    error = assert_raises(ArgumentError) do
+      MethodStepJob.perform_now(:keyword_argument)
+    end
+
+    assert_equal "Step method 'keyword_argument' must not accept keyword arguments", error.message
   end
 
   test "iterates" do

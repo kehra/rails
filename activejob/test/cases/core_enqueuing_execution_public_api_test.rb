@@ -183,6 +183,22 @@ class CoreEnqueuingExecutionPublicApiTest < ActiveSupport::TestCase
     assert_match(/MissingActiveJobClass/, error.message)
   end
 
+  test "version deprecator and configured job public APIs" do
+    assert_equal Gem::Version.new(ActiveJob::VERSION::STRING), ActiveJob.gem_version
+    assert_equal ActiveJob.gem_version, ActiveJob.version
+    assert_same ActiveJob.deprecator, ActiveJob.deprecator
+
+    configured = InlineReturnJob.set(queue: :critical)
+    assert_instance_of ActiveJob::ConfiguredJob, configured
+    assert_equal ["configured", 1], configured.perform_now("configured", 1)
+
+    enqueued = nil
+    result = HelloJob.set(queue: :critical).perform_later("Configured") { |job| enqueued = job }
+    assert_same result, enqueued
+    assert_equal "critical", enqueued.queue_name
+    assert_equal "Configured says hello", JobBuffer.last_value
+  end
+
   test "class set returns configured job and perform_later accepts an existing job instance" do
     configured = HelloJob.set(queue: :critical)
 
