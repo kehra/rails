@@ -493,6 +493,56 @@ module ActionDispatch
         assert_nil router.eager_load!
       end
 
+      def test_formatter_exposes_routes_and_eager_loads_cache
+        get "/foo/:id", as: "foo", to: "foo#bar"
+
+        assert_same route_set, @formatter.routes
+        assert_nil @formatter.eager_load!
+        assert_nil @formatter.clear
+      end
+
+      def test_formatter_generate_uses_path_params_without_leaking_them_to_query_params
+        get "/foo/:id", as: "foo", to: "foo#bar"
+
+        route_with_params = @formatter.generate("foo", { path_params: { id: 1 }, page: 2 }, {})
+
+        assert_equal "/foo/1", route_with_params.path(nil)
+        assert_equal({ page: 2 }, route_with_params.params)
+      end
+
+      def test_formatter_generate_skips_anonymous_rack_app_routes
+        get "/rack/:id", to: ->(_) { [200, {}, []] }
+
+        missing_route = @formatter.generate(nil, { id: 1 }, {})
+
+        assert_instance_of ActionDispatch::Journey::Formatter::MissingRoute, missing_route
+      end
+
+      def test_formatter_route_with_params_exposes_params_and_formats_path
+        get "/foo/:id", to: "foo#bar"
+        route = routes.first
+        route_with_params = ActionDispatch::Journey::Formatter::RouteWithParams.new(route, { id: "1" }, { page: "2" })
+
+        assert_equal({ page: "2" }, route_with_params.params)
+        assert_equal "/foo/1", route_with_params.path(nil)
+      end
+
+      def test_formatter_missing_route_exposes_readers_and_raises_url_generation_error
+        missing_route = ActionDispatch::Journey::Formatter::MissingRoute.new(
+          { controller: "foo" }, [:id], [:format], routes, "foo"
+        )
+
+        assert_equal({ controller: "foo" }, missing_route.constraints)
+        assert_equal [:id], missing_route.missing_keys
+        assert_equal [:format], missing_route.unmatched_keys
+        assert_same routes, missing_route.routes
+        assert_equal "foo", missing_route.name
+        assert_match(/missing required keys: \[:id\]/, missing_route.message)
+        assert_match(/possible unmatched constraints: \[:format\]/, missing_route.message)
+        assert_raises(ActionController::UrlGenerationError) { missing_route.path(:foo_path) }
+        assert_raises(ActionController::UrlGenerationError) { missing_route.params }
+      end
+
       private
         def _generate(route_name, options, recall)
           if recall
