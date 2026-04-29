@@ -112,6 +112,91 @@ class FiberedTest < SetupFiberedBase
   end
 end
 
+class StreamingTemplateRendererBodyTest < ActiveSupport::TestCase
+  class Reporter
+    attr_reader :reported
+
+    def report(error)
+      @reported = error
+    end
+  end
+
+  class AnnotatedError < StandardError
+    def annotated_source_code
+      "annotated source"
+    end
+  end
+
+  setup do
+    @old_error_reporter = ActiveSupport.error_reporter
+    @old_logger = ActionView::Base.logger
+  end
+
+  teardown do
+    ActiveSupport.error_reporter = @old_error_reporter
+    ActionView::Base.logger = @old_logger
+  end
+
+  test "body joins streamed chunks" do
+    body = ActionView::StreamingTemplateRenderer::Body.new do |buffer|
+      buffer.call "hello"
+      buffer.call " world"
+    end
+
+    assert_equal "hello world", body.body
+  end
+
+  test "each reports rendering errors through error reporter" do
+    reporter = Reporter.new
+    error = StandardError.new("boom")
+    ActiveSupport.error_reporter = reporter
+
+    body = ActionView::StreamingTemplateRenderer::Body.new { raise error }
+    chunks = []
+
+    assert_same body, body.each { |chunk| chunks << chunk }
+    assert_same error, reporter.reported
+    assert_equal [ActionView::Base.streaming_completion_on_exception], chunks
+  end
+
+  test "each logs annotated rendering errors when no error reporter is configured" do
+    ActiveSupport.error_reporter = nil
+    log = StringIO.new
+    ActionView::Base.logger = Logger.new(log)
+    error = AnnotatedError.new("boom")
+    error.set_backtrace(["template:1"])
+
+    ActionView::StreamingTemplateRenderer::Body.new { raise error }.each { |_| }
+
+    assert_includes log.string, "AnnotatedError (boom)"
+    assert_includes log.string, "annotated source"
+    assert_includes log.string, "template:1"
+  end
+
+  test "each logs non annotated rendering errors when no error reporter is configured" do
+    ActiveSupport.error_reporter = nil
+    log = StringIO.new
+    ActionView::Base.logger = Logger.new(log)
+    error = RuntimeError.new("plain boom")
+    error.set_backtrace(["template:2"])
+
+    ActionView::StreamingTemplateRenderer::Body.new { raise error }.each { |_| }
+
+    assert_includes log.string, "RuntimeError (plain boom)"
+    assert_includes log.string, "template:2"
+  end
+
+  test "each still completes when neither error reporter nor logger is configured" do
+    ActiveSupport.error_reporter = nil
+    ActionView::Base.logger = nil
+    chunks = []
+
+    ActionView::StreamingTemplateRenderer::Body.new { raise "boom" }.each { |chunk| chunks << chunk }
+
+    assert_equal [ActionView::Base.streaming_completion_on_exception], chunks
+  end
+end
+
 class FiberedWithLocaleTest < SetupFiberedBase
   def setup
     @old_locale = I18n.locale
