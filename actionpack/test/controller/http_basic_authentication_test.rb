@@ -190,6 +190,20 @@ class HttpBasicAuthenticationTest < ActionController::TestCase
     assert_response :unauthorized
   end
 
+  test "class method requires string credentials" do
+    assert_raises(ArgumentError, match: /Expected name: to be a String/) do
+      Class.new(ActionController::Base) do
+        http_basic_authenticate_with name: :David, password: "Goliath"
+      end
+    end
+
+    assert_raises(ArgumentError, match: /Expected password: to be a String/) do
+      Class.new(ActionController::Base) do
+        http_basic_authenticate_with name: "David", password: :Goliath
+      end
+    end
+  end
+
   test "authentication request with wrong scheme" do
     header = "Bearer " + encode_credentials("David", "Goliath").split(" ", 2)[1]
     @request.env["HTTP_AUTHORIZATION"] = header
