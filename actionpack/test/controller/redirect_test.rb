@@ -179,6 +179,11 @@ class RedirectController < ActionController::Base
     redirect_to nil
   end
 
+  def redirect_twice
+    redirect_to action: "hello_world"
+    redirect_to action: "hello_world"
+  end
+
   def redirect_to_polymorphic
     redirect_to [:internal, Workshop.new(5)]
   end
@@ -505,6 +510,35 @@ class RedirectTest < ActionController::TestCase
       get :redirect_to_nil
     end
     assert_equal "Cannot redirect to nil!", error.message
+  end
+
+  def test_redirect_twice_raises_double_render
+    assert_raises(AbstractController::DoubleRenderError) do
+      get :redirect_twice
+    end
+  end
+
+  def test_redirecting_configuration_accessors
+    original_raise = ActionController::Base.raise_on_open_redirects
+    original_open = ActionController::Base.action_on_open_redirect
+    original_path = ActionController::Base.action_on_path_relative_redirect
+    original_allowed = ActionController::Base.allowed_redirect_hosts
+
+    @controller.raise_on_open_redirects = true
+    @controller.action_on_open_redirect = :raise
+    @controller.action_on_path_relative_redirect = :notify
+    ActionController::Base.allowed_redirect_hosts = ["example.org"]
+
+    assert @controller.raise_on_open_redirects
+    assert_equal :raise, @controller.action_on_open_redirect
+    assert_equal :notify, @controller.action_on_path_relative_redirect
+    assert_equal ["example.org"], ActionController::Base._allowed_redirect_hosts
+    assert ActionController::Base.allowed_redirect_hosts_permissions.allows?("example.org")
+  ensure
+    ActionController::Base.raise_on_open_redirects = original_raise
+    ActionController::Base.action_on_open_redirect = original_open
+    ActionController::Base.action_on_path_relative_redirect = original_path
+    ActionController::Base.allowed_redirect_hosts = original_allowed
   end
 
   def test_redirect_to_params
