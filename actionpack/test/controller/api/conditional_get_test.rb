@@ -117,6 +117,17 @@ class ConditionalGetApiTest < ActionController::TestCase
     end
   end
 
+  def test_etaggers_accessors_on_api_controller
+    original_etaggers = ConditionalGetApiController.etaggers
+    custom_etaggers = [ ->(*) { "api" } ]
+
+    ConditionalGetApiController.etaggers = custom_etaggers
+    assert_equal custom_etaggers, ConditionalGetApiController.etaggers
+    assert_equal custom_etaggers, @controller.etaggers
+  ensure
+    ConditionalGetApiController.etaggers = original_etaggers
+  end
+
   private
     def with_strict_freshness(value)
       old_value = ActionDispatch::Http::Cache::Request.strict_freshness

@@ -227,6 +227,17 @@ class TestController < ActionController::Base
   end
   before_action :handle_last_modified_and_etags, only: :conditional_hello_with_bangs
 
+  def conditional_hello_with_last_modified_only
+    fresh_when(last_modified: Time.now.utc.beginning_of_day)
+    render action: "hello_world" unless performed?
+  end
+
+  def conditional_hello_with_existing_date_header
+    response.date = Time.utc(2010, 1, 1)
+    expires_in 1.minute
+    render action: "hello_world"
+  end
+
   def handle_last_modified_and_etags
     fresh_when(last_modified: Time.now.utc.beginning_of_day, etag: [ :foo, 123 ], public: false, cache_control: { no_cache: true, public: true })
   end
@@ -497,6 +508,18 @@ class ExpiresInRenderTest < ActionController::TestCase
     end
   end
 
+  def test_expires_in_preserves_existing_date_header
+    get :conditional_hello_with_existing_date_header
+    assert_equal Time.utc(2010, 1, 1).httpdate, @response.headers["Date"]
+  end
+
+  def test_fresh_when_with_last_modified_only
+    get :conditional_hello_with_last_modified_only
+    assert_response :ok
+    assert_nil @response.etag
+    assert_equal Time.now.utc.beginning_of_day.httpdate, @response.headers["Last-Modified"]
+  end
+
   def test_cache_control_default_header_with_extras_partially_overridden_by_expires_in
     get :cache_control_default_header_with_extras_partially_overridden_by_expires_in
     assert_equal "max-age=300, public, s-maxage=60, proxy-revalidate", @response.headers["Cache-Control"]
@@ -739,6 +762,23 @@ class EtagRenderTest < ActionController::TestCase
       assert_response :ok
       assert_not_equal etag, @response.etag
     end
+  end
+
+  def test_etaggers_accessors_on_class_and_instance
+    original_class_etaggers = @controller.class.etaggers
+    original_instance_etaggers = @controller.etaggers
+    custom_etaggers = [ ->(*) { "custom" } ]
+
+    @controller.class.etaggers = custom_etaggers
+    assert_equal custom_etaggers, @controller.class.etaggers
+    assert_equal custom_etaggers, @controller.etaggers
+
+    @controller.etaggers = []
+    assert_empty @controller.etaggers
+    assert_equal custom_etaggers, @controller.class.etaggers
+  ensure
+    @controller.class.etaggers = original_class_etaggers
+    @controller.etaggers = original_instance_etaggers if defined?(@controller) && @controller
   end
 end
 
