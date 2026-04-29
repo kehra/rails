@@ -42,6 +42,19 @@ module ActiveModel
 
         assert_equal date, type.cast(values_hash_for_multiparameter_assignment)
       end
+
+      def test_multiparameter_helpers
+        type = Type::Date.new
+        values_hash = { 1 => 2000, 2 => 1, 3 => 2 }
+
+        assert_equal ::Date.new(2000, 1, 2), type.cast(values_hash)
+        assert_nil type.cast(1 => 2000)
+        assert_equal ::Date.new(2000, 1, 2), type.assert_valid_value(values_hash)
+        assert_nil type.assert_valid_value("2000-01-02")
+        assert type.value_constructed_by_mass_assignment?(values_hash)
+        assert_not type.value_constructed_by_mass_assignment?("2000-01-02")
+        assert_equal ::Date.new(2000, 1, 2), type.serialize_cast_value(::Date.new(2000, 1, 2))
+      end
     end
   end
 end

@@ -17,6 +17,25 @@ module ActiveModel
           Type::Value.new.as_json
         end
       end
+
+      test "mutable helper casts through serialize and deserialize" do
+        type = Class.new(Type::Value) do
+          include Type::Helpers::Mutable
+
+          def serialize(value)
+            value&.upcase
+          end
+
+          def deserialize(value)
+            value&.downcase
+          end
+        end.new
+
+        assert_predicate type, :mutable?
+        assert_equal "value", type.cast("value")
+        assert_not type.changed_in_place?("VALUE", "value")
+        assert type.changed_in_place?("OLD", "value")
+      end
     end
   end
 end

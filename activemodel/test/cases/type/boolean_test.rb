@@ -8,6 +8,7 @@ module ActiveModel
       def test_type_cast_boolean
         type = Type::Boolean.new
         assert_equal :boolean, type.type
+        assert_not type.mutable?
         assert_nil type.cast("")
         assert_nil type.cast(nil)
 

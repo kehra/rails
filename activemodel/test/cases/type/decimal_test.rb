@@ -16,7 +16,8 @@ module ActiveModel
       def test_type_cast_for_schema
         type = Decimal.new
 
-        assert_equal '"0.12e1"', type.type_cast_for_schema(BigDecimal("1.2"))
+        value = BigDecimal("1.2")
+        assert_equal value.to_s.inspect, type.type_cast_for_schema(value)
       end
 
       def test_type_cast_decimal_from_invalid_string
