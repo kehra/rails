@@ -66,3 +66,36 @@ class ManuallySetStringNameMailerTest < ActionMailer::TestCase
     assert_equal TestTestMailer, self.class.mailer_class
   end
 end
+
+class MailerTestCaseAccessorsTest < ActionMailer::TestCase
+  tests TestTestMailer
+
+  def test_behavior_class_attributes_can_be_reassigned
+    original_decoders = self.class._decoders
+    original_mailer_class = self.class._mailer_class
+    custom_decoders = { Mime[:text] => ->(body) { body.upcase } }
+
+    self.class._decoders = custom_decoders
+    self.class._mailer_class = ActionMailer::Base
+    self._decoders = custom_decoders
+    self._mailer_class = TestTestMailer
+
+    assert_equal custom_decoders, self.class._decoders
+    assert_equal ActionMailer::Base, self.class._mailer_class
+    assert_equal custom_decoders, _decoders
+    assert_equal TestTestMailer, _mailer_class
+  ensure
+    self.class._decoders = original_decoders
+    self.class._mailer_class = original_mailer_class
+  end
+
+  def test_invalid_mailer_specification_raises_non_inferrable_error
+    error = assert_raises(ActionMailer::NonInferrableMailerError) do
+      self.class.tests Object.new
+    end
+
+    assert_match "Unable to determine the mailer to test", error.message
+  ensure
+    self.class.tests TestTestMailer
+  end
+end
