@@ -328,6 +328,19 @@ class LoggingTest < ActiveSupport::TestCase
     end
   end
 
+  def test_enqueue_all_job_logging_some_jobs_report_successfully_enqueued
+    event = { payload: {
+      adapter: "TestAdapter",
+      job_count: 2,
+      enqueued_count: 1,
+      failed_enqueue_count: 0,
+      enqueued_classes: { "LoggingJob" => 1 },
+    } }
+
+    ActiveJob::LogSubscriber.new.bulk_enqueued(event)
+    assert_match(/Enqueued 1 job to TestAdapter \(1 LoggingJob\)/, @logger.messages)
+  end
+
   def test_enqueue_all_job_logging_some_jobs_failed_enqueuing
     EnqueueErrorJob.disable_test_adapter
 
@@ -357,6 +370,43 @@ class LoggingTest < ActiveSupport::TestCase
     assert_match("↳", @logger.messages)
   ensure
     ActiveJob.verbose_enqueue_logs = false
+  end
+
+  def test_verbose_enqueue_logs_when_enqueue_error_is_logged
+    ActiveJob.verbose_enqueue_logs = true
+    EnqueueErrorJob.disable_test_adapter
+
+    EnqueueErrorJob.perform_later
+    assert_match(/Failed enqueuing EnqueueErrorJob/, @logger.messages)
+    assert_match("↳", @logger.messages)
+  ensure
+    ActiveJob.verbose_enqueue_logs = false
+  end
+
+  def test_verbose_enqueue_logs_skips_source_when_backtrace_is_empty
+    ActiveJob.verbose_enqueue_logs = true
+    old_cleaner = ActiveJob::LogSubscriber.backtrace_cleaner
+    ActiveJob::LogSubscriber.backtrace_cleaner = ActiveSupport::BacktraceCleaner.new.tap do |cleaner|
+      cleaner.add_silencer { true }
+    end
+
+    LoggingJob.perform_later "Dummy"
+    assert_match(/Enqueued LoggingJob/, @logger.messages)
+    assert_no_match("↳", @logger.messages)
+  ensure
+    ActiveJob.verbose_enqueue_logs = false
+    ActiveJob::LogSubscriber.backtrace_cleaner = old_cleaner
+  end
+
+  def test_logging_yields_with_logger_without_tagged_support
+    old_logger = ActiveJob::Base.logger
+    ActiveJob::Base.logger = Object.new
+
+    assert_nothing_raised do
+      Class.new(ActiveJob::Base) { def perform; end }.perform_now
+    end
+  ensure
+    ActiveJob::Base.logger = old_logger
   end
 
   def test_verbose_enqueue_logs_disabled_by_default

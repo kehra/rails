@@ -124,6 +124,21 @@ module ActiveJob
         assert event[:payload][:job_id].present?
         assert event[:payload][:scheduled_at].present?
       end
+
+      def test_enqueue_at_job_with_log_arguments_false
+        TestJob.log_arguments = false
+        event = assert_event_reported("active_job.enqueued_at", payload: {
+          job_class: TestJob.name,
+          adapter: ActiveJob.adapter_name(ActiveJob::Base.queue_adapter),
+          queue: "default",
+        }) do
+          TestJob.set(wait_until: 1.hour.from_now).perform_later("test_arg")
+        end
+
+        assert_not event[:payload].key?(:arguments)
+      ensure
+        TestJob.log_arguments = true
+      end
     end
 
     def test_perform_start_job
