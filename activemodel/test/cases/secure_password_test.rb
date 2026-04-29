@@ -382,6 +382,54 @@ class SecurePasswordTest < ActiveModel::TestCase
     assert_equal 1.hour, @slow_pilot.password_reset_token_expires_in
   end
 
+  test "password reset token can be disabled" do
+    klass = Class.new do
+      include ActiveModel::SecurePassword
+
+      attr_accessor :password_digest
+
+      has_secure_password reset_token: false
+    end
+
+    user = klass.new
+    user.password = "secret"
+
+    assert_not_respond_to user, :password_reset_token
+    assert_equal :bcrypt, user.password_algorithm
+  end
+
+  test "password reset token purpose uses the password salt" do
+    algorithm = Class.new do
+      def hash_password(unencrypted_password) = "hashed-#{unencrypted_password}"
+      def verify_password(password, digest) = digest == "hashed-#{password}"
+      def password_salt(_digest) = ("a".."z").to_a
+      def validate(_record, _attribute) = nil
+      def algorithm_name = :token_test
+    end.new
+
+    klass = Class.new do
+      include ActiveModel::Attributes
+      include ActiveModel::SecurePassword
+
+      class << self
+        attr_reader :token_block
+      end
+
+      def self.generates_token_for(_purpose, expires_in: nil, &block)
+        @token_block = block
+      end
+
+      attribute :password_digest
+      has_secure_password algorithm: algorithm
+    end
+
+    user = klass.new
+    assert_nil user.instance_exec(&klass.token_block)
+
+    user.password = "secret"
+    assert_equal user.password_salt.last(10), user.instance_exec(&klass.token_block)
+  end
+
   test "password algorithm defaults to bcrypt" do
     assert_equal :bcrypt, @user.password_algorithm
   end
@@ -455,6 +503,14 @@ class SecurePasswordArgon2Test < ActiveModel::TestCase
     assert_equal @argonaut, @argonaut.authenticate("secret")
     assert_equal false, @argonaut.authenticate("wrong")
     assert_equal :argon2, @argonaut.password_algorithm
+  end
+
+  test "argon2 digest honors default cost profile when min_cost is false" do
+    ActiveModel::SecurePassword.min_cost = false
+
+    @argonaut.password = "secret"
+    assert_match(/\A\$argon2/, @argonaut.password_digest)
+    assert_equal @argonaut, @argonaut.authenticate("secret")
   end
 
   test "argon2 password salt extraction" do
