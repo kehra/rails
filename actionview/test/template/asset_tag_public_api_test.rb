@@ -39,8 +39,11 @@ class AssetTagPublicApiTest < ActionView::TestCase
 
   def setup
     super
+    @controller = BasicController.new
     @request = FakeRequest.new
     @response = FakeResponse.new
+    @controller.request = @request
+    @controller.response = @response
   end
 
   def url_for(*) = "http://example.com/feed"
@@ -87,5 +90,31 @@ class AssetTagPublicApiTest < ActionView::TestCase
     assert_includes picture_tag { tag(:source, srcset: "/manual.webp") }, '<source srcset="/manual.webp" />'
 
     assert_includes video_tag("clip.mp4", size: "10x20", poster: "poster.png"), 'poster="/images/poster.png"'
+  end
+
+  test "asset url helpers cover skip pipeline roots and custom hosts" do
+    @controller.config.relative_url_root = "/assets_root"
+
+    assert_equal "/assets_root/javascripts/app.js", asset_path("app", type: :javascript, skip_pipeline: true)
+    assert_equal "/assets_root/logo.png", asset_path("/logo.png")
+    assert_equal "/assets_root/logo.png", asset_path("/assets_root/logo.png")
+
+    hoster = Class.new do
+      def call(_source, _request = nil)
+        "cdn.example.com"
+      end
+    end.new
+
+    assert_equal "https://cdn.example.com", compute_asset_host("/logo.png", host: hoster, protocol: "https")
+
+    @controller.config.default_asset_host_protocol = "https"
+    assert_equal "https://assets.example.com", compute_asset_host("/logo.png", host: "assets.example.com")
+
+    @controller.config.default_asset_host_protocol = nil
+    @request = nil
+    assert_equal "//assets.example.com", compute_asset_host("/logo.png", host: "assets.example.com")
+  ensure
+    @controller.config.relative_url_root = nil
+    @controller.config.default_asset_host_protocol = nil
   end
 end
