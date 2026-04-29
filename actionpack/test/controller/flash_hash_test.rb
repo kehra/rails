@@ -40,6 +40,46 @@ module ActionDispatch
       assert_not @hash.key?(:bar)
     end
 
+    def test_notice_and_alert_accessors
+      @hash.notice = "Saved"
+      @hash.alert = "Careful"
+
+      assert_equal "Saved", @hash.notice
+      assert_equal "Careful", @hash.alert
+      assert_equal "Saved", @hash[:notice]
+      assert_equal "Careful", @hash[:alert]
+    end
+
+    def test_flash_new_is_middleware_noop
+      app = Object.new
+
+      assert_same app, ActionDispatch::Flash.new(app)
+    end
+
+    def test_request_flash_writer_and_reader_store_flash_hash
+      request = ActionDispatch::Request.empty
+      flash = Flash::FlashHash.new("notice" => "Saved")
+
+      request.flash = flash
+
+      assert_same flash, request.flash
+    end
+
+    def test_request_flash_reader_builds_from_session_value
+      request = ActionDispatch::Request.empty
+      request.set_header Rack::RACK_SESSION, { "flash" => { "flashes" => { "notice" => "Saved", "alert" => "Drop" }, "discard" => ["alert"] } }
+
+      assert_equal({ "notice" => "Saved" }, request.flash.to_hash)
+      assert_same request.flash, request.flash
+    end
+
+    def test_request_flash_reader_builds_empty_hash_without_session_value
+      request = ActionDispatch::Request.empty
+
+      assert_instance_of Flash::FlashHash, request.flash
+      assert_empty request.flash
+    end
+
     def test_delete
       @hash["foo"] = "bar"
       @hash.delete "foo"
