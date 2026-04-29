@@ -13,6 +13,52 @@ module ActionMailbox
       assert_equal file_fixture("welcome.eml").read, create_inbound_email_from_fixture("welcome.eml").source
     end
 
+    test "status enum predicates, transitions, scopes, and processed state" do
+      statuses = %w[ pending processing delivered failed bounced ]
+      inbound_emails = statuses.index_with do |status|
+        create_inbound_email_from_mail(status: status, from: "sender-#{status}@example.com", to: "receiver@example.com", subject: "#{status} message")
+      end
+
+      assert inbound_emails["pending"].pending?
+      assert inbound_emails["processing"].processing?
+      assert inbound_emails["delivered"].delivered?
+      assert inbound_emails["failed"].failed?
+      assert inbound_emails["bounced"].bounced?
+
+      assert_not inbound_emails["pending"].processed?
+      assert_not inbound_emails["processing"].processed?
+      assert inbound_emails["delivered"].processed?
+      assert inbound_emails["failed"].processed?
+      assert inbound_emails["bounced"].processed?
+
+      assert_includes ActionMailbox::InboundEmail.pending, inbound_emails["pending"]
+      assert_includes ActionMailbox::InboundEmail.processing, inbound_emails["processing"]
+      assert_includes ActionMailbox::InboundEmail.delivered, inbound_emails["delivered"]
+      assert_includes ActionMailbox::InboundEmail.failed, inbound_emails["failed"]
+      assert_includes ActionMailbox::InboundEmail.bounced, inbound_emails["bounced"]
+
+      inbound_email = inbound_emails["pending"]
+      inbound_email.processing!
+      assert inbound_email.processing?
+      inbound_email.delivered!
+      assert inbound_email.delivered?
+      inbound_email.failed!
+      assert inbound_email.failed?
+      inbound_email.bounced!
+      assert inbound_email.bounced?
+      inbound_email.pending!
+      assert inbound_email.pending?
+    end
+
+    test "raw_email is stored as an rfc822 attachment" do
+      inbound_email = create_inbound_email_from_fixture("welcome.eml")
+
+      assert inbound_email.raw_email.attached?
+      assert_equal "message.eml", inbound_email.raw_email.filename.to_s
+      assert_equal "message/rfc822", inbound_email.raw_email.content_type
+      assert_equal file_fixture("welcome.eml").read, inbound_email.raw_email.download
+    end
+
     test "email with message id is processed only once when received multiple times" do
       mail = Mail.from_source(file_fixture("welcome.eml").read)
       assert mail.message_id
