@@ -56,6 +56,24 @@ module ActionDispatch
       assert_equal "UTF-8", uf.headers.encoding.to_s
     end
 
+    def test_accessor_writers
+      tf = Tempfile.new
+      replacement = Tempfile.new
+      uf = Http::UploadedFile.new(tempfile: tf)
+
+      uf.original_filename = "renamed.txt"
+      uf.content_type = "text/plain"
+      uf.headers = "Content-Disposition: form-data"
+      uf.tempfile = replacement
+
+      assert_equal "renamed.txt", uf.original_filename
+      assert_equal "text/plain", uf.content_type
+      assert_equal "Content-Disposition: form-data", uf.headers
+      assert_equal replacement, uf.tempfile
+    ensure
+      replacement&.close!
+    end
+
     def test_tempfile
       tf = Tempfile.new
       uf = Http::UploadedFile.new(tempfile: tf)
@@ -112,6 +130,17 @@ module ActionDispatch
       uf = Http::UploadedFile.new(tempfile: tf)
       assert_equal "thunder", uf.read(7)
       assert_equal "horse",   uf.read(5, String.new)
+    end
+
+    def test_delegates_rewind_and_size_to_tempfile
+      tf = Tempfile.new
+      tf << "thunderhorse"
+      uf = Http::UploadedFile.new(tempfile: tf)
+
+      assert_equal 12, uf.size
+      assert_equal 12, tf.pos
+      assert_equal 0, uf.rewind
+      assert_equal 0, tf.pos
     end
 
     def test_delegate_eof_to_tempfile
