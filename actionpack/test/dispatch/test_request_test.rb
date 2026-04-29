@@ -54,6 +54,24 @@ class TestRequestTest < ActiveSupport::TestCase
     assert_equal false, req.env.empty?
   end
 
+  test "merges application env config when application is present" do
+    app = Object.new
+    def app.env_config
+      { "action_dispatch.custom" => "configured" }
+    end
+
+    Rails.stub(:application, app) do
+      req = ActionDispatch::TestRequest.create({ "HTTP_HOST" => "configured.example" })
+      assert_equal "configured", req.env["action_dispatch.custom"]
+      assert_equal "configured.example", req.host
+    end
+  end
+
+  test "default env is private but available to create" do
+    assert_raises(NoMethodError) { ActionDispatch::TestRequest.default_env }
+    assert_equal ActionDispatch::TestRequest::DEFAULT_ENV, ActionDispatch::TestRequest.send(:default_env)
+  end
+
   test "default remote address is 0.0.0.0" do
     req = ActionDispatch::TestRequest.create({})
     assert_equal "0.0.0.0", req.remote_addr
@@ -89,6 +107,22 @@ class TestRequestTest < ActiveSupport::TestCase
     req.request_method # to reproduce bug caused by memoization
     req.request_method = "POST"
     assert_equal "POST", req.request_method
+  end
+
+  test "action setter stores stringified path parameter" do
+    req = ActionDispatch::TestRequest.create
+    req.action = :show
+    assert_equal "show", req.path_parameters[:action]
+  end
+
+  test "accept setter joins mime type arrays" do
+    req = ActionDispatch::TestRequest.create
+    req.set_header("action_dispatch.request.accepts", [Mime[:html]])
+
+    req.accept = [Mime[:html], Mime[:json]]
+
+    assert_nil req.get_header("action_dispatch.request.accepts")
+    assert_equal "text/html,application/json", req.get_header("HTTP_ACCEPT")
   end
 
   test "setter methods work and do not change Rack SPEC conformity" do
