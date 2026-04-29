@@ -67,5 +67,28 @@ module ActiveRecord
       end
       assert_match(/structurally compatible/, error.message)
     end
+
+    test "or with none composes with a normal relation and preserves later where clauses" do
+      author = authors(:david)
+      post = posts(:welcome)
+      empty = Post.none
+      normal = Post.where(id: post.id)
+      relation = empty.or(normal).where(author_id: author.id)
+
+      assert_equal [post], relation.to_a
+      assert_empty empty.to_a
+      assert_equal [post], normal.to_a
+    end
+
+    test "where with subquery and merge keeps the subquery predicate" do
+      author = authors(:david)
+      post = posts(:welcome)
+      subquery = Post.where(author_id: author.id).select(:id)
+      relation = Post.where(id: subquery).merge(Post.where(title: post.title))
+
+      assert_equal [post], relation.to_a
+      assert_equal Post.where(author_id: author.id).order(:id).ids, subquery.reorder(:id).ids
+      assert_match(/SELECT/i, relation.to_sql)
+    end
   end
 end
