@@ -45,13 +45,20 @@ class WorkerTest < ActionCable::TestCase
   end
 
   test "with_database_connections tags Active Record logger" do
-    active_record = Module.new
-    base = Class.new
+    previous_active_record = Object.const_get(:ActiveRecord) if Object.const_defined?(:ActiveRecord)
     logger = ActiveSupport::TaggedLogging.new(ActiveSupport::Logger.new(StringIO.new))
-    base.define_singleton_method(:logger) { logger }
-    active_record.const_set(:Base, base)
 
-    Object.const_set(:ActiveRecord, active_record)
+    if previous_active_record
+      previous_logger = ActiveRecord::Base.logger
+      ActiveRecord::Base.logger = logger
+    else
+      active_record = Module.new
+      base = Class.new
+      base.define_singleton_method(:logger) { logger }
+      active_record.const_set(:Base, base)
+      Object.const_set(:ActiveRecord, active_record)
+    end
+
     @worker.connection = @receiver.connection
 
     called = false
@@ -60,6 +67,11 @@ class WorkerTest < ActionCable::TestCase
     assert called
   ensure
     @worker.connection = nil
-    Object.send(:remove_const, :ActiveRecord) if Object.const_defined?(:ActiveRecord)
+
+    if defined?(previous_active_record) && previous_active_record
+      ActiveRecord::Base.logger = previous_logger
+    elsif Object.const_defined?(:ActiveRecord)
+      Object.send(:remove_const, :ActiveRecord)
+    end
   end
 end
