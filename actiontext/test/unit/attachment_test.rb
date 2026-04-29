@@ -41,6 +41,27 @@ class ActionText::AttachmentTest < ActiveSupport::TestCase
     assert_equal attachable.to_param, attachment.to_param
   end
 
+  test "cache key includes attachment digest and attachable cache key" do
+    attachment = ActionText::Attachment.from_attachable(attachable, caption: "Captioned")
+
+    assert_includes attachment.cache_key, "ActionText::Attachment/"
+    assert_includes attachment.cache_key, attachable.cache_key
+    assert_not_equal attachment.cache_key, ActionText::Attachment.from_attachable(attachable, caption: "Other").cache_key
+  end
+
+  test "converts deprecated trix attachment class methods" do
+    trix_attachment = ActionText::TrixAttachment.from_attributes("sgid" => attachable.attachable_sgid, "caption" => "Captioned")
+
+    attachment = assert_deprecated(ActionText.deprecator) { ActionText::Attachment.from_trix_attachment(trix_attachment) }
+    assert_equal attachable, attachment.attachable
+    assert_equal "Captioned", attachment.caption
+
+    fragment = assert_deprecated(ActionText.deprecator) do
+      ActionText::Attachment.fragment_by_converting_trix_attachments(trix_attachment.to_html)
+    end
+    assert_equal 1, fragment.find_all(ActionText::Attachment.tag_name).size
+  end
+
   test "converts to TrixAttachment" do
     attachment = attachment_from_html(%Q(<action-text-attachment sgid="#{attachable.attachable_sgid}" caption="Captioned"></action-text-attachment>))
 
