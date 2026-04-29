@@ -151,6 +151,33 @@ class DebugExceptionsTest < ActionDispatch::IntegrationTest
   BadInterceptedApp = build_app(Boomer.new(true), RoutesApp, :default, [BadInterceptor])
   ApiApp = build_app(Boomer.new(true), RoutesApp, :api)
 
+  test "register_interceptor appends object and block interceptors" do
+    original_interceptors = ActionDispatch::DebugExceptions.interceptors.dup
+    object_interceptor = proc { |_request, _exception| }
+
+    ActionDispatch::DebugExceptions.register_interceptor(object_interceptor)
+    ActionDispatch::DebugExceptions.register_interceptor { |_request, _exception| }
+
+    assert_same object_interceptor, ActionDispatch::DebugExceptions.interceptors[-2]
+    assert_respond_to ActionDispatch::DebugExceptions.interceptors[-1], :call
+  ensure
+    ActionDispatch::DebugExceptions.interceptors.replace(original_interceptors)
+  end
+
+  test "returns normal app response unchanged" do
+    app = ActionDispatch::DebugExceptions.new(lambda { |_env| [200, {}, ["ok"]] })
+
+    assert_equal [200, {}, ["ok"]], app.call(Rack::MockRequest.env_for("/"))
+  end
+
+  test "raises routing error on cascade pass without closeable body" do
+    app = ActionDispatch::DebugExceptions.new(lambda { |_env| [404, { ActionDispatch::Constants::X_CASCADE => "pass" }, []] })
+
+    assert_raise(ActionController::RoutingError) do
+      app.call(Rack::MockRequest.env_for("/pass", method: "GET"))
+    end
+  end
+
   test "skip diagnosis if not showing detailed exceptions" do
     @app = ProductionApp
     assert_raise RuntimeError do
