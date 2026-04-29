@@ -3,6 +3,13 @@
 require "test_helper"
 
 class ActionTextTest < ActiveSupport::TestCase
+  test "version APIs return gem version" do
+    expected = Gem::Version.new(ActionText::VERSION::STRING)
+
+    assert_equal expected, ActionText.gem_version
+    assert_equal ActionText.gem_version, ActionText.version
+  end
+
   test "engine exposes default action text configuration" do
     config = Rails.application.config.action_text
 
