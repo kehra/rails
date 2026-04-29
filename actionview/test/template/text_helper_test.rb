@@ -18,6 +18,18 @@ class TextHelperTest < ActionView::TestCase
     assert_equal "foobar", output_buffer
   end
 
+  def test_safe_concat_uses_safe_concat_when_output_buffer_supports_it
+    self.output_buffer = ActionView::OutputBuffer.new("foo")
+    assert_equal "foobar", safe_concat("bar").to_s
+    assert_equal "foobar", output_buffer.to_s
+  end
+
+  def test_safe_concat_falls_back_to_concat
+    self.output_buffer = +"foo"
+    assert_equal "foobar", safe_concat("bar")
+    assert_equal "foobar", output_buffer
+  end
+
   def test_simple_format_should_be_html_safe
     assert_predicate simple_format("<b> test with HTML tags </b>"), :html_safe?
   end
@@ -97,6 +109,7 @@ class TextHelperTest < ActionView::TestCase
   end
 
   def test_truncate
+    assert_nil truncate(nil)
     assert_equal "Hello World!", truncate("Hello World!", length: 12)
     assert_equal "Hello Wor...", truncate("Hello World!!", length: 12)
   end
@@ -290,6 +303,8 @@ class TextHelperTest < ActionView::TestCase
   end
 
   def test_excerpt
+    assert_nil excerpt(nil, "beautiful")
+    assert_nil excerpt("This is a beautiful morning", nil)
     assert_equal("...is a beautiful morn...", excerpt("This is a beautiful morning", "beautiful", radius: 5))
     assert_equal("This is a...", excerpt("This is a beautiful morning", "this", radius: 5))
     assert_equal("...iful morning", excerpt("This is a beautiful morning", "morning", radius: 5))
@@ -472,6 +487,16 @@ class TextHelperTest < ActionView::TestCase
 
   def test_cycle_with_no_arguments
     assert_raise(ArgumentError) { cycle }
+  end
+
+  def test_cycle_sets_new_cycle_when_cycle_hash_already_exists
+    @_cycles = {}
+    assert_equal("one", cycle("one", "two"))
+  end
+
+  def test_cycle_initializes_cycle_hash_when_instance_variable_is_undefined
+    helper = Class.new { include ActionView::Helpers::TextHelper }.new
+    assert_equal("one", helper.cycle("one", "two"))
   end
 
   def test_cycle_resets_with_new_values
