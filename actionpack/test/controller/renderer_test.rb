@@ -94,6 +94,21 @@ class RendererTest < ActiveSupport::TestCase
     assert_equal value, content
   end
 
+  test "rendering with custom http host uses the renderer env without route defaults" do
+    renderer = ApplicationController.renderer.new http_host: "custom.example.com"
+
+    assert_equal "http://custom.example.com/posts", renderer.render(inline: "<%= full_url_for(controller: :posts) %>")
+  end
+
+  test "normalize_env fills rack defaults for http hosts" do
+    env = ActionController::Renderer.normalize_env(http_host: "example.com")
+
+    assert_equal "example.com", env["HTTP_HOST"]
+    assert_equal "off", env["HTTPS"]
+    assert_equal "", env["SCRIPT_NAME"]
+    assert_equal "http", env["rack.url_scheme"]
+  end
+
   test "rendering with defaults" do
     renderer = ApplicationController.renderer.new https: true
     content = renderer.render inline: "<%= request.ssl? %>"
