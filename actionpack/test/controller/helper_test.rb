@@ -208,6 +208,36 @@ class HelperTest < ActiveSupport::TestCase
     assert_equal replacement_methods, controller._helper_methods
   end
 
+  def test_action_controller_helper_configuration_accessors
+    original_global_helpers_path = ActionController::Helpers.helpers_path
+    original_class_helpers_path = @controller_class.helpers_path
+    original_class_include_all_helpers = @controller_class.include_all_helpers
+
+    ActionController::Helpers.helpers_path = ["/tmp/global_helpers"]
+    assert_equal ["/tmp/global_helpers"], ActionController::Helpers.helpers_path
+
+    @controller_class.helpers_path = ["/tmp/controller_helpers"]
+    assert_equal ["/tmp/controller_helpers"], @controller_class.helpers_path
+    assert_equal ["/tmp/controller_helpers"], @controller_class.new.helpers_path
+
+    @controller_class.include_all_helpers = false
+    assert_not @controller_class.include_all_helpers
+    assert_not @controller_class.new.include_all_helpers
+
+    controller = @controller_class.new
+    controller.helpers_path = ["/tmp/instance_helpers"]
+    controller.include_all_helpers = true
+
+    assert_equal ["/tmp/instance_helpers"], controller.helpers_path
+    assert controller.include_all_helpers
+    assert_equal ["/tmp/controller_helpers"], @controller_class.helpers_path
+    assert_not @controller_class.include_all_helpers
+  ensure
+    ActionController::Helpers.helpers_path = original_global_helpers_path
+    @controller_class.helpers_path = original_class_helpers_path if defined?(@controller_class) && @controller_class
+    @controller_class.include_all_helpers = original_class_include_all_helpers if defined?(@controller_class) && @controller_class
+  end
+
   def test_helper_ignores_modules_already_included
     @controller_class.helper LocalAbcHelper
     helper_count = @controller_class._helpers.ancestors.count(LocalAbcHelper)
