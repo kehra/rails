@@ -45,6 +45,13 @@ module ActiveModel
         assert_equal type.serialize(value), type.serialize_cast_value(value)
         assert_equal type.serialize(-value), type.serialize_cast_value(-value)
       end
+
+      test "all values are serializable" do
+        type = Type::BigInteger.new
+
+        assert type.serializable?(9999999999999999999999999999999)
+        assert type.serializable?("not a number")
+      end
     end
   end
 end
