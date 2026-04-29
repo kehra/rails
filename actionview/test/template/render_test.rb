@@ -460,6 +460,25 @@ module RenderTestCases
     assert_equal "Hello: davidHello: mary", @view.render(partial: "test/customer", collection: customers)
   end
 
+  def test_render_partial_collection_preloads_relation_collection
+    customers = Class.new(Array) do
+      attr_reader :preloaded_collection
+
+      def loaded? = false
+      def skip_preloading! = @skip_preloading = true
+      def skip_preloading? = @skip_preloading
+      def preload_associations(collection) = @preloaded_collection = collection
+    end.new([ Customer.new("david"), Customer.new("mary") ])
+
+    assert_equal "Hello: davidHello: mary", @view.render(partial: "test/customer", collection: customers)
+    assert_predicate customers, :skip_preloading?
+    assert_equal customers, customers.preloaded_collection
+  end
+
+  def test_render_partial_collection_uses_spacer_template
+    assert_equal "Hello: david|Hello: mary", @view.render(partial: "test/customer", collection: [ Customer.new("david"), Customer.new("mary") ], spacer_template: "test/spacer")
+  end
+
   def test_without_compiled_method_container_is_deprecated
     view = ActionView::Base.with_view_paths(ActionController::Base.view_paths)
     assert_raises(NotImplementedError) do
