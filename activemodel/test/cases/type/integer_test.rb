@@ -8,6 +8,7 @@ module ActiveModel
     class IntegerTest < ActiveModel::TestCase
       test "simple values" do
         type = Type::Integer.new
+        assert_equal :integer, type.type
         assert_nil type.cast("")
         assert_equal 1, type.cast(1)
         assert_equal 1, type.cast("1")
@@ -53,6 +54,8 @@ module ActiveModel
       test "casting string for database" do
         type = Type::Integer.new
         assert_nil type.serialize("wibble")
+        assert_equal 0, type.serialize("0")
+        assert_equal 0, type.serialize("0wibble")
         assert_equal 5, type.serialize("5wibble")
         assert_equal 5, type.serialize(" +5")
         assert_equal(-5, type.serialize(" -5"))
@@ -63,6 +66,23 @@ module ActiveModel
         assert_nil type.cast("")
         assert_nil type.serialize("")
         assert_nil type.deserialize("")
+        assert_equal 5, type.deserialize("5")
+      end
+
+      test "serializable reports out of range values" do
+        type = Integer.new
+        yielded = nil
+
+        assert type.serializable?("5")
+        assert_not type.serializable?(2147483648) { |value| yielded = value }
+        assert_equal 2147483648, yielded
+        assert_not type.serializable?(2147483648)
+      end
+
+      test "serialize_cast_value returns in range values" do
+        type = Integer.new
+
+        assert_equal 42, type.serialize_cast_value(42)
       end
 
       test "changed?" do
