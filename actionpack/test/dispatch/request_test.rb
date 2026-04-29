@@ -1274,6 +1274,15 @@ class RequestParameterFilter < BaseRequestTest
     assert_equal "1", params["step"]
   end
 
+  test "filtered_parameters returns an empty hash when parameter parsing fails" do
+    request = stub_request("action_dispatch.parameter_filter" => [:secret])
+    request.define_singleton_method(:parameters) do
+      raise ActionDispatch::Http::Parameters::ParseError, "invalid params"
+    end
+
+    assert_equal({}, request.filtered_parameters)
+  end
+
   test "filtered_env filters env as a whole" do
     request = stub_request(
       "action_dispatch.request.parameters" => {
@@ -1290,6 +1299,14 @@ class RequestParameterFilter < BaseRequestTest
     assert_equal "1", request.params["step"]
   end
 
+  test "filtered_env uses the null env filter when no parameter filter is configured" do
+    request = stub_request("RAW_POST_DATA" => "yada yada", "rack.request.form_vars" => "secret=1")
+    filtered_env = request.filtered_env
+
+    assert_equal "[FILTERED]", filtered_env["RAW_POST_DATA"]
+    assert_equal "[FILTERED]", filtered_env["rack.request.form_vars"]
+  end
+
   test "filtered_path returns path with filtered query string" do
     %w(; &).each do |sep|
       request = stub_request(
@@ -1301,6 +1318,18 @@ class RequestParameterFilter < BaseRequestTest
       path = request.filtered_path
       assert_equal %w(/authenticate?username=sikachu secret=[FILTERED] api_key=[FILTERED]).join(sep), path
     end
+  end
+
+  test "filtered_path returns path when query string is empty" do
+    request = stub_request("PATH_INFO" => "/authenticate")
+
+    assert_equal request.script_name + "/authenticate", request.filtered_path
+  end
+
+  test "parameter_filter uses null filter when no parameter filter is configured" do
+    request = stub_request
+
+    assert_equal({ "secret" => "value" }, request.parameter_filter.filter("secret" => "value"))
   end
 
   test "filtered_path should not unescape a genuine '[FILTERED]' value" do
