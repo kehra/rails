@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "abstract_unit"
+require "action_view/template/types"
 require "tempfile"
 
 class TemplateWrapperPublicApiTest < ActiveSupport::TestCase
@@ -83,5 +84,43 @@ class TemplateWrapperPublicApiTest < ActiveSupport::TestCase
     assert_raises(NoMethodError) do
       ActionView::Template::Renderable.new(BrokenRenderable.new).render(Object.new)
     end
+  end
+
+  test "text template returns the original string as text" do
+    template = ActionView::Template::Text.new("plain text")
+
+    assert_equal :text, template.format
+    assert_equal "text template", template.identifier
+    assert_equal "text template", template.inspect
+    assert_equal "plain text", template.to_str
+    assert_equal "plain text", template.render
+  end
+
+  test "template source file reads binary contents" do
+    file = Tempfile.new("action_view_source")
+    file.binmode
+    file.write("source bytes")
+    file.close
+
+    source = ActionView::Template::Sources::File.new(file.path)
+
+    assert_equal "source bytes", source.to_s
+  ensure
+    file&.close!
+  end
+
+  test "simple type supports lookup coercion string conversion and equality" do
+    html = ActionView::Template::SimpleType[:html]
+
+    assert_same html, ActionView::Template::SimpleType[html]
+    assert_equal :html, html.ref
+    assert_equal :html, html.to_sym
+    assert_equal "html", html.to_s
+    assert_equal "html", html.to_str
+    assert_equal html, :html
+    assert_not_equal html, :json
+    assert_not_equal html, nil
+    assert ActionView::Template::SimpleType.valid_symbols?([:html, :text])
+    assert_not ActionView::Template::SimpleType.valid_symbols?([:html, :unknown])
   end
 end
