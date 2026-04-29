@@ -50,6 +50,52 @@ class TemplateErrorTest < ActiveSupport::TestCase
 
     assert_equal [], error.annotated_source_code
   end
+
+  def test_source_extract_returns_empty_array_when_reported_line_is_outside_source
+    template = Class.new do
+      def identifier = "out_of_range.html.erb"
+      def encode! = "only one line"
+    end.new
+
+    error = begin
+      raise RuntimeError, "out_of_range.html.erb:99: boom"
+    rescue RuntimeError
+      ActionView::Template::Error.new(template)
+    end
+
+    assert_equal 99, error.line_number.to_i
+    assert_equal [], error.source_extract
+  end
+
+  def test_line_number_is_nil_without_file_name
+    template = Class.new do
+      def identifier = nil
+      def encode! = "source"
+    end.new
+
+    error = begin
+      raise RuntimeError, "boom"
+    rescue RuntimeError
+      ActionView::Template::Error.new(template)
+    end
+
+    assert_nil error.file_name
+    assert_nil error.line_number
+    assert_equal [], error.annotated_source_code
+  end
+
+  def test_syntax_error_in_inline_template_message_points_to_offending_code
+    handler = ActionView::Template.handler_for_extension(:erb)
+    template = ActionView::Template::Inline.new("<% bad ruby %>", "inline template", handler, locals: [], format: :html)
+    error = begin
+      raise SyntaxError, "unexpected token"
+    rescue SyntaxError
+      ActionView::SyntaxErrorInTemplate.new(template, "<% bad ruby %>")
+    end
+
+    assert_match "Encountered a syntax error while rendering template: check <% bad ruby %>", error.message
+    assert_equal ["1:    <% bad ruby %>"], error.annotated_source_code
+  end
 end
 
 class MissingTemplatePublicContractTest < ActiveSupport::TestCase
