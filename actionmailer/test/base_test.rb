@@ -1195,7 +1195,15 @@ class BasePreviewInterceptorsTest < ActiveSupport::TestCase
 end
 
 class PreviewTest < ActiveSupport::TestCase
-  class A < ActionMailer::Preview; end
+  class A < ActionMailer::Preview
+    def welcome
+      BaseMailer.welcome
+    end
+
+    def goodbye
+      BaseMailer.welcome
+    end
+  end
 
   module B
     class A < ActionMailer::Preview; end
@@ -1208,6 +1216,29 @@ class PreviewTest < ActiveSupport::TestCase
     ActionMailer::Preview.stub(:descendants, [C, A, B::C, B::A]) do
       mailers = ActionMailer::Preview.all
       assert_equal [A, B::A, B::C, C], mailers
+    end
+  end
+
+  test "all() loads previews when descendants are empty" do
+    original_preview_paths = ActionMailer::Base.preview_paths
+    ActionMailer::Base.preview_paths = []
+
+    ActionMailer::Preview.stub(:descendants, []) do
+      assert_empty ActionMailer::Preview.all
+    end
+  ensure
+    ActionMailer::Base.preview_paths = original_preview_paths
+  end
+
+  test "preview discovery helpers use underscored preview names" do
+    ActionMailer::Preview.stub(:descendants, [A, B::A]) do
+      assert_equal ["goodbye", "welcome"], A.emails
+      assert A.email_exists?("welcome")
+      assert_not A.email_exists?("missing")
+      assert_equal "preview_test/a", A.preview_name
+      assert ActionMailer::Preview.exists?("preview_test/a")
+      assert_equal A, ActionMailer::Preview.find("preview_test/a")
+      assert_nil ActionMailer::Preview.find("missing")
     end
   end
 end
