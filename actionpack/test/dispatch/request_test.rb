@@ -940,6 +940,14 @@ class RequestFormat < BaseRequestTest
     assert_equal [Mime[:js]], request.formats
   end
 
+  test "should_apply_vary_header? reflects accept-header negotiation" do
+    request = stub_request "HTTP_ACCEPT" => "application/json", "QUERY_STRING" => ""
+    assert_predicate request, :should_apply_vary_header?
+
+    request = stub_request "HTTP_ACCEPT" => "application/json", "QUERY_STRING" => "format=json"
+    assert_not_predicate request, :should_apply_vary_header?
+  end
+
   test "formats application/xml with accept header" do
     request = stub_request("CONTENT_TYPE" => "application/xml; charset=UTF-8",
                            "HTTP_X_REQUESTED_WITH" => "XMLHttpRequest")
@@ -1038,6 +1046,36 @@ class RequestFormat < BaseRequestTest
     end
   end
 
+  test "format writer stores the requested extension" do
+    request = stub_request
+
+    request.format = :json
+
+    assert_equal "json", request.parameters[:format]
+    assert_equal Mime[:json], request.format
+  end
+
+  test "formats writer stores ordered requested extensions" do
+    request = stub_request
+
+    request.formats = [:json, :html]
+
+    assert_equal "json", request.parameters[:format]
+    assert_equal [Mime[:json], Mime[:html]], request.formats
+  end
+
+  test "ignore_accept_header instance accessors delegate to request class setting" do
+    old_ignore_accept_header = ActionDispatch::Request.ignore_accept_header
+    request = stub_request
+
+    request.ignore_accept_header = true
+
+    assert_equal true, request.ignore_accept_header
+    assert_equal true, ActionDispatch::Request.ignore_accept_header
+  ensure
+    ActionDispatch::Request.ignore_accept_header = old_ignore_accept_header
+  end
+
   test "format taken from the path extension" do
     request = stub_request "PATH_INFO" => "/foo.xml", "QUERY_STRING" => ""
 
@@ -1111,6 +1149,19 @@ class RequestMimeType < BaseRequestTest
     assert_nil request.negotiate_mime([Mime[:xml], Mime[:json]])
     assert_equal Mime[:html], request.negotiate_mime([Mime[:xml], Mime[:html]])
     assert_equal Mime[:html], request.negotiate_mime([Mime[:xml], Mime::ALL])
+  end
+
+  test "negotiate_mime returns the first offered format when request accepts all" do
+    request = stub_request
+    request.set_header "action_dispatch.request.formats", [Mime::ALL]
+
+    assert_equal Mime[:json], request.negotiate_mime([Mime[:json], Mime[:xml]])
+  end
+
+  test "negotiate_mime falls back to request format when order accepts all" do
+    request = stub_request("QUERY_STRING" => "format=json")
+
+    assert_equal Mime[:json], request.negotiate_mime([Mime::ALL])
   end
 
   test "negotiate_mime with content_type" do
