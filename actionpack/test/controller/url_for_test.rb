@@ -617,6 +617,71 @@ module AbstractController
         end
       end
 
+      def test_url_for_dispatches_non_hash_option_types
+        with_routing do |set|
+          set.draw do
+            root to: "index#index"
+            resources :posts
+            direct(:postable) { |post| route_for(:post, post) }
+          end
+
+          post_class = Class.new do
+            extend ActiveModel::Naming
+            include ActiveModel::Conversion
+
+            attr_reader :id
+
+            def initialize(id = nil)
+              @id = id
+            end
+
+            def self.model_name
+              ActiveModel::Name.new(self, nil, "Post")
+            end
+
+            def persisted?
+              id.present?
+            end
+          end
+
+          kls = Class.new { include set.url_helpers }
+          kls.default_url_options[:host] = "www.basecamphq.com"
+          controller = kls.new
+          post = post_class.new(1)
+
+          assert_raises(ActionController::UrlGenerationError) { controller.url_for }
+          assert_equal "/already-built", controller.url_for("/already-built")
+          assert_equal "http://www.basecamphq.com/", controller.url_for(:root)
+          assert_equal "http://www.basecamphq.com/posts", controller.url_for(post_class)
+          assert_equal "http://www.basecamphq.com/posts/1", controller.url_for(post)
+          assert_equal "http://www.basecamphq.com/posts/1", controller.route_for(:postable, post)
+        end
+      end
+
+      def test_url_for_included_in_module_uses_plain_default_url_options_storage
+        mod = Module.new do
+          include ActionDispatch::Routing::UrlFor
+        end
+
+        assert_nothing_raised do
+          mod.default_url_options = { host: "module.example" }
+        end
+      end
+
+      def test_url_for_includes_custom_url_for_modules_when_available
+        custom_module = Module.new do
+          def custom_url_for_module_marker
+            :included
+          end
+        end
+        kls = Class.new do
+          define_singleton_method(:_url_for_modules) { [custom_module] }
+          include ActionDispatch::Routing::UrlFor
+        end
+
+        assert_equal :included, kls.new.custom_url_for_module_marker
+      end
+
       private
         def extract_params(url)
           url.split("?", 2).last.split("&").sort
