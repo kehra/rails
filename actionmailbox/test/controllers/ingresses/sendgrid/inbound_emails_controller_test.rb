@@ -47,6 +47,18 @@ class ActionMailbox::Ingresses::Sendgrid::InboundEmailsControllerTest < ActionDi
     assert_equal "replies@example.com", mail.header["X-Original-To"].decoded
   end
 
+  test "rejecting invalid Sendgrid envelope JSON" do
+    assert_no_difference -> { ActionMailbox::InboundEmail.count } do
+      post rails_sendgrid_inbound_emails_url,
+        headers: { authorization: credentials }, params: {
+          email: file_fixture("../files/welcome.eml").read,
+          envelope: "not-json",
+        }
+    end
+
+    assert_response ActionDispatch::Constants::UNPROCESSABLE_CONTENT
+  end
+
   test "rejecting an unauthorized inbound email from Sendgrid" do
     assert_no_difference -> { ActionMailbox::InboundEmail.count } do
       post rails_sendgrid_inbound_emails_url, params: { email: file_fixture("../files/welcome.eml").read }

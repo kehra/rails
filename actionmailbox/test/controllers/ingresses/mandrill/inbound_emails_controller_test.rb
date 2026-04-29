@@ -29,6 +29,17 @@ class ActionMailbox::Ingresses::Mandrill::InboundEmailsControllerTest < ActionDi
     assert_equal "0CB459E0-0336-41DA-BC88-E6E28C697DDB@37signals.com", inbound_email.message_id
   end
 
+  test "rejecting invalid Mandrill events JSON" do
+    params = { mandrill_events: "not-json" }
+
+    assert_no_difference -> { ActionMailbox::InboundEmail.count } do
+      post rails_mandrill_inbound_emails_url,
+        headers: { "X-Mandrill-Signature" => mandrill_signature(params) }, params: params
+    end
+
+    assert_response ActionDispatch::Constants::UNPROCESSABLE_CONTENT
+  end
+
   test "rejecting a forged inbound email from Mandrill" do
     assert_no_difference -> { ActionMailbox::InboundEmail.count } do
       post rails_mandrill_inbound_emails_url,
@@ -57,6 +68,10 @@ class ActionMailbox::Ingresses::Mandrill::InboundEmailsControllerTest < ActionDi
   end
 
   private
+    def mandrill_signature(params)
+      Base64.strict_encode64 OpenSSL::HMAC.digest(OpenSSL::Digest::SHA1.new, ENV.fetch("MANDRILL_INGRESS_API_KEY"), rails_mandrill_inbound_emails_url + params.sort.flatten.join)
+    end
+
     def switch_key_to(new_key)
       previous_key, ENV["MANDRILL_INGRESS_API_KEY"] = ENV["MANDRILL_INGRESS_API_KEY"], new_key
       yield
