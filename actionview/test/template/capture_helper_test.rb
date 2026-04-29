@@ -47,6 +47,11 @@ class CaptureHelperTest < ActionView::TestCase
     assert_equal "&lt;em&gt;bar&lt;/em&gt;", string
   end
 
+  def test_capture_returns_output_buffer_values_as_strings
+    string = @av.capture { ActionView::OutputBuffer.new("<em>bar</em>") }
+    assert_equal "<em>bar</em>", string
+  end
+
   def test_capture_does_not_reassign_buffer
     buffer_object_id = @av.output_buffer.object_id
 
@@ -190,6 +195,11 @@ class CaptureHelperTest < ActionView::TestCase
     provide :title, :hi
     provide :title, raw("<p>title</p>")
     assert_equal "hi<p>title</p>", content_for(:title)
+
+    @view_flow = ActionView::OutputFlow.new
+    assert_nil provide(:title)
+    provide(:title) { "from block" }
+    assert_equal "from block", content_for(:title)
   end
 
   def test_with_output_buffer_swaps_the_output_buffer_given_no_argument
@@ -234,6 +244,9 @@ class CaptureHelperTest < ActionView::TestCase
 
   def test_with_output_buffer_does_not_assume_there_is_an_output_buffer
     assert_predicate @av.output_buffer, :empty?
+    assert_equal "", @av.with_output_buffer { }.to_s
+
+    @av.output_buffer = nil
     assert_equal "", @av.with_output_buffer { }.to_s
   end
 
