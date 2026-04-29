@@ -8,8 +8,26 @@ require "active_support/messages/rotation_configuration"
 class CookieJarTest < ActiveSupport::TestCase
   attr_reader :request
 
+  SECRET_KEY_BASE = "b3c631c314c0bbca50c1b2843150fe33"
+  SIGNED_COOKIE_SALT = "signed cookie"
+  ENCRYPTED_COOKIE_SALT = "encrypted cookie"
+  ENCRYPTED_SIGNED_COOKIE_SALT = "signed encrypted cookie"
+  AUTHENTICATED_ENCRYPTED_COOKIE_SALT = "authenticated encrypted cookie"
+
   def setup
     @request = ActionDispatch::Request.empty
+  end
+
+  def configure_signed_cookie_request(secret_key_base: SECRET_KEY_BASE)
+    request.env["action_dispatch.key_generator"] = ActiveSupport::KeyGenerator.new(SECRET_KEY_BASE, iterations: 2)
+    request.env["action_dispatch.cookies_rotations"] = ActiveSupport::Messages::RotationConfiguration.new
+    request.env["action_dispatch.signed_cookie_salt"] = SIGNED_COOKIE_SALT
+    request.env["action_dispatch.signed_cookie_digest"] = "SHA1"
+    request.env["action_dispatch.secret_key_base"] = secret_key_base
+    request.env["action_dispatch.encrypted_cookie_salt"] = ENCRYPTED_COOKIE_SALT
+    request.env["action_dispatch.encrypted_signed_cookie_salt"] = ENCRYPTED_SIGNED_COOKIE_SALT
+    request.env["action_dispatch.authenticated_encrypted_cookie_salt"] = AUTHENTICATED_ENCRYPTED_COOKIE_SALT
+    request.env["action_dispatch.use_authenticated_cookie_encryption"] = true
   end
 
   def test_fetch
@@ -78,21 +96,104 @@ class CookieJarTest < ActiveSupport::TestCase
     request.cookie_jar.write(headers)
     assert_not_includes headers, "Set-Cookie"
   end
+
+  def test_request_cookie_accessors_read_env_and_cookie_jar_state
+    same_site = proc { |req| req.host == "example.com" ? :strict : :lax }
+    request.env["HTTP_HOST"] = "example.com"
+    request.env["action_dispatch.key_generator"] = :generator
+    request.env["action_dispatch.signed_cookie_salt"] = "signed salt"
+    request.env["action_dispatch.encrypted_cookie_salt"] = "encrypted salt"
+    request.env["action_dispatch.encrypted_signed_cookie_salt"] = "encrypted signed salt"
+    request.env["action_dispatch.authenticated_encrypted_cookie_salt"] = "authenticated salt"
+    request.env["action_dispatch.use_authenticated_cookie_encryption"] = true
+    request.env["action_dispatch.encrypted_cookie_cipher"] = "aes-256-gcm"
+    request.env["action_dispatch.signed_cookie_digest"] = "SHA256"
+    request.env["action_dispatch.secret_key_base"] = "secret"
+    request.env["action_dispatch.cookies_serializer"] = :json
+    request.env["action_dispatch.cookies_same_site_protection"] = same_site
+    request.env["action_dispatch.cookies_digest"] = "SHA1"
+    request.env["action_dispatch.cookies_rotations"] = :rotations
+    request.env["action_dispatch.use_cookies_with_metadata"] = true
+
+    assert_not request.have_cookie_jar?
+    jar = request.cookie_jar
+    assert request.have_cookie_jar?
+    assert_same jar, request.cookie_jar
+    assert_equal :generator, request.key_generator
+    assert_equal "signed salt", request.signed_cookie_salt
+    assert_equal "encrypted salt", request.encrypted_cookie_salt
+    assert_equal "encrypted signed salt", request.encrypted_signed_cookie_salt
+    assert_equal "authenticated salt", request.authenticated_encrypted_cookie_salt
+    assert_equal true, request.use_authenticated_cookie_encryption
+    assert_equal "aes-256-gcm", request.encrypted_cookie_cipher
+    assert_equal "SHA256", request.signed_cookie_digest
+    assert_equal "secret", request.secret_key_base
+    assert_equal :json, request.cookies_serializer
+    assert_equal :strict, request.cookies_same_site_protection
+    assert_equal "SHA1", request.cookies_digest
+    assert_equal :rotations, request.cookies_rotations
+    assert_equal true, request.use_cookies_with_metadata
+
+    replacement = ActionDispatch::Cookies::CookieJar.new(request)
+    request.cookie_jar = replacement
+    assert_same replacement, request.cookie_jar
+
+    committer = Object.new
+    committer.define_singleton_method(:cookie_jar) { replacement }
+    committer.extend(ActionDispatch::RequestCookieMethods)
+    committer.commit_cookie_jar!
+    assert_predicate replacement, :committed?
+  end
+
+  def test_signed_or_encrypted_chooses_signed_without_secret_key_base
+    configure_signed_cookie_request(secret_key_base: nil)
+
+    assert_instance_of ActionDispatch::Cookies::SignedKeyRotatingCookieJar, request.cookie_jar.signed_or_encrypted
+  end
+
+  def test_signed_or_encrypted_prefers_encrypted_with_secret_key_base
+    configure_signed_cookie_request
+
+    assert_instance_of ActionDispatch::Cookies::EncryptedKeyRotatingCookieJar, request.cookie_jar.signed_or_encrypted
+  end
 end
 
 class CookiesMiddlewareTest < ActiveSupport::TestCase
+  def app_response_for(env, app = lambda { |_env| [ 200, {}, [] ] })
+    Rack::Lint.new(
+      ActionDispatch::Cookies.new(
+        Rack::Lint.new(app)
+      )
+    ).call(env)
+  end
+
   def test_sets_expected_cookie_header
     request = ActionDispatch::Request.empty
     request.cookie_jar[:foo] = "bar"
     env = Rack::MockRequest.env_for("", request.env)
 
-    _status, headers, _body = Rack::Lint.new(
-      ActionDispatch::Cookies.new(
-        Rack::Lint.new(lambda { |_env| [ 200, {}, [] ] })
-      )
-    ).call(env)
+    _status, headers, _body = app_response_for(env)
 
     assert_equal "foo=bar; path=/", headers["set-cookie"]
+  end
+
+  def test_leaves_response_unchanged_without_cookie_jar
+    env = Rack::MockRequest.env_for("", {})
+
+    _status, headers, _body = app_response_for(env)
+
+    assert_not_includes headers, "set-cookie"
+  end
+
+  def test_leaves_response_unchanged_when_cookie_jar_is_committed
+    request = ActionDispatch::Request.empty
+    request.cookie_jar[:foo] = "bar"
+    request.cookie_jar.commit!
+    env = Rack::MockRequest.env_for("", request.env)
+
+    _status, headers, _body = app_response_for(env)
+
+    assert_not_includes headers, "set-cookie"
   end
 end
 
