@@ -47,6 +47,15 @@ class TestCustomUrlHelpers < ActionDispatch::IntegrationTest
   class Basket < Model; end
   class User < Model; end
   class Video < Model; end
+  class Comment < Model
+    def self.model_name
+      ActiveModel::Name.new(self, nil, "Comment")
+    end
+
+    def persisted?
+      id.present?
+    end
+  end
 
   class Article
     attr_reader :id
@@ -86,7 +95,7 @@ class TestCustomUrlHelpers < ActionDispatch::IntegrationTest
     get "/media/:id", to: "media#show", as: :media
     get "/pages/:id", to: "pages#show", as: :page
 
-    resources :categories, :collections, :products, :manufacturers
+    resources :categories, :collections, :products, :manufacturers, :comments
 
     namespace :admin do
       get "/dashboard", to: "dashboard#index"
@@ -132,6 +141,7 @@ class TestCustomUrlHelpers < ActionDispatch::IntegrationTest
     @basket = Basket.new
     @user = User.new
     @video = Video.new("4")
+    @comment = Comment.new("9")
     @article = Article.new("5")
     @page = Page.new("6")
     @category_page = CategoryPage.new("7")
@@ -229,6 +239,18 @@ class TestCustomUrlHelpers < ActionDispatch::IntegrationTest
 
     assert_equal "http://www.example.com/products?page=2&size=25", browse_url
     assert_raises(NameError) { Routes.url_helpers.browse_url }
+  end
+
+  def test_polymorphic_paths_handle_hashes_and_unmapped_records
+    assert_equal "/basket", polymorphic_path(id: @basket)
+    assert_equal "/comments/9", polymorphic_path(@comment)
+    assert_equal "/comments", polymorphic_path(Comment)
+  end
+
+  def test_polymorphic_urls_handle_hashes_and_unmapped_records
+    assert_equal "http://www.example.com/basket", polymorphic_url(id: @basket)
+    assert_equal "http://www.example.com/comments/9", polymorphic_url(@comment)
+    assert_equal "http://www.example.com/comments", polymorphic_url(Comment)
   end
 
   def test_resolve_paths
