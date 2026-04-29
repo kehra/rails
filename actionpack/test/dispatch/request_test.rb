@@ -1724,6 +1724,72 @@ class RequestCoreAccessors < BaseRequestTest
     assert_nil request.commit_cookie_jar!
     assert_raises(RuntimeError) { request.request_parameters = nil }
   end
+
+  test "reset session destroys the session and resets csrf token" do
+    session = Struct.new(:destroyed) do
+      def destroy
+        self.destroyed = true
+      end
+    end.new(false)
+
+    controller = Struct.new(:reset_called) do
+      def reset_csrf_token(_request)
+        self.reset_called = true
+      end
+    end.new(false)
+
+    request = stub_request
+    request.session = session
+    request.controller_instance = controller
+    request.reset_session
+
+    assert session.destroyed
+    assert controller.reset_called
+  end
+
+  test "session options writer stores options on the request" do
+    options = { id: "session-id", secure: true }
+    request = stub_request
+    request.session_options = options
+
+    assert_same options, ActionDispatch::Request::Session::Options.find(request)
+  end
+
+  test "post falls back to rack hash when flat parameter pairs are unavailable" do
+    request = stub_request("REQUEST_METHOD" => "POST")
+    request.instance_variable_set(:@rack_request, Struct.new(:POST).new({ "person" => { "name" => "David" } }))
+
+    assert_equal({ "person" => { "name" => "David" } }, request.POST)
+  end
+
+  test "request parameters list handles rack pair sources and fallbacks" do
+    request = stub_request
+    request.set_header("rack.request.form_pairs", [["person[name]", "David"]])
+    assert_equal [["person[name]", "David"]], request.request_parameters_list
+
+    request = stub_request
+    request.instance_variable_set(:@rack_request, Struct.new(:POST).new({}))
+    request.set_header("rack.request.form_vars", "person%5Bname%5D=David&person%5Bage%5D=42")
+    assert_equal [["person[name]", "David"], ["person[age]", "42"]], request.request_parameters_list.to_a
+
+    request = stub_request
+    request.instance_variable_set(:@rack_request, Struct.new(:POST).new({ "person" => { "name" => "David" } }))
+    assert_nil request.request_parameters_list
+
+    request = stub_request
+    request.instance_variable_set(:@rack_request, Struct.new(:POST).new({}))
+    assert_equal [], request.request_parameters_list
+  end
+
+  test "request action dispatch class APIs are only on pass not found" do
+    assert_not_respond_to ActionDispatch::Request, :action
+    assert_not_respond_to ActionDispatch::Request, :call
+    assert_not_respond_to ActionDispatch::Request, :action_encoding_template
+
+    assert_equal ActionDispatch::Request::PASS_NOT_FOUND, ActionDispatch::Request::PASS_NOT_FOUND.action(:index)
+    assert_equal [404, { "x-cascade" => "pass" }, []], ActionDispatch::Request::PASS_NOT_FOUND.call({})
+    assert_equal false, ActionDispatch::Request::PASS_NOT_FOUND.action_encoding_template(:index)
+  end
 end
 
 class RequestBearerToken < BaseRequestTest
