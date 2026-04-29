@@ -34,6 +34,8 @@ class TagsBasePublicApiTest < ActionView::TestCase
   end
 
   class ParamObject
+    attr_accessor :active, :tags
+
     def initialize(param = "7")
       @param = param
     end
@@ -133,5 +135,36 @@ class TagsBasePublicApiTest < ActionView::TestCase
     tag.add_name_and_id(options)
 
     assert_equal "admin", options["id"]
+  end
+
+  test "checkbox tag render covers nil values and explicit checked options" do
+    object = ParamObject.new
+    object.active = nil
+
+    checkbox = ActionView::Helpers::Tags::CheckBox.new("post", "active", self, "1", "0", object: object)
+    output = checkbox.render
+
+    assert_includes output, 'type="hidden"'
+    assert_includes output, 'type="checkbox"'
+    assert_not_includes output, 'checked="checked"'
+
+    checkbox = ActionView::Helpers::Tags::CheckBox.new("post", "active", self, "1", "0", object: object, checked: "checked", include_hidden: false)
+    output = checkbox.render
+
+    assert_includes output, 'checked="checked"'
+    assert_not_includes output, 'type="hidden"'
+  end
+
+  test "checkbox tag render handles multiple values and omits hidden when unchecked value is nil" do
+    object = ParamObject.new
+    object.tags = ["rails"]
+
+    checkbox = ActionView::Helpers::Tags::CheckBox.new("post", "tags", self, "rails", nil, object: object, multiple: true)
+    output = checkbox.render
+
+    assert_includes output, 'name="post[tags][]"'
+    assert_includes output, 'id="post_tags_rails"'
+    assert_includes output, 'checked="checked"'
+    assert_not_includes output, 'type="hidden"'
   end
 end
