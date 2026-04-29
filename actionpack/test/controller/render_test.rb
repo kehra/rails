@@ -884,9 +884,24 @@ class ActionControllerRenderTest < ActionController::TestCase
 end
 
 class ActionControllerBaseRenderTest < ActionController::TestCase
+  class InheritedRendererController < ActionController::Base
+  end
+
   def test_direct_render_to_string
     ac = ActionController::Base.new()
     assert_equal "Hello world!", ac.render_to_string(template: "test/hello_world")
+  end
+
+  def test_class_renderer_is_available_and_inherited
+    assert_kind_of ActionController::Renderer, ActionController::Base.renderer
+    assert_kind_of ActionController::Renderer, InheritedRendererController.renderer
+    assert_not_same ActionController::Base.renderer, InheritedRendererController.renderer
+  end
+
+  def test_class_render_delegates_to_renderer
+    rendered = InheritedRendererController.render(template: "test/hello_world")
+
+    assert_equal "Hello world!", rendered
   end
 end
 
