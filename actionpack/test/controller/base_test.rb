@@ -142,6 +142,23 @@ class ControllerInstanceTests < ActiveSupport::TestCase
     assert_predicate @empty, :performed?
   end
 
+  def test_without_modules_excludes_modules_by_symbol_and_constant
+    modules = ActionController::Base.without_modules(:ParamsWrapper, ActionController::Streaming)
+
+    assert_not_includes modules, ActionController::ParamsWrapper
+    assert_not_includes modules, ActionController::Streaming
+    assert_includes modules, ActionController::Rendering
+  end
+
+  def test_protected_ivars_includes_action_controller_internal_ivars
+    controller = ActionController::Base.new
+    protected_ivars = controller.send(:_protected_ivars)
+
+    assert_includes protected_ivars, :@_params
+    assert_includes protected_ivars, :@_response
+    assert_includes protected_ivars, :@_rendered_format
+  end
+
   def test_empty_controller_action_methods
     @empty_controllers.each do |c|
       assert_equal Set.new, c.class.action_methods, "#{c.controller_path} should be empty!"
