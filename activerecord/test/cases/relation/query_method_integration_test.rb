@@ -38,5 +38,34 @@ module ActiveRecord
       assert_equal Post.where(author_id: author.id).order(:id).ids, without_title.order(:id).ids
       assert_equal Post.order(:id).ids, without_where.order(:id).ids
     end
+
+    test "where not and or compose with order without dropping predicates" do
+      author = authors(:david)
+      post = posts(:welcome)
+      negative = Post.where.not(author_id: author.id)
+      positive = Post.where(title: post.title)
+      relation = negative.or(positive).order(:id)
+
+      expected = Post.all.to_a.select { |candidate| candidate.author_id != author.id || candidate.title == post.title }
+
+      assert_equal expected.sort_by(&:id), relation.to_a
+      assert_equal Post.where.not(author_id: author.id).order(:id).ids, negative.order(:id).ids
+      assert_equal [post], positive.to_a
+    end
+
+    test "and combines compatible where and having clauses and rejects incompatible relations" do
+      author = authors(:david)
+      source = Post.where.not(author_id: nil).group(:author_id).having("COUNT(*) > 0")
+      compatible = Post.where(author_id: author.id).group(:author_id).having("COUNT(*) >= 1")
+      combined = source.and(compatible)
+
+      assert_equal [author.id], combined.pluck(:author_id)
+      assert_equal Post.where.not(author_id: nil).group(:author_id).having("COUNT(*) > 0").pluck(:author_id).sort, source.pluck(:author_id).sort
+
+      error = assert_raises(ArgumentError) do
+        source.and(Post.order(:id))
+      end
+      assert_match(/structurally compatible/, error.message)
+    end
   end
 end
