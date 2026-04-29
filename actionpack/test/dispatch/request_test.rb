@@ -193,6 +193,37 @@ class RequestIP < BaseRequestTest
     assert_match(/HTTP_CLIENT_IP="2\.2\.2\.2"/, e.message)
   end
 
+  test "remote ip spoof detection allows client ip present in forwarded list" do
+    request = stub_request "HTTP_X_FORWARDED_FOR" => "2.2.2.2, 1.1.1.1",
+                           "HTTP_CLIENT_IP"       => "2.2.2.2"
+
+    assert_equal "1.1.1.1", request.remote_ip
+  end
+
+  test "remote ip middleware exposes configuration readers" do
+    app = ActionDispatch::RemoteIp.new(->(env) { [200, {}, [env["action_dispatch.remote_ip"].to_s]] }, false)
+    env = Rack::MockRequest.env_for("/", "REMOTE_ADDR" => "1.2.3.4")
+
+    assert_equal false, app.check_ip
+    assert_equal ActionDispatch::RemoteIp::TRUSTED_PROXIES, app.proxies
+
+    _status, _headers, body = app.call(env)
+    assert_equal ["1.2.3.4"], body
+  end
+
+  test "remote ip middleware rejects single custom proxy values" do
+    error = assert_raise(ArgumentError) do
+      ActionDispatch::RemoteIp.new(->(_) { [200, {}, []] }, true, IPAddr.new("10.0.0.0/8"))
+    end
+
+    assert_match(/trusted_proxies to a single value isn't\nsupported/, error.message)
+  end
+
+  test "ip spoof attack error does not expose remote ip configuration readers" do
+    assert_not ActionDispatch::RemoteIp::IpSpoofAttackError.method_defined?(:check_ip)
+    assert_not ActionDispatch::RemoteIp::IpSpoofAttackError.method_defined?(:proxies)
+  end
+
   test "remote ip spoof detection with both headers" do
     request = stub_request "HTTP_X_FORWARDED_FOR" => "1.1.1.1",
                            "HTTP_FORWARDED"       => "for=2.2.2.2, for=3.3.3.3",
