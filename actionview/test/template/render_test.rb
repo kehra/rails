@@ -633,6 +633,72 @@ module RenderTestCases
     assert_equal "some plaintext", @view.render(plain: "some plaintext")
   end
 
+  def test_render_html
+    assert_equal "<strong>some html</strong>", @view.render(html: "<strong>some html</strong>".html_safe)
+  end
+
+  def test_render_template_object_directly
+    template = ActionView::Template::Text.new("direct template")
+
+    assert_equal "direct template", @view.render(template: template)
+  end
+
+  def test_render_requires_a_renderable_option
+    error = assert_raises(ArgumentError) { @view.render({}) }
+
+    assert_equal "You invoked render but did not give any of :body, :file, :html, :inline, :partial, :plain, :renderable, or :template option.", error.message
+  end
+
+  def test_render_inline_uses_handler_default_format
+    handler = Object.new
+    def handler.call(template, source)
+      "@output_buffer = ''.dup; @output_buffer << #{source.inspect}"
+    end
+    def handler.default_format
+      :text
+    end
+
+    ActionView::Template.register_template_handler :default_format_handler, handler
+
+    assert_equal "Hello with default format", @view.render(inline: "Hello with default format", type: :default_format_handler)
+  ensure
+    ActionView::Template.unregister_template_handler :default_format_handler
+  end
+
+  def test_render_with_layout_proc
+    layout = ->(_lookup_context, formats, keys) do
+      assert_equal [:html], formats
+      assert_equal [], keys
+      "layouts/yield"
+    end
+
+    assert_equal %(<title></title>\nHello world!\n), @view.render(template: "test/hello_world", layout: layout)
+  end
+
+  def test_render_with_layout_proc_returning_nil
+    layout = ->(_lookup_context, _formats, _keys) { nil }
+
+    assert_equal "Hello world!", @view.render(template: "test/hello_world", layout: layout)
+  end
+
+  def test_render_with_missing_layout_raises_missing_template
+    assert_raises(ActionView::MissingTemplate) do
+      @view.render(template: "test/hello_world", layout: "layouts/does_not_exist")
+    end
+  end
+
+  def test_render_with_layout_missing_for_requested_format_but_present_for_default_formats
+    assert_equal "<title></title>\n<error>No Comment</error>\n", @view.render(template: "comments/empty", formats: :xml, layout: "layouts/yield")
+  end
+
+  def test_render_with_absolute_layout_path_raises
+    error = assert_raises(ArgumentError) do
+      @view.render(template: "test/hello_world", layout: "/layouts/yield")
+    end
+
+    assert_equal "Rendering layouts from an absolute path is not supported.", error.message
+  end
+
   def test_render_knows_about_types_registered_when_extensions_are_checked_earlier_in_initialization
     ActionView::Template::Handlers.extensions
     ActionView::Template.register_template_handler :foo, CustomHandler
