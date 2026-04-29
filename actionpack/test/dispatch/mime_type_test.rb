@@ -3,6 +3,58 @@
 require "abstract_unit"
 
 class MimeTypeTest < ActiveSupport::TestCase
+  test "mime registry helpers expose registered symbols and fetch extensions" do
+    assert_same Mime[:html], Mime[Mime[:html]]
+    assert_includes Mime.symbols, :html
+    assert Mime.valid_symbols?([:html, :json])
+    assert_not Mime.valid_symbols?([:html, :unknown_mime])
+    assert_same Mime[:html], Mime.fetch(Mime[:html])
+    assert_equal Mime[:html], Mime.fetch(:html)
+    assert_equal "fallback", Mime.fetch(:unknown_mime) { "fallback" }
+  end
+
+  test "mimes collection tracks entries and symbols" do
+    mimes = Mime::Mimes.new
+    html = Mime::Type.new("text/html", :html)
+    json = Mime::Type.new("application/json", :json)
+
+    mimes << html
+    mimes << json
+
+    assert_equal [html, json], mimes.to_a
+    assert_equal [:html, :json], mimes.symbols
+    assert mimes.valid_symbols?([:html])
+    assert_not mimes.valid_symbols?([:xml])
+
+    mimes.delete_if { |mime| mime == html }
+
+    assert_equal [json], mimes.to_a
+    assert_equal [:json], mimes.symbols
+    assert_not mimes.valid_symbols?([:html])
+  end
+
+  test "type equality and wildcard predicates" do
+    html = Mime[:html]
+    html_alias = Mime::Type.new("text/html", :html, ["application/xhtml+xml"])
+
+    assert_operator html_alias, :===, ["application/xhtml+xml"]
+    assert_not_operator html_alias, :===, "text/plain"
+    assert_equal html, html
+    assert_not_equal html, nil
+    assert html.eql?(html)
+    assert Mime[:js] =~ "text/javascript"
+    assert_not Mime[:js] =~ nil
+    assert Mime[:js].match?("text/javascript")
+    assert_not Mime[:js].match?(nil)
+    assert_kind_of Integer, html.hash
+    assert_equal "text/html", Mime::Type.new("text/html").to_str
+    assert_predicate html, :html?
+    assert_not_predicate Mime[:js], :html?
+    assert_not html.all?
+    assert Mime::ALL.all?
+    assert_predicate Mime::ALL, :html?
+  end
+
   test "parse single" do
     Mime::LOOKUP.each_key do |mime_type|
       unless mime_type == "image/*"
