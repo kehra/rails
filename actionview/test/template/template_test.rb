@@ -384,6 +384,61 @@ class TestERBTemplate < ActiveSupport::TestCase
     assert_equal "#<ActionView::Template hello template locals=[]>", @template.inspect
   end
 
+  def test_initialize_derives_empty_variable_from_directory_virtual_path
+    template = ActionView::Template.new("hello", "directory template", ERBHandler, virtual_path: "admin/users/", format: :html, locals: [])
+
+    assert_equal :"", template.variable
+  end
+
+  def test_locals_returns_nil_for_strict_locals_template
+    template = new_template("<%# locals: (message:) -%><%= message %>", locals: [:message])
+
+    assert_predicate template, :strict_locals?
+    assert_nil template.locals
+  end
+
+  def test_template_supports_streaming_delegates_to_handler
+    streaming_handler = Object.new
+    def streaming_handler.supports_streaming? = true
+
+    non_streaming_handler = Object.new
+    def non_streaming_handler.supports_streaming? = false
+
+    assert_predicate new_template("hello", handler: streaming_handler), :supports_streaming?
+    assert_not_predicate new_template("hello", handler: non_streaming_handler), :supports_streaming?
+    assert_not_predicate new_template("hello", handler: ->(_template, source) { source }), :supports_streaming?
+  end
+
+  def test_template_render_with_existing_buffer_appends_and_returns_nil
+    template = new_template("<%= hello %>")
+    buffer = ActionView::OutputBuffer.new
+
+    assert_nil template.render(@context, {}, buffer)
+    assert_equal "Hello", buffer.to_s
+  end
+
+  def test_short_identifier_removes_rails_root_prefix
+    rails_was_defined = Object.const_defined?(:Rails)
+    previous_rails = Object.const_get(:Rails) if rails_was_defined
+    fake_rails = Object.new
+    def fake_rails.root = "/application"
+
+    Object.send(:remove_const, :Rails) if rails_was_defined
+    Object.const_set(:Rails, fake_rails)
+    template = ActionView::Template.new("hello", "/application/app/views/posts/show.html.erb", ERBHandler, virtual_path: "posts/show", format: :html, locals: [])
+
+    assert_equal "app/views/posts/show.html.erb", template.short_identifier
+  ensure
+    Object.send(:remove_const, :Rails) if Object.const_defined?(:Rails)
+    Object.const_set(:Rails, previous_rails) if rails_was_defined
+  end
+
+  def test_template_translate_location_without_handler_hook_returns_original_spot
+    spot = { first_column: 0, last_column: 5, snippet: "hello", first_lineno: 1, last_lineno: 1 }
+
+    assert_equal spot, new_template("hello", handler: ->(_template, source) { source }).translate_location(nil, spot)
+  end
+
   def test_template_translate_location
     highlight = "nomethoderror"
     source = "<%= nomethoderror %>"
