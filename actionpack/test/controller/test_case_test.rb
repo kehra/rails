@@ -992,6 +992,18 @@ class TestCaseTest < ActionController::TestCase
     assert_equal File.open(path, READ_PLAIN).read, plain_file_upload.read
   end
 
+  def test_file_fixture_upload_uses_file_fixture_path_for_relative_paths
+    uploaded_file = file_fixture_upload("ruby_on_rails.jpg", "image/jpeg")
+
+    assert_equal File.open("#{FILES_DIR}/ruby_on_rails.jpg", READ_PLAIN).read, uploaded_file.read
+  end
+
+  def test_assigns_explains_rails_controller_testing_extraction
+    error = assert_raise(NoMethodError) { assigns(:user) }
+
+    assert_match(/rails-controller-testing/, error.message)
+  end
+
   def test_fixture_file_upload_should_be_able_access_to_tempfile
     file = fixture_file_upload(FILES_DIR + "/ruby_on_rails.jpg", "image/jpeg")
     assert_respond_to file, :tempfile
