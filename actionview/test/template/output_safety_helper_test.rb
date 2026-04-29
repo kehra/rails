@@ -54,6 +54,9 @@ class OutputSafetyHelperTest < ActionView::TestCase
   end
 
   test "to_sentence should escape non-html_safe values" do
+    assert_equal "", to_sentence([])
+    assert_predicate to_sentence([]), :html_safe?
+
     actual = to_sentence(%w(< > & ' "))
     assert_predicate actual, :html_safe?
     assert_equal("&lt;, &gt;, &amp;, &#39;, and &quot;", actual)
@@ -61,6 +64,13 @@ class OutputSafetyHelperTest < ActionView::TestCase
     actual = to_sentence(%w(<script>))
     assert_predicate actual, :html_safe?
     assert_equal("&lt;script&gt;", actual)
+  end
+
+  test "to_sentence uses default connectors when I18n is unavailable" do
+    i18n = Object.send(:remove_const, :I18n)
+    assert_equal "one, two, and three", to_sentence(["one", "two", "three"])
+  ensure
+    Object.const_set(:I18n, i18n) if i18n
   end
 
   test "to_sentence does not double escape if single value is html_safe" do
