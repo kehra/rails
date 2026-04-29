@@ -82,13 +82,13 @@ class TestUnitChannelGeneratorTest < Rails::Generators::TestCase
   setup :prepare_destination
 
   test "create_test_files creates channel test" do
-    run_generator [ "chat" ]
+    run_generator [ "chat", "--skip-collision-check" ]
 
     assert_file "test/channels/chat_channel_test.rb", /class ChatChannelTest < ActionCable::Channel::TestCase/
   end
 
   test "create_test_files strips channel suffix" do
-    run_generator [ "chat_channel" ]
+    run_generator [ "chat_channel", "--skip-collision-check" ]
 
     assert_file "test/channels/chat_channel_test.rb", /class ChatChannelTest < ActionCable::Channel::TestCase/
   end
