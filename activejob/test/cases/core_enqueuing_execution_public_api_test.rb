@@ -126,7 +126,6 @@ class CoreEnqueuingExecutionPublicApiTest < ActiveSupport::TestCase
   test "core set applies and skips options independently" do
     job = HelloJob.new
     original_queue = job.queue_name
-    original_priority = job.priority
 
     assert_same job, job.set
     assert_equal original_queue, job.queue_name
