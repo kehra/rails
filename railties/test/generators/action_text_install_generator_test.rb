@@ -101,6 +101,18 @@ class ActionText::Generators::InstallGeneratorTest < Rails::Generators::TestCase
     end
   end
 
+  test "skips importmap pins when importmap is absent" do
+    FileUtils.rm("#{destination_root}/config/importmap.rb")
+
+    run_generator_instance
+
+    assert_no_file "config/importmap.rb"
+    assert_file "app/javascript/application.js" do |content|
+      assert_match %r"^#{Regexp.escape 'import "@rails/actiontext"'}", content
+      assert_match %r"^#{Regexp.escape 'import "trix"'}", content
+    end
+  end
+
   test "creates Action Text stylesheet" do
     run_generator_instance
     assert_file "app/assets/stylesheets/actiontext.css"
