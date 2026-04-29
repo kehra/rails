@@ -57,6 +57,8 @@ class BaseTest < ActiveSupport::TestCase
     message = Mail.new
     mailer.message = message
     mailer.default_params = { to: "instance@example.com" }
+    mailer.deliver_later_queue_name = :instance_mailers
+    mailer.delivery_job = ActionMailer::MailDeliveryJob
 
     assert_equal "default@example.com", BaseMailer.default_params[:from]
     assert_equal "US-ASCII", BaseMailer.default_params[:charset]
@@ -67,6 +69,8 @@ class BaseTest < ActiveSupport::TestCase
     assert_equal "custom_base_mailer", BaseMailer.controller_path
     assert_same message, mailer.message
     assert_equal({ to: "instance@example.com" }, mailer.default_params)
+    assert_equal :instance_mailers, mailer.deliver_later_queue_name
+    assert_equal ActionMailer::MailDeliveryJob, mailer.delivery_job
     assert_equal "custom_base_mailer", mailer.mailer_name
   ensure
     BaseMailer.default_params = original_default_params
