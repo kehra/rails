@@ -5,7 +5,7 @@ require "fileutils"
 require "tmpdir"
 
 class DeprecatedAdapterContractTest < ActiveSupport::TestCase
-  def with_builtin_adapter(adapter_name, file_name, stub_require: nil)
+  def with_builtin_adapter(adapter_name, file_name, stub_require: nil, stub_content: "# frozen_string_literal: true\n")
     adapters = ActiveJob::QueueAdapters
     had_previous = adapters.const_defined?(adapter_name, false)
     previous_autoload = adapters.autoload?(adapter_name)
@@ -14,7 +14,7 @@ class DeprecatedAdapterContractTest < ActiveSupport::TestCase
 
     if stub_require
       stub_path = Dir.mktmpdir("active_job_adapter_stub")
-      File.write(File.join(stub_path, "#{stub_require}.rb"), "# frozen_string_literal: true\n")
+      File.write(File.join(stub_path, "#{stub_require}.rb"), stub_content)
       $LOAD_PATH.unshift(stub_path)
     end
 
@@ -56,5 +56,88 @@ class DeprecatedAdapterContractTest < ActiveSupport::TestCase
         adapter_class.new.check_adapter
       end
     end
+  end
+
+  test "built-in queue_classic adapter check_adapter warns and builds QC queue" do
+    stub = <<~RUBY
+      # frozen_string_literal: true
+      module QC
+        class Queue
+          attr_reader :name
+
+          def initialize(name)
+            @name = name
+          end
+        end
+      end
+    RUBY
+
+    with_builtin_adapter(:QueueClassicAdapter, "queue_classic", stub_require: "queue_classic", stub_content: stub) do |adapter_class|
+      message = <<~MSG.squish
+        The built-in `queue_classic` adapter is deprecated and will be removed in Rails 9.0.
+      MSG
+
+      adapter = adapter_class.new
+      assert_deprecated(message, ActiveJob.deprecator) do
+        adapter.check_adapter
+      end
+
+      queue = adapter.build_queue("critical")
+      assert_instance_of QC::Queue, queue
+      assert_equal "critical", queue.name
+    end
+  ensure
+    Object.send(:remove_const, :QC) if Object.const_defined?(:QC, false)
+  end
+
+  test "built-in resque adapter check_adapter warns about deprecation" do
+    with_builtin_adapter(:ResqueAdapter, "resque", stub_require: "resque", stub_content: "# frozen_string_literal: true\nmodule Resque; end\n") do |adapter_class|
+      message = <<~MSG.squish
+        The built-in `resque` adapter is deprecated and will be removed in Rails 9.0.
+        Please upgrade `resque` gem to version 3.0 or later to use the `resque` gem's adapter.
+      MSG
+
+      assert_deprecated(message, ActiveJob.deprecator) do
+        adapter_class.new.check_adapter
+      end
+    end
+  ensure
+    Object.send(:remove_const, :Resque) if Object.const_defined?(:Resque, false)
+  end
+
+  test "built-in sneakers adapter initializes monitor and warns about deprecation" do
+    stub = <<~RUBY
+      # frozen_string_literal: true
+      module Sneakers
+        module Worker
+          def self.included(base)
+            base.extend(ClassMethods)
+          end
+
+          module ClassMethods
+            def from_queue(*)
+            end
+
+            def enqueue(*)
+            end
+          end
+        end
+      end
+    RUBY
+
+    with_builtin_adapter(:SneakersAdapter, "sneakers", stub_require: "sneakers", stub_content: stub) do |adapter_class|
+      message = <<~MSG.squish
+        The built-in `sneakers` adapter is deprecated and will be removed in Rails 9.0.
+        Please migrate from `sneakers` gem to `kicks` gem version 3.1.1 or later to use `ActiveJob` adapter from `kicks`.
+      MSG
+
+      adapter = adapter_class.new
+      assert_instance_of Monitor, adapter.instance_variable_get(:@monitor)
+      assert_deprecated(message, ActiveJob.deprecator) do
+        adapter.check_adapter
+      end
+    end
+  ensure
+    Object.send(:remove_const, :Sneakers) if Object.const_defined?(:Sneakers, false)
   end
 end
