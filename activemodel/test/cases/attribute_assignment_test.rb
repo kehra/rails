@@ -18,6 +18,10 @@ class AttributeAssignmentTest < ActiveModel::TestCase
       raise ErrorFromAttributeWriter
     end
 
+    def no_method_error_attribute=(value)
+      raise NoMethodError, "internal writer failure"
+    end
+
     private
       attr_writer :metadata
   end
@@ -110,6 +114,14 @@ class AttributeAssignmentTest < ActiveModel::TestCase
     assert_raises(ErrorFromAttributeWriter) do
       Model.new(broken_attribute: 1)
     end
+  end
+
+  test "does not treat NoMethodError from an existing writer as an unknown attribute" do
+    error = assert_raises(NoMethodError) do
+      Model.new(no_method_error_attribute: 1)
+    end
+
+    assert_match "internal writer failure", error.message
   end
 
   test "an ArgumentError is raised if a non-hash-like object is passed" do
