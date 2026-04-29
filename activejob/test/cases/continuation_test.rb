@@ -695,6 +695,15 @@ class ActiveJob::TestContinuation < ActiveSupport::TestCase
     assert_match(/Interrupted ActiveJob::TestContinuation::IsolatedStepsJob \(Job ID: [0-9a-f-]{36}\) after 'step_three' \(isolating\)/, @logger.messages)
   end
 
+  test "new continuation reports not started state" do
+    continuation = ActiveJob::Continuation.new(LinearJob.new, {})
+
+    assert_equal false, continuation.started?
+    assert_equal false, continuation.advanced?
+    assert_equal({ description: "not started", completed_steps: [], current_step: nil }, continuation.instrumentation)
+    assert_equal({ "completed" => [] }, continuation.to_h)
+  end
+
   test "runs initial and final isolated steps separately" do
     IsolatedStepsJob.items = []
     IsolatedStepsJob.perform_later(:step_one, :step_four)
