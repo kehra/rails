@@ -13,6 +13,25 @@ module ActionMailbox
       @relayer = ActionMailbox::Relayer.new(url: URL, password: INGRESS_PASSWORD)
     end
 
+    test "initializes endpoint credentials" do
+      relayer = ActionMailbox::Relayer.new(url: "http://example.com/inbound", username: "relay", password: "secret")
+
+      assert_equal URI("http://example.com/inbound"), relayer.uri
+      assert_equal "relay", relayer.username
+      assert_equal "secret", relayer.password
+    end
+
+    test "successfully relaying an email over http" do
+      url = "http://example.com/rails/action_mailbox/relay/inbound_emails"
+      relayer = ActionMailbox::Relayer.new(url: url, password: INGRESS_PASSWORD)
+      stub_request(:post, url).to_return status: 204
+
+      result = relayer.relay(file_fixture("welcome.eml").read)
+
+      assert_predicate result, :success?
+      assert_requested :post, url, basic_auth: [ "actionmailbox", INGRESS_PASSWORD ]
+    end
+
     test "successfully relaying an email" do
       stub_request(:post, URL).to_return status: 204
 
