@@ -156,6 +156,38 @@ class ActiveModelHelperTest < ActionView::TestCase
     )
   end
 
+  def test_active_model_instance_tag_object_normalizes_to_model_once
+    base_class = Class.new do
+      attr_reader :object_calls
+
+      def initialize(object)
+        @object = object
+        @object_calls = 0
+      end
+
+      def object
+        @object_calls += 1
+        @object
+      end
+    end
+
+    tag_class = Class.new(base_class) do
+      include ActionView::Helpers::ActiveModelInstanceTag
+    end
+
+    model = Struct.new(:name).new("converted")
+    wrapper = Struct.new(:to_model).new(model)
+    tag = tag_class.new(wrapper)
+
+    assert_same model, tag.object
+    assert_same model, tag.object
+    assert_equal 1, tag.object_calls
+
+    plain = Struct.new(:name).new("plain")
+    tag = tag_class.new(plain)
+    assert_same plain, tag.object
+  end
+
   def test_field_error_proc
     old_proc = ActionView::Base.field_error_proc
     ActionView::Base.field_error_proc = Proc.new do |html_tag, instance|
