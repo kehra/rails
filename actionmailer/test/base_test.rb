@@ -26,6 +26,76 @@ class BaseTest < ActiveSupport::TestCase
     ActionMailer::Base.delivery_method = @original_delivery_method
   end
 
+  test "eager_load loads Mail and concrete mailer descendants" do
+    calls = []
+    abstract_mailer = Class.new(ActionMailer::Base)
+    abstract_mailer.abstract!
+    concrete_mailer = Class.new(ActionMailer::Base)
+    concrete_mailer.define_singleton_method(:eager_load!) { calls << :concrete_mailer }
+
+    Mail.stub(:eager_autoload!, -> { calls << :mail }) do
+      ActionMailer::Base.stub(:descendants, [ abstract_mailer, concrete_mailer ]) do
+        ActionMailer.eager_load!
+      end
+    end
+
+    assert_equal [ :mail, :concrete_mailer ], calls
+  end
+
+  test "base class and instance configuration accessors" do
+    original_default_params = BaseMailer.default_params
+    original_queue_name = BaseMailer.deliver_later_queue_name
+    original_delivery_job = BaseMailer.delivery_job
+    original_mailer_name = BaseMailer.mailer_name
+
+    BaseMailer.default_options = { from: "default@example.com", charset: "US-ASCII" }
+    BaseMailer.deliver_later_queue_name = :priority_mailers
+    BaseMailer.delivery_job = ActionMailer::MailDeliveryJob
+    BaseMailer.mailer_name = "custom_base_mailer"
+
+    mailer = BaseMailer.new
+    message = Mail.new
+    mailer.message = message
+    mailer.default_params = { to: "instance@example.com" }
+
+    assert_equal "default@example.com", BaseMailer.default_params[:from]
+    assert_equal "US-ASCII", BaseMailer.default_params[:charset]
+    assert_equal BaseMailer.default_params, BaseMailer.default
+    assert_equal :priority_mailers, BaseMailer.deliver_later_queue_name
+    assert_equal ActionMailer::MailDeliveryJob, BaseMailer.delivery_job
+    assert_equal "custom_base_mailer", BaseMailer.mailer_name
+    assert_equal "custom_base_mailer", BaseMailer.controller_path
+    assert_same message, mailer.message
+    assert_equal({ to: "instance@example.com" }, mailer.default_params)
+    assert_equal "custom_base_mailer", mailer.mailer_name
+  ensure
+    BaseMailer.default_params = original_default_params
+    BaseMailer.deliver_later_queue_name = original_queue_name
+    BaseMailer.delivery_job = original_delivery_job
+    BaseMailer.mailer_name = original_mailer_name
+  end
+
+  test "preview class accessors and duplicate interceptor registration" do
+    original_preview_paths = ActionMailer::Base.preview_paths
+    original_show_previews = ActionMailer::Base.show_previews
+    original_preview_interceptors = ActionMailer::Base.preview_interceptors
+    interceptor = Class.new
+
+    ActionMailer::Base.preview_paths = [ "/tmp/previews" ]
+    ActionMailer::Base.show_previews = true
+    ActionMailer::Base.preview_interceptors = [ interceptor ]
+    ActionMailer::Base.register_preview_interceptor interceptor
+    ActionMailer::Base.unregister_preview_interceptor interceptor
+
+    assert_equal [ "/tmp/previews" ], ActionMailer::Base.preview_paths
+    assert_equal true, ActionMailer::Base.show_previews
+    assert_empty ActionMailer::Base.preview_interceptors
+  ensure
+    ActionMailer::Base.preview_paths = original_preview_paths
+    ActionMailer::Base.show_previews = original_show_previews
+    ActionMailer::Base.preview_interceptors = original_preview_interceptors
+  end
+
   test "method call to mail does not raise error" do
     assert_nothing_raised { BaseMailer.welcome }
   end
