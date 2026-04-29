@@ -110,6 +110,33 @@ class MailDeliveryTest < ActiveSupport::TestCase
     end
   end
 
+  test "delivery behavior accessors are available on instances" do
+    mailer_class = Class.new(ActionMailer::Base)
+    original_delivery_method = mailer_class.delivery_method
+    original_delivery_methods = mailer_class.delivery_methods
+    original_perform_deliveries = mailer_class.perform_deliveries
+    original_raise_delivery_errors = mailer_class.raise_delivery_errors
+
+    mailer = mailer_class.new
+    mailer.delivery_method = :test
+    mailer.delivery_methods = { test: Mail::TestMailer }
+    mailer.perform_deliveries = false
+    mailer.raise_delivery_errors = false
+
+    assert_equal :test, mailer.delivery_method
+    assert_equal({ test: Mail::TestMailer }, mailer.delivery_methods)
+    assert_equal false, mailer.perform_deliveries
+    DeliveryMailer.deliveries = [ :sentinel ]
+    assert_equal [ :sentinel ], DeliveryMailer.deliveries
+
+    assert_equal false, mailer.raise_delivery_errors
+  ensure
+    mailer_class.delivery_method = original_delivery_method if mailer_class
+    mailer_class.delivery_methods = original_delivery_methods if mailer_class
+    mailer_class.perform_deliveries = original_perform_deliveries if mailer_class
+    mailer_class.raise_delivery_errors = original_raise_delivery_errors if mailer_class
+  end
+
   test "delivery method can be customized per instance" do
     stub_any_instance(Mail::SMTP, instance: Mail::SMTP.new({})) do |instance|
       assert_called(instance, :deliver!) do
