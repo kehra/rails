@@ -129,6 +129,25 @@ class UrlHelperTest < ActiveSupport::TestCase
     assert_equal "http://example.com/other", url_for([:other, { controller: "foo", only_path: false }])
   end
 
+  def test_url_for_with_symbol_and_class_polymorphic_options
+    assert_equal "/sessions", url_for(:sessions)
+    assert_equal "/workshops", url_for(Workshop)
+  end
+
+  def test_url_for_uses_polymorphic_url_when_paths_are_not_generated_by_default
+    default_url_options[:host] = "example.com"
+    singleton_class.define_method(:_generate_paths_by_default) { false }
+
+    assert_equal "http://example.com/workshops", url_for(Workshop)
+  ensure
+    singleton_class.remove_method(:_generate_paths_by_default) if singleton_class.method_defined?(:_generate_paths_by_default)
+  end
+
+  def test_routing_url_for_routes_context_is_controller
+    assert_same controller, __send__(:_routes_context)
+    assert_equal true, ActionView::RoutingUrlFor.instance_method(:_generate_paths_by_default).bind(self).call
+  end
+
   def test_to_form_params_with_hash
     assert_equal(
       [{ name: "name", value: "David" }, { name: "nationality", value: "Danish" }],
