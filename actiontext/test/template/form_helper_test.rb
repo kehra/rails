@@ -37,6 +37,16 @@ class ActionText::FormHelperTest < ActionView::TestCase
     HTML
   end
 
+  test "#rich_text_area_tag alias" do
+    concat rich_text_area_tag :content, "<p>hello</p>", { input: "trix_input_1" }
+
+    assert_dom_equal(<<~HTML, output_buffer)
+      <input type="hidden" name="content" id="trix_input_1" value="&lt;p&gt;hello&lt;/p&gt;" />
+      <trix-editor input="trix_input_1" class="trix-content" data-direct-upload-url="http://test.host/rails/active_storage/direct_uploads" data-blob-url-template="http://test.host/rails/active_storage/blobs/redirect/:signed_id/:filename">
+      </trix-editor>
+    HTML
+  end
+
   test "#rich_textarea_tag helper with block" do
     concat(
       rich_textarea_tag(:content, nil, { input: "trix_input_1" }) do
@@ -53,6 +63,16 @@ class ActionText::FormHelperTest < ActionView::TestCase
 
   test "#rich_textarea helper" do
     concat rich_textarea :message, :content, input: "trix_input_1"
+
+    assert_dom_equal(<<~HTML, output_buffer)
+      <input type="hidden" name="message[content]" id="trix_input_1" />
+      <trix-editor id="message_content" input="trix_input_1" class="trix-content" data-direct-upload-url="http://test.host/rails/active_storage/direct_uploads" data-blob-url-template="http://test.host/rails/active_storage/blobs/redirect/:signed_id/:filename">
+      </trix-editor>
+    HTML
+  end
+
+  test "#rich_text_area helper alias" do
+    concat rich_text_area :message, :content, input: "trix_input_1"
 
     assert_dom_equal(<<~HTML, output_buffer)
       <input type="hidden" name="message[content]" id="trix_input_1" />
@@ -90,6 +110,20 @@ class ActionText::FormHelperTest < ActionView::TestCase
   test "form with rich text area" do
     form_with model: Message.new, scope: :message do |form|
       form.rich_textarea :content
+    end
+
+    assert_dom_equal(<<~HTML, output_buffer)
+      <form action="/messages" accept-charset="UTF-8" method="post">
+        <input type="hidden" name="message[content]" id="message_content_trix_input_message" />
+        <trix-editor id="message_content" input="message_content_trix_input_message" class="trix-content" data-direct-upload-url="http://test.host/rails/active_storage/direct_uploads" data-blob-url-template="http://test.host/rails/active_storage/blobs/redirect/:signed_id/:filename">
+        </trix-editor>
+      </form>
+    HTML
+  end
+
+  test "form builder rich_text_area alias" do
+    form_with model: Message.new, scope: :message do |form|
+      form.rich_text_area :content
     end
 
     assert_dom_equal(<<~HTML, output_buffer)
