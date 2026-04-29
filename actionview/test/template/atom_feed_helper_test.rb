@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "abstract_unit"
+require "builder"
 
 Scroll = Struct.new(:id, :to_param, :title, :body, :updated_at, :created_at) do
   extend ActiveModel::Naming
@@ -372,4 +373,46 @@ class AtomFeedTest < ActionController::TestCase
         yield
       end
     end
+end
+
+class AtomFeedHelperPublicApiTest < ActionView::TestCase
+  tests ActionView::Helpers::AtomFeedHelper
+
+  Request = Struct.new(:host, :fullpath, :protocol, :host_with_port, :url)
+
+  attr_reader :request
+
+  def setup
+    super
+    @request = Request.new("example.com", "/posts.atom", "https://", "example.com", "https://example.com/posts.atom")
+  end
+
+  def test_atom_feed_formats_schema_date_and_repeats_processing_instruction_groups
+    output = +""
+    xml = Builder::XmlMarkup.new(target: output)
+
+    atom_feed(schema_date: Date.new(2024, 1, 2), instruct: { "target" => [{ a: "1" }, { b: "2" }].each, "ignored" => Object.new }, xml: xml) do |feed|
+      feed.title("Feed title")
+    end
+
+    assert_includes output, "tag:example.com,2024-01-02:/posts"
+    assert_includes output, %(<?target a="1"?>)
+    assert_includes output, %(<?target b="2"?>)
+  end
+
+  def test_entry_can_emit_published_without_updated_or_link
+    output = +""
+    xml = Builder::XmlMarkup.new(target: output)
+    view = Struct.new(:request).new(@request)
+    record = Struct.new(:id).new(7)
+    builder = ActionView::Helpers::AtomFeedHelper::AtomFeedBuilder.new(xml, view, schema_date: "2024")
+
+    builder.entry(record, published: Time.utc(2024, 1, 2), url: false) do |entry|
+      entry.title("Entry title")
+    end
+
+    assert_includes output, "<published>2024-01-02T00:00:00Z</published>"
+    assert_not_includes output, "<updated>"
+    assert_not_includes output, "rel=\"alternate\""
+  end
 end
