@@ -154,6 +154,10 @@ class ActionText::ModelTest < ActiveSupport::TestCase
     end
   end
 
+  test "rich text association names" do
+    assert_equal [ :rich_text_content, :rich_text_body ], Message.rich_text_association_names
+  end
+
   test "eager loading" do
     Message.create!(subject: "Subject", content: "<h1>Content</h1>")
 
@@ -161,6 +165,17 @@ class ActionText::ModelTest < ActiveSupport::TestCase
     assert_no_queries do
       assert_equal "Content", message.content.to_plain_text
     end
+  end
+
+  test "eager loading with embeds" do
+    blob = create_file_blob(filename: "racecar.jpg", content_type: "image/jpeg")
+    Message.create!(subject: "Subject", content: ActionText::Content.new("Content").append_attachables(blob))
+
+    message = Message.with_rich_text_content_and_embeds.last
+
+    assert_predicate message.association(:rich_text_content), :loaded?
+    assert_predicate message.content.embeds.proxy_association, :loaded?
+    assert_predicate message.content.embeds.first.association(:blob), :loaded?
   end
 
   test "eager loading all rich text" do
