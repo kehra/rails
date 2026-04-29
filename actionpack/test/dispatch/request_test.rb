@@ -41,6 +41,65 @@ class BaseRequestTest < ActiveSupport::TestCase
 end
 
 class RequestUrlFor < BaseRequestTest
+  test "URL module class and instance configuration accessors" do
+    original_secure_protocol = ActionDispatch::Http::URL.secure_protocol
+    original_tld_length = ActionDispatch::Http::URL.tld_length
+    original_domain_extractor = ActionDispatch::Http::URL.domain_extractor
+
+    custom_extractor = Module.new
+    request = stub_request("HTTP_HOST" => "www.example.co.uk")
+
+    ActionDispatch::Http::URL.secure_protocol = true
+    ActionDispatch::Http::URL.tld_length = 2
+    ActionDispatch::Http::URL.domain_extractor = custom_extractor
+
+    assert_equal true, ActionDispatch::Http::URL.secure_protocol
+    assert_equal true, request.secure_protocol
+    assert_equal 2, ActionDispatch::Http::URL.tld_length
+    assert_equal 2, request.tld_length
+    assert_equal custom_extractor, ActionDispatch::Http::URL.domain_extractor
+    assert_equal custom_extractor, request.domain_extractor
+
+    assert_equal "https://www.example.com", url_for(host: "www.example.com")
+    assert_equal "https://", url_for(host: "")
+
+    request.secure_protocol = false
+    request.tld_length = 1
+    request.domain_extractor = ActionDispatch::Http::URL::DomainExtractor
+
+    assert_equal false, ActionDispatch::Http::URL.secure_protocol
+    assert_equal 1, ActionDispatch::Http::URL.tld_length
+    assert_equal ActionDispatch::Http::URL::DomainExtractor, ActionDispatch::Http::URL.domain_extractor
+  ensure
+    ActionDispatch::Http::URL.secure_protocol = original_secure_protocol
+    ActionDispatch::Http::URL.tld_length = original_tld_length
+    ActionDispatch::Http::URL.domain_extractor = original_domain_extractor
+  end
+
+  test "request url combines protocol host port and fullpath" do
+    request = stub_request("HTTPS" => "on", "HTTP_HOST" => "www.example.com:8443", "PATH_INFO" => "/posts", "QUERY_STRING" => "page=2")
+
+    assert_equal "https://www.example.com:8443/posts?page=2", request.url
+  end
+
+  test "domain extractor helpers split domains and subdomains" do
+    assert_equal "example.co.uk", ActionDispatch::Http::URL::DomainExtractor.domain_from("api.staging.example.co.uk", 2)
+    assert_equal ["api", "staging"], ActionDispatch::Http::URL::DomainExtractor.subdomains_from("api.staging.example.co.uk", 2)
+    assert_equal "example.com", ActionDispatch::Http::URL.extract_domain("www.example.com", 1)
+    assert_nil ActionDispatch::Http::URL.extract_domain("127.0.0.1", 1)
+    assert_equal ["www"], ActionDispatch::Http::URL.extract_subdomains("www.example.com", 1)
+    assert_equal [], ActionDispatch::Http::URL.extract_subdomains("127.0.0.1", 1)
+    assert_equal "www", ActionDispatch::Http::URL.extract_subdomain("www.example.com", 1)
+  end
+
+  test "url_for rejects invalid protocol options" do
+    error = assert_raise(ArgumentError) do
+      url_for(protocol: "javascript:alert(1)")
+    end
+
+    assert_match(/Invalid :protocol option/, error.message)
+  end
+
   test "url_for class method" do
     e = assert_raise(ArgumentError) { url_for(host: nil) }
     assert_match(/Please provide the :host parameter/, e.message)
