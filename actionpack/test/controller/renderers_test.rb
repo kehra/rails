@@ -30,6 +30,12 @@ class RenderersTest < ActionController::TestCase
     end
   end
 
+  class JsRenderable
+    def to_js(options)
+      "alert(#{options[:message].inspect})"
+    end
+  end
+
   class MarkdownRenderable
     def to_markdown
       "# This is markdown"
@@ -62,6 +68,14 @@ class RenderersTest < ActionController::TestCase
         type.all  { render body: "Nothing" }
         type.any(:js, :xml) { render body: "Either JS or XML" }
       end
+    end
+
+    def render_js_string
+      render js: "window.Rails = {}"
+    end
+
+    def render_js_object
+      render js: JsRenderable.new, message: "hello"
     end
   end
 
@@ -104,6 +118,55 @@ class RenderersTest < ActionController::TestCase
     assert_equal "c,s,v", @response.body
   ensure
     ActionController::Renderers.remove :csv
+  end
+
+  def test_missing_renderer_error_message
+    error = ActionController::MissingRenderer.new(:csv)
+
+    assert_equal "No renderer defined for format: csv", error.message
+  end
+
+  def test_renderers_class_attribute_accessors
+    original_renderers = @controller.class._renderers
+    original_escape_json_responses = @controller.class.escape_json_responses
+
+    @controller.class._renderers = Set[:json]
+    @controller._renderers = Set[:xml]
+    @controller.class.escape_json_responses = false
+
+    assert_equal Set[:xml], @controller._renderers
+    assert_not @controller.class.escape_json_responses
+  ensure
+    @controller.class._renderers = original_renderers
+    ActionController.deprecator.silence do
+      @controller.class.escape_json_responses = original_escape_json_responses
+    end
+  end
+
+  test "rendering js" do
+    @request.accept = "text/javascript"
+    get :respond_to_mime, format: "js"
+    assert_equal Mime[:js], @response.media_type
+    assert_equal "/**/alert(JS)", @response.body
+  end
+
+  test "rendering xml" do
+    @request.accept = "application/xml"
+    get :respond_to_mime, format: "xml"
+    assert_equal Mime[:xml], @response.media_type
+    assert_equal "<i-am-xml/>", @response.body
+  end
+
+  test "rendering js string" do
+    get :render_js_string
+    assert_equal Mime[:js], @response.media_type
+    assert_equal "window.Rails = {}", @response.body
+  end
+
+  test "rendering js object" do
+    get :render_js_object
+    assert_equal Mime[:js], @response.media_type
+    assert_equal "alert(\"hello\")", @response.body
   end
 
   test "rendering markdown" do
