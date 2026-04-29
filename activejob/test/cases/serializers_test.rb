@@ -117,6 +117,21 @@ class SerializersTest < ActiveSupport::TestCase
     end
   end
 
+  test "object serializer default deserialize raises a clear NotImplementedError" do
+    error = assert_raises(NotImplementedError) do
+      ActiveJob::Serializers::ObjectSerializer.instance.deserialize({})
+    end
+
+    assert_match "should implement a public #deserialize(hash) method", error.message
+  end
+
+  test "symbol serializer stores symbol names" do
+    assert_equal(
+      { "_aj_serialized" => "ActiveJob::Serializers::SymbolSerializer", "value" => "active_job" },
+      ActiveJob::Serializers::SymbolSerializer.instance.serialize(:active_job)
+    )
+  end
+
   test "raises a deprecation warning if the klass method is private" do
     expected_message = "SerializersTest::PrivateKlassSerializer#klass method should be public. This will raise an error in Rails 8.2"
 
