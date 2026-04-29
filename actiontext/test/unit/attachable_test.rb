@@ -25,6 +25,35 @@ class ActionText::AttachableTest < ActiveSupport::TestCase
     assert_equal ActionText::Attachables::MissingAttachable::DEFAULT_PARTIAL_PATH, ActiveStorage::Blob.to_missing_attachable_partial_path
   end
 
+  test "missing attachable representations and partial paths" do
+    person = Person.create!(name: "Javan")
+    missing_person = ActionText::Attachables::MissingAttachable.new(person.attachable_sgid)
+    missing_unknown = ActionText::Attachables::MissingAttachable.new("missing")
+
+    assert_equal "people/missing_attachable", missing_person.to_partial_path
+    assert_equal Person, missing_person.model
+    assert_equal ActionText::Attachables::MissingAttachable::DEFAULT_PARTIAL_PATH, missing_unknown.to_partial_path
+    assert_nil missing_unknown.model
+    assert_equal "☒", missing_unknown.attachable_plain_text_representation
+    assert_equal "☒", missing_unknown.attachable_markdown_representation
+  end
+
+  test "remote image attachable from node and representations" do
+    image = ActionText::Attachables::RemoteImage.from_node(attachment_node(%(url="https://example.com/image.jpg" content-type="image/jpeg" width="640" height="480")))
+
+    assert_equal "https://example.com/image.jpg", image.url
+    assert_equal "image/jpeg", image.content_type
+    assert_equal "640", image.width
+    assert_equal "480", image.height
+    assert_equal "[Caption]", image.attachable_plain_text_representation("Caption")
+    assert_equal "[Image]", image.attachable_plain_text_representation(nil)
+    assert_equal "![Caption](https://example.com/image.jpg)", image.attachable_markdown_representation("Caption")
+    assert_equal "![Image](https://example.com/image.jpg)", image.attachable_markdown_representation(nil)
+    assert_equal "action_text/attachables/remote_image", image.to_partial_path
+    assert_nil ActionText::Attachables::RemoteImage.from_node(attachment_node(%(url="/image.jpg" content-type="image/jpeg")))
+    assert_nil ActionText::Attachables::RemoteImage.from_node(attachment_node(%(url="https://example.com/file.txt" content-type="text/plain")))
+  end
+
   test "attachable metadata helpers and rich text attributes" do
     attachable = ActiveStorage::Blob.create_after_unfurling!(
       io: StringIO.new("test"),
