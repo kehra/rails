@@ -124,6 +124,21 @@ class ArgumentSerializationTest < ActiveSupport::TestCase
     )
   end
 
+  test "ActionController::Parameters serializer exposes klass when ActionController is loaded" do
+    action_controller = Module.new
+    action_controller.const_set(:Parameters, Parameters)
+
+    stub_const(Object, :ActionController, action_controller, exists: false) do
+      assert_equal Parameters, ActiveJob::Serializers::ActionControllerParametersSerializer.instance.klass
+    end
+  end
+
+  test "ActionController::Parameters serializer does not deserialize directly" do
+    assert_raises(NotImplementedError) do
+      ActiveJob::Serializers::ActionControllerParametersSerializer.instance.deserialize({})
+    end
+  end
+
   # Regression test to #48561
   test "serialize a class with permitted? defined" do
     assert_arguments_unchanged MyClassWithPermitted

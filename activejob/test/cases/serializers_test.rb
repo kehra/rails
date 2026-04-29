@@ -32,6 +32,17 @@ class SerializersTest < ActiveSupport::TestCase
 
   class TestSerializerWithoutKlass < ActiveJob::Serializers::ObjectSerializer; end
 
+  class PrivateKlassSerializer < ActiveJob::Serializers::ObjectSerializer
+    def serialize(object)
+      super({ "value" => object.value })
+    end
+
+    private
+      def klass
+        DummyValueObject
+      end
+  end
+
   setup do
     @value_object = DummyValueObject.new 123
     @original_serializers = ActiveJob::Serializers.serializers
@@ -104,6 +115,19 @@ class SerializersTest < ActiveSupport::TestCase
     assert_no_difference(-> { ActiveJob::Serializers.serializers.size }) do
       ActiveJob::Serializers.add_serializers DummySerializer
     end
+  end
+
+  test "raises a deprecation warning if the klass method is private" do
+    expected_message = "SerializersTest::PrivateKlassSerializer#klass method should be public. This will raise an error in Rails 8.2"
+
+    assert_deprecated(expected_message, ActiveJob.deprecator) do
+      ActiveJob::Serializers.add_serializers PrivateKlassSerializer
+    end
+
+    assert_equal(
+      { "_aj_serialized" => "SerializersTest::PrivateKlassSerializer", "value" => 123 },
+      ActiveJob::Serializers.serialize(@value_object)
+    )
   end
 
   test "raises a deprecation warning if the klass method doesn't exist" do
