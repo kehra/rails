@@ -214,4 +214,21 @@ class MiddlewareStackTest < ActiveSupport::TestCase
   test "includes a middleware" do
     assert_equal true, @stack.include?(ActionDispatch::MiddlewareStack::Middleware.new(BarMiddleware, nil, nil))
   end
+
+  test "middleware compares false with unrelated objects" do
+    assert_not_equal @stack.last, Object.new
+  end
+
+  test "middleware inspect uses wrapped object class for non modules" do
+    middleware = ActionDispatch::MiddlewareStack::Middleware.new(Object.new, [], nil)
+
+    assert_equal "Object", middleware.inspect
+  end
+
+  test "middleware stack exposes middlewares accessor" do
+    middlewares = [ActionDispatch::MiddlewareStack::Middleware.new(BazMiddleware, [], nil)]
+    @stack.middlewares = middlewares
+
+    assert_same middlewares, @stack.middlewares
+  end
 end
