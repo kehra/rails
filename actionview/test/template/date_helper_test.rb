@@ -3707,4 +3707,66 @@ class DateHelperTest < ActionView::TestCase
     expected = '<time datetime="2013-02-20T00:00:00+00:00">20 Feb 00:00</time>'
     assert_equal expected, time_tag(time, format: :short)
   end
+
+  def test_distance_of_time_in_words_handles_dates_inside_same_adjusted_year_window
+    from = Date.new(2020, 1, 1)
+    to = Date.new(2020, 12, 31)
+    assert_equal "almost 1 year", distance_of_time_in_words(from, to)
+  end
+
+  def test_select_datetime_with_tag_and_ignore_date_returns_time_only_selects
+    output = select_datetime(Time.mktime(2003, 8, 16, 8, 4, 18), tag: true, ignore_date: true, include_seconds: true)
+    assert_includes output, 'id="date_hour"'
+    assert_includes output, 'id="date_minute"'
+    assert_includes output, 'id="date_second"'
+    assert_not_includes output, 'id="date_year"'
+  end
+
+  def test_select_second_with_hidden_included_seconds
+    assert_dom_equal %(<input id="date_second" name="date[second]" type="hidden" value="18" autocomplete="off" />),
+      select_second(Time.mktime(2003, 8, 16, 8, 4, 18), use_hidden: true, include_seconds: true)
+  end
+
+  def test_date_order_rejects_unknown_elements
+    assert_raises(StandardError, match: /only accepts :year, :month and :day/) do
+      I18n.with_locale(:en) do
+        I18n.backend.store_translations(:en, date: { order: [:year, :weekday, :month] })
+        select_date(Date.new(2003, 8, 16), locale: :en)
+      end
+    end
+  ensure
+    I18n.backend.store_translations(:en, date: { order: [:year, :month, :day] })
+  end
+
+  def test_datetime_selector_namespace_and_separator_variants
+    output = select_date(Date.new(2003, 8, 16), namespace: "admin", start_year: 2003, end_year: 2003)
+    assert_includes output, 'id="admin_date_year"'
+
+    output = select_time(Time.mktime(2003, 8, 16, 8, 4, 18), discard_year: true, include_seconds: true)
+    assert_not_includes output, " &mdash; "
+
+    output = select_time(Time.mktime(2003, 8, 16, 8, 4, 18), include_seconds: true, discard_second: true)
+    assert_includes output, 'type="hidden" id="date_second"'
+
+    assert_nothing_raised do
+      I18n.with_locale(:en) do
+        I18n.backend.store_translations(:en, date: { order: [:year, :day] })
+        assert_includes select_date(Date.new(2003, 8, 16), locale: :en), 'type="hidden" id="date_month"'
+        assert_includes select_datetime(Time.mktime(2003, 8, 16, 8, 4, 18), locale: :en), 'type="hidden" id="date_month"'
+      end
+    end
+
+    selector = ActionView::Helpers::DateTimeSelector.new(Time.mktime(2003, 8, 16, 8, 4, 18), discard_year: true, discard_day: true)
+    assert_equal "", selector.send(:separator, :hour)
+    assert_nil selector.send(:separator, :unknown)
+
+    selector = ActionView::Helpers::DateTimeSelector.new(Time.mktime(2003, 8, 16, 8, 4, 18), {})
+    assert_equal "", selector.send(:prompt_option_tag, :year, { year: false })
+    options = selector.send(:build_options, 1, start: 1, end: 2, leading_zeros: false, use_two_digit_numbers: false)
+    assert_includes options, '<option value="1" selected="selected">1</option>'
+    options = selector.send(:build_options, 1, start: 1, end: 2, leading_zeros: false, use_two_digit_numbers: true)
+    assert_includes options, '>01</option>'
+  ensure
+    I18n.backend.store_translations(:en, date: { order: [:year, :month, :day] })
+  end
 end
