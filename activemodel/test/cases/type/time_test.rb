@@ -1,12 +1,14 @@
 # frozen_string_literal: true
 
 require "cases/helper"
+require "active_support/core_ext/time/conversions"
 
 module ActiveModel
   module Type
     class TimeTest < ActiveModel::TestCase
       def test_type_cast_time
         type = Type::Time.new
+        assert_equal :time, type.type
         assert_nil type.cast(nil)
         assert_nil type.cast("")
         assert_nil type.cast("ABC")
@@ -19,6 +21,12 @@ module ActiveModel
         assert_equal ::Time.utc(1999, 12, 31, 21,  7,  8), type.cast("06:07:08+09:00")
         assert_equal ::Time.utc(2000,  1,  1, 16, 45, 54), type.cast(4 => 16, 5 => 45, 6 => 54)
         assert_equal ::Time.utc(2000,  1,  1, 3, 30, 0), type.cast("2023-01-01T00:00:00-03:30")
+      end
+
+      def test_type_cast_for_schema
+        type = Type::Time.new
+
+        assert_equal '"2000-01-01 01:02:03"', type.type_cast_for_schema(::Time.utc(2000, 1, 1, 1, 2, 3))
       end
 
       def test_user_input_in_time_zone
@@ -43,6 +51,28 @@ module ActiveModel
 
         assert_equal type.serialize(value), type.serialize_cast_value(value)
       end
+
+      test "multiparameter values use local time when default zone is not UTC" do
+        with_timezone_config default: "Pacific Time (US & Canada)" do
+          type = Type::Time.new
+          value = type.cast(4 => 1, 5 => 2, 6 => 3)
+
+          assert_equal 1, value.hour
+          assert_equal 2, value.min
+          assert_equal 3, value.sec
+          assert_not type.send(:is_utc?)
+          assert_equal :local, type.send(:default_timezone)
+        end
+      end
+
+      private
+        def with_timezone_config(default:)
+          old_zone_default = ::Time.zone_default
+          ::Time.zone_default = ::Time.find_zone(default)
+          yield
+        ensure
+          ::Time.zone_default = old_zone_default
+        end
     end
   end
 end

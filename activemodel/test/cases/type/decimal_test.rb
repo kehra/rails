@@ -20,6 +20,13 @@ module ActiveModel
         assert_equal value.to_s.inspect, type.type_cast_for_schema(value)
       end
 
+      def test_serialize_cast_value_returns_value
+        type = Decimal.new
+        value = BigDecimal("1.2")
+
+        assert_same value, type.serialize_cast_value(value)
+      end
+
       def test_type_cast_decimal_from_invalid_string
         type = Decimal.new
         assert_nil type.cast("")
