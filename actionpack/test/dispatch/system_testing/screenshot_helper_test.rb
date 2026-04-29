@@ -166,6 +166,25 @@ class ScreenshotHelperTest < ActiveSupport::TestCase
     assert_match %r|url=artifact://.+?tmp/screenshots/1_x\.png|, display_image_actual
   end
 
+  test "take_screenshot allows inline display format" do
+    display_image_actual = nil
+
+    Tempfile.create(["screenshot", ".png"]) do |image|
+      image.write("image-data")
+      image.flush
+
+      @new_test.stub :absolute_image_path, image.path do
+        @new_test.stub :save_image, nil do
+          @new_test.stub :show, -> (img) { display_image_actual = img } do
+            @new_test.take_screenshot(screenshot: "inline")
+          end
+        end
+      end
+    end
+
+    assert_match(/\e\]1337;File=name=/, display_image_actual)
+  end
+
   test "take_failed_screenshot persists the image path in the test metadata" do
     Rails.stub :root, Pathname.getwd do
       @new_test.stub :passed?, false do
@@ -175,6 +194,24 @@ class ScreenshotHelperTest < ActiveSupport::TestCase
               @new_test.take_failed_screenshot
 
               assert_equal @new_test.send(:relative_image_path), @new_test.metadata[:failure_screenshot_path]
+            end
+          end
+        end
+      end
+    end
+  end
+
+  test "take_failed_screenshot skips metadata when minitest metadata is unavailable" do
+    Rails.stub :root, Pathname.getwd do
+      @new_test.stub :passed?, false do
+        Capybara::Session.stub :instance_created?, true do
+          Minitest::Runnable.stub :method_defined?, false do
+            @new_test.stub :save_image, nil do
+              @new_test.stub :show, -> (_) { } do
+                @new_test.take_failed_screenshot
+
+                assert_nil @new_test.metadata[:failure_screenshot_path]
+              end
             end
           end
         end
