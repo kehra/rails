@@ -298,6 +298,43 @@ class LookupContextTest < ActiveSupport::TestCase
     assert_equal @lookup_context.default_formats, @lookup_context.formats
   end
 
+  test "path set public collection operations" do
+    resolver = ActionView::FixtureResolver.new("test/_foo.html.erb" => "Foo")
+    other_resolver = ActionView::FixtureResolver.new("other/_bar.html.erb" => "Bar")
+    path_set = ActionView::PathSet.new([resolver]).compact
+
+    assert_equal [resolver], path_set.to_ary
+    assert_not_same path_set.paths, path_set.to_ary
+
+    copied = path_set.dup
+    assert_equal path_set.paths, copied.paths
+    assert_not_same path_set.paths, copied.paths
+
+    added_from_array = path_set + [other_resolver]
+    assert_equal [resolver, other_resolver], added_from_array.paths
+
+    added_from_path_set = path_set + ActionView::PathSet.new([other_resolver])
+    assert_equal [resolver, other_resolver], added_from_path_set.paths
+  end
+
+  test "path set lookup raises for missing templates and rejects invalid paths" do
+    path_set = ActionView::PathSet.new([ActionView::FixtureResolver.new("test/_foo.html.erb" => "Foo")])
+    details = { locale: [:en], formats: [:html], variants: [], handlers: [:erb] }
+    details_key = ActionView::LookupContext::DetailsKey.details_cache_key(details)
+
+    assert path_set.exists?("foo", ["test"], true, details, details_key, [])
+    assert_equal ["Foo"], path_set.find_all("foo", ["test"], true, details, details_key, []).map(&:source)
+    assert_equal "Foo", path_set.find("foo", ["test"], true, details, details_key, []).source
+
+    assert_raises(ActionView::MissingTemplate) do
+      path_set.find("missing", ["test"], true, details, details_key, [])
+    end
+
+    assert_raises(TypeError) do
+      ActionView::PathSet.new([Object.new])
+    end
+  end
+
   test "responds to #prefixes" do
     assert_equal [], @lookup_context.prefixes
     @lookup_context.prefixes = ["foo"]
