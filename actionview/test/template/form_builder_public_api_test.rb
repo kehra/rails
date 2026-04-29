@@ -6,6 +6,10 @@ require "controller/fake_models"
 class FormBuilderPublicApiTest < ActionView::TestCase
   tests ActionView::Helpers::FormHelper
 
+  def url_for(options = {})
+    options == false ? false : "/posts"
+  end
+
   test "form builder exposes model partial path and form id" do
     builder = ActionView::Helpers::FormBuilder.new("post", Post.new, self, id: "options-id", html: { id: "html-id" })
 
@@ -44,5 +48,27 @@ class FormBuilderPublicApiTest < ActionView::TestCase
     assert_raises(NoMethodError) do
       ActionView::Helpers::FormBuilder.new("post", Post.new, self, nil)
     end
+  end
+
+  test "form_with rejects nil model" do
+    error = assert_raises(ArgumentError) { form_with(model: nil) }
+
+    assert_equal "Passed nil to the :model argument, expect an object or false", error.message
+  end
+
+  test "form_with without block returns opening form tag" do
+    assert_equal '<form action="/posts" accept-charset="UTF-8" data-remote="true" method="post"><input type="hidden" name="utf8" value="&#x2713;" autocomplete="off" />', form_with(url: "/posts")
+  end
+
+  test "form_with model and false url skips polymorphic url" do
+    post = Post.new
+
+    output = form_with(model: post, url: false) do |form|
+      concat form.text_field(:title)
+    end
+
+    assert_includes output, "<form accept-charset=\"UTF-8\""
+    assert_not_includes output, "action="
+    assert_includes output, 'name="post[title]"'
   end
 end
