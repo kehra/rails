@@ -114,8 +114,32 @@ class SanitizeHelperTest < ActionView::TestCase
     assert_predicate(self.sanitize("asdf"), :html_safe?)
   end
 
+  test "sanitize returns nil when safe_list_sanitizer returns nil" do
+    saved_sanitizer = self.class.safe_list_sanitizer
+    self.class.safe_list_sanitizer = Class.new do
+      def sanitize(*)
+      end
+    end.new
+
+    assert_nil self.sanitize(nil)
+  ensure
+    self.class.safe_list_sanitizer = saved_sanitizer
+  end
+
   test "sanitize_css calls sanitize_css on the safe_list_sanitizer" do
     assert_equal("safe_list_sanitizer#sanitize_css / asdf", self.sanitize_css("asdf"))
+  end
+
+  test "strip_tags returns nil when full_sanitizer returns nil" do
+    saved_sanitizer = self.class.full_sanitizer
+    self.class.full_sanitizer = Class.new do
+      def sanitize(*)
+      end
+    end.new
+
+    assert_nil self.strip_tags(nil)
+  ensure
+    self.class.full_sanitizer = saved_sanitizer
   end
 
   test "strip_tags calls sanitize on the full_sanitizer" do
