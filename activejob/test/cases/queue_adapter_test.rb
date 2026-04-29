@@ -110,4 +110,24 @@ class QueueAdapterTest < ActiveJob::TestCase
     child_job.queue_adapter = StubFourAdapter.new
     assert_equal "fancy_name", child_job.queue_adapter_name
   end
+
+  test "test adapter lazily stores jobs and evaluates stopping predicate" do
+    adapter = ActiveJob::QueueAdapters::TestAdapter.new
+
+    assert_equal [], adapter.enqueued_jobs
+    assert_same adapter.enqueued_jobs, adapter.enqueued_jobs
+    assert_equal [], adapter.performed_jobs
+    assert_same adapter.performed_jobs, adapter.performed_jobs
+
+    adapter.enqueued_jobs = [:enqueued]
+    adapter.performed_jobs = [:performed]
+    assert_equal [:enqueued], adapter.enqueued_jobs
+    assert_equal [:performed], adapter.performed_jobs
+
+    adapter.stopping = false
+    assert_equal false, adapter.stopping?
+
+    adapter.stopping = -> { true }
+    assert_equal true, adapter.stopping?
+  end
 end
