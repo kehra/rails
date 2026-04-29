@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "abstract_unit"
+require "action_controller/railties/helpers"
 
 ActionController::Base.helpers_path = File.expand_path("../fixtures/helpers", __dir__)
 
@@ -72,6 +73,71 @@ module LocalAbcHelper
   def a() end
   def b() end
   def c() end
+end
+
+class RailtiesHelpersTest < ActiveSupport::TestCase
+  module NamespaceWithHelpersPath
+    def self.railtie_helpers_paths
+      ["/tmp/namespaced_helpers"]
+    end
+  end
+
+  class ParentWithoutHelpersPath
+    extend ActionController::Railties::Helpers
+  end
+
+  class ParentWithHelpersPath < ActionController::Base
+    extend ActionController::Railties::Helpers
+  end
+
+  module NamespaceWithHelpersPath
+    class ParentController < ActionController::Base
+      extend ActionController::Railties::Helpers
+    end
+  end
+
+  def test_inherited_returns_when_child_has_no_helpers_path_accessor
+    child = Class.new(ParentWithoutHelpersPath)
+
+    assert_not_respond_to child, :helpers_path=
+  end
+
+  def test_inherited_uses_global_helpers_path_without_namespace
+    original_paths = ActionController::Helpers.helpers_path
+    ActionController::Helpers.helpers_path = ["/tmp/global_helpers"]
+
+    child = Class.new(ParentWithHelpersPath)
+
+    assert_equal ["/tmp/global_helpers"], child.helpers_path
+  ensure
+    ActionController::Helpers.helpers_path = original_paths
+  end
+
+  def test_inherited_prefers_namespace_helpers_path
+    NamespaceWithHelpersPath.module_eval("class ChildController < ParentController; end", __FILE__, __LINE__)
+
+    assert_equal ["/tmp/namespaced_helpers"], NamespaceWithHelpersPath::ChildController.helpers_path
+  ensure
+    NamespaceWithHelpersPath.send(:remove_const, :ChildController) if NamespaceWithHelpersPath.const_defined?(:ChildController, false)
+  end
+
+  def test_inherited_includes_all_helpers_for_direct_base_subclasses
+    original_include_all_helpers = ActionController::Base.include_all_helpers
+    original_helpers_path = ActionController::Helpers.helpers_path
+    helpers_path = File.expand_path("../fixtures/helpers", __dir__)
+    ActionController::Base.include_all_helpers = true
+    ActionController::Helpers.helpers_path = helpers_path
+    ActionPackTestSuiteUtils.require_helpers(helpers_path)
+    child = Class.new(ActionController::Base)
+
+    ActionController::Railties::Helpers.instance_method(:inherited).bind_call(ActionController::Base, child)
+
+    assert_equal helpers_path, child.helpers_path
+    assert_includes child._helpers.instance_methods, :bare_a
+  ensure
+    ActionController::Helpers.helpers_path = original_helpers_path
+    ActionController::Base.include_all_helpers = original_include_all_helpers
+  end
 end
 
 class HelperPathsTest < ActiveSupport::TestCase
