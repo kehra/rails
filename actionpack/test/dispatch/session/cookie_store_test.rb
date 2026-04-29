@@ -428,6 +428,24 @@ class CookieStoreTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "session id exposes the original cookie value" do
+    sid = Rack::Session::SessionId.new("session-id")
+    cookie_value = { "session_id" => sid.public_id, "foo" => "bar" }
+    wrapped_sid = ActionDispatch::Session::CookieStore::SessionId.new(sid, cookie_value)
+
+    assert_equal sid.public_id, wrapped_sid.public_id
+    assert_same cookie_value, wrapped_sid.cookie_value
+  end
+
+  test "delete session with drop clears unsigned cookie without generating a new id" do
+    store = ActionDispatch::Session::CookieStore.new(->(_) { [200, {}, []] }, key: SessionKey)
+    request = ActionDispatch::Request.new(Rack::MockRequest.env_for("/"))
+    sid = Rack::Session::SessionId.new("session-id")
+
+    assert_nil store.delete_session(request, sid, drop: true)
+    assert_equal({}, request.get_header("action_dispatch.request.unsigned_session_cookie"))
+  end
+
   private
     # Overwrite `get` to set env hash
     def get(path, **options)
