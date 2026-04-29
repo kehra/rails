@@ -1736,6 +1736,28 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
     assert_equal "account#description", @response.body
   end
 
+  def test_mapper_class_accessors
+    original_cleaner = ActionDispatch::Routing::Mapper.backtrace_cleaner
+    original_route_source_locations = ActionDispatch::Routing::Mapper.route_source_locations
+    cleaner = ActiveSupport::BacktraceCleaner.new
+
+    ActionDispatch::Routing::Mapper.backtrace_cleaner = cleaner
+    ActionDispatch::Routing::Mapper.route_source_locations = true
+
+    assert_same cleaner, ActionDispatch::Routing::Mapper.backtrace_cleaner
+    assert_equal true, ActionDispatch::Routing::Mapper.route_source_locations
+  ensure
+    ActionDispatch::Routing::Mapper.backtrace_cleaner = original_cleaner
+    ActionDispatch::Routing::Mapper.route_source_locations = original_route_source_locations
+  end
+
+  def test_mapper_normalizes_paths_and_names
+    assert_equal "/(:locale)", ActionDispatch::Routing::Mapper.normalize_path("/(:locale)")
+    assert_equal "/(:locale)(/:platform)(/:browser)", ActionDispatch::Routing::Mapper.normalize_path("/(:locale)(/:platform)/(:browser)")
+    assert_equal "(/:locale)(/pages/:page)", ActionDispatch::Routing::Mapper.normalize_path("/(:locale)(/pages/:page)")
+    assert_equal "admin_posts", ActionDispatch::Routing::Mapper.normalize_name("/admin/posts")
+  end
+
   def test_namespaced_roots
     draw do
       namespace :account do
