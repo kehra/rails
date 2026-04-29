@@ -192,6 +192,112 @@ class LookupContextTest < ActiveSupport::TestCase
     assert_not_equal template, old_template
   end
 
+  test "lookup context public caches and derived contexts" do
+    @lookup_context = build_lookup_context(ActionView::FixtureResolver.new("test/_foo.html.erb" => "Foo"), {})
+
+    digest_cache = @lookup_context.digest_cache
+    assert_same digest_cache, @lookup_context.digest_cache
+    assert_includes ActionView::LookupContext::DetailsKey.digest_caches, digest_cache
+
+    prepended = @lookup_context.with_prepended_formats([:json])
+    assert_equal [:json], prepended.formats
+    assert_equal @lookup_context.view_paths, prepended.view_paths
+    assert_equal @lookup_context.prefixes, prepended.prefixes
+
+    assert_same ActionView::LookupContext::DetailsKey.view_context_class, ActionView::LookupContext::DetailsKey.view_context_class
+  end
+
+  test "details key normalizes invalid requested formats" do
+    details = { locale: [:en], formats: [:html, :invalid], variants: [], handlers: [:erb] }
+    key = ActionView::LookupContext::DetailsKey.details_cache_key(details)
+
+    assert_equal [:html], key.formats
+
+    key_without_formats = ActionView::LookupContext::DetailsKey.details_cache_key(locale: [:en], formats: nil, variants: [], handlers: [:erb])
+    assert_nil key_without_formats.formats
+  end
+
+  test "default locale skips fallbacks when i18n has no fallback support" do
+    original_respond_to = I18n.method(:respond_to?)
+    I18n.stub(:respond_to?, ->(name, *args) { name == :fallbacks ? false : original_respond_to.call(name, *args) }) do
+      context = build_lookup_context([], {})
+      assert_equal [I18n.locale], context.default_locale
+    end
+  end
+
+  test "register detail defines default reader and writer" do
+    detail_name = :lookup_context_test_detail
+    original_details = ActionView::LookupContext.registered_details.dup
+    original_default = ActionView::LookupContext::Accessors::DEFAULT_PROCS[detail_name]
+
+    ActionView::LookupContext.register_detail(detail_name) { [:default_value] }
+    context = build_lookup_context([], {})
+
+    assert_equal [:default_value], context.public_send(detail_name)
+    context.public_send("#{detail_name}=", :custom_value)
+    assert_equal [:custom_value], context.public_send(detail_name)
+  ensure
+    ActionView::LookupContext.registered_details = original_details
+    if original_default
+      ActionView::LookupContext::Accessors::DEFAULT_PROCS[detail_name] = original_default
+    else
+      ActionView::LookupContext::Accessors::DEFAULT_PROCS.delete(detail_name)
+    end
+  end
+
+  test "lookup context view path public helpers delegate to path set" do
+    resolver = ActionView::FixtureResolver.new(
+      "test/_foo.html.erb" => "Foo",
+      "admin/test/_foo.html.erb" => "Admin Foo",
+      "other/_bar.html.erb" => "Bar"
+    )
+    @lookup_context = build_lookup_context(resolver, {})
+    @lookup_context.formats = [:html]
+
+    assert @lookup_context.exists?("foo", ["test"], true)
+    assert @lookup_context.exists?("foo", ["test"], true, [], formats: [:html])
+    assert @lookup_context.any?("foo", ["test"], true)
+    assert_equal "Foo", @lookup_context.find("test/foo", [], true).source
+    assert_equal "Admin Foo", @lookup_context.find("/test/foo", ["admin"], true).source
+    assert_equal ["Foo"], @lookup_context.find_all("foo", ["test"], true).map(&:source)
+
+    @lookup_context.disable_cache do
+      assert @lookup_context.exists?("foo", ["test"], true, [], formats: [:html])
+    end
+
+    uncached_context = build_lookup_context(resolver, {})
+    uncached_context.formats = [:html]
+    uncached_context.disable_cache do
+      assert uncached_context.any?("foo", ["test"], true)
+    end
+
+    @lookup_context.append_view_paths([ActionView::FixtureResolver.new("tail/_item.html.erb" => "Tail")])
+    assert @lookup_context.exists?("item", ["tail"], true)
+
+    @lookup_context.prepend_view_paths([ActionView::FixtureResolver.new("test/_foo.html.erb" => "Prepended")])
+    assert_equal "Prepended", @lookup_context.find("foo", ["test"], true).source
+  end
+
+  test "any template lookup uses variant wildcard details" do
+    @lookup_context = build_lookup_context(ActionView::FixtureResolver.new("test/_foo.html+phone.erb" => "Phone"), {})
+    @lookup_context.formats = [:html]
+    @lookup_context.variants = [:tablet]
+
+    assert @lookup_context.any?("foo", ["test"], true)
+  end
+
+  test "locale can be cleared to default locale" do
+    @lookup_context.locale = nil
+
+    assert_equal I18n.default_locale, @lookup_context.locale
+  end
+
+  test "formats can be cleared to default formats" do
+    @lookup_context.formats = nil
+
+    assert_equal @lookup_context.default_formats, @lookup_context.formats
+  end
+
   test "responds to #prefixes" do
     assert_equal [], @lookup_context.prefixes
     @lookup_context.prefixes = ["foo"]
