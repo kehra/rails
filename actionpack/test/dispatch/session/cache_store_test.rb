@@ -238,6 +238,18 @@ class CacheStoreTest < ActionDispatch::IntegrationTest
     end
   end
 
+  def test_write_session_deletes_cache_entry_for_nil_session
+    cache = ActiveSupport::Cache::MemoryStore.new
+    store = ActionDispatch::Session::CacheStore.new(->(_) { [200, {}, []] }, key: "_session_id", cache: cache)
+    sid = Rack::Session::SessionId.new("session-id")
+    key = "_session_id:#{sid.private_id}"
+
+    cache.write(key, { "foo" => "bar" })
+
+    assert_equal sid, store.write_session({}, sid, nil, {})
+    assert_nil cache.read(key)
+  end
+
   private
     def cache_store_options(options = {})
       @cache_store_options ||= options
