@@ -52,6 +52,32 @@ module ActiveModel
         assert_equal type.serialize(value), type.serialize_cast_value(value)
       end
 
+      test "serialize_cast_value preserves non time values and already utc times" do
+        type = Type::Time.new(precision: 3)
+        time = ::Time.utc(2000, 1, 1, 1, 2, 3, 123_000)
+
+        assert_equal "raw", type.serialize_cast_value("raw")
+        assert_equal time, type.serialize_cast_value(time)
+      end
+
+      test "serialize_cast_value converts to local time outside UTC" do
+        with_timezone_config default: "Pacific Time (US & Canada)" do
+          type = Type::Time.new
+          time = ::Time.utc(2000, 1, 1, 1, 2, 3)
+
+          assert_equal time.getlocal, type.serialize_cast_value(time)
+        end
+      end
+
+      test "seconds precision leaves values unchanged when rounding is unnecessary" do
+        no_precision_type = Type::Time.new
+        precision_type = Type::Time.new(precision: 3)
+        time = ::Time.utc(2000, 1, 1, 1, 2, 3, 123_000)
+
+        assert_equal time, no_precision_type.send(:apply_seconds_precision, time)
+        assert_equal time, precision_type.send(:apply_seconds_precision, time)
+      end
+
       test "multiparameter values use local time when default zone is not UTC" do
         with_timezone_config default: "Pacific Time (US & Canada)" do
           type = Type::Time.new
