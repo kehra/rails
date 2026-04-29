@@ -5,10 +5,16 @@ require "abstract_unit"
 module SharedBufferTests
   def self.included(test_case)
     test_case.test "#<< maintains HTML safety" do
+      @buffer << nil
+      assert_equal "", output
+
+      @buffer << "<p>safe</p>".html_safe
+      assert_equal "<p>safe</p>", output
+
       @buffer << "<script>alert('pwned!')</script>"
       assert_predicate @buffer, :html_safe?
       assert_predicate output, :html_safe?
-      assert_equal "&lt;script&gt;alert(&#39;pwned!&#39;)&lt;/script&gt;", output
+      assert_equal "<p>safe</p>&lt;script&gt;alert(&#39;pwned!&#39;)&lt;/script&gt;", output
     end
 
     test_case.test "#safe_append= bypasses HTML safety" do
@@ -20,6 +26,10 @@ module SharedBufferTests
 
     test_case.test "#raw allow to bypass HTML escaping" do
       raw_buffer = @buffer.raw
+      assert_same raw_buffer, raw_buffer.raw
+      raw_buffer << nil
+      assert_equal "", output
+
       raw_buffer << "<script>alert('pwned!')</script>"
       assert_predicate @buffer, :html_safe?
       assert_predicate output, :html_safe?
@@ -68,6 +78,21 @@ class TestOutputBuffer < ActiveSupport::TestCase
     assert_equal "Hello", output
   end
 
+  test "supports equality only with same class and string content" do
+    @buffer << "Hello"
+    assert_equal ActionView::OutputBuffer.new("Hello"), @buffer
+    assert_not_equal ActiveSupport::SafeBuffer.new("Hello"), @buffer
+    assert_not_equal ActionView::OutputBuffer.new("Goodbye"), @buffer
+  end
+
+  test "safe_expr_append appends string values without escaping and ignores nil" do
+    assert_same @buffer, @buffer.__send__(:safe_expr_append=, nil)
+    assert_equal "", output
+
+    assert_same @buffer, @buffer.__send__(:safe_expr_append=, "<p>safe expr</p>")
+    assert_equal "<p>safe expr</p>", output
+  end
+
   private
     def output
       @buffer.to_s
@@ -80,6 +105,10 @@ class TestStreamingBuffer < ActiveSupport::TestCase
   setup do
     @raw_buffer = +""
     @buffer = ActionView::StreamingBuffer.new(@raw_buffer.method(:<<))
+  end
+
+  test "html_safe returns the streaming buffer itself" do
+    assert_same @buffer, @buffer.html_safe
   end
 
   private
