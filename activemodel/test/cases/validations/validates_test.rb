@@ -131,6 +131,22 @@ class ValidatesTest < ActiveModel::TestCase
     assert_raise(ArgumentError) { Person.validates :karma, unknown: true }
   end
 
+  def test_validates_requires_at_least_one_attribute
+    error = assert_raises(ArgumentError) do
+      Person.validates presence: true
+    end
+
+    assert_equal "You need to supply at least one attribute", error.message
+  end
+
+  def test_validates_requires_at_least_one_validation
+    error = assert_raises(ArgumentError) do
+      Person.validates :karma
+    end
+
+    assert_equal "You need to supply at least one validation", error.message
+  end
+
   def test_validates_with_disabled_unknown_validator
     assert_raise(ArgumentError) { Person.validates :karma, unknown: false }
   end

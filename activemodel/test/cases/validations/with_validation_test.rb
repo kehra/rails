@@ -129,6 +129,31 @@ class ValidatesWithTest < ActiveModel::TestCase
     end
   end
 
+  test "base validator requires subclasses to implement validate" do
+    validator = ActiveModel::Validator.new
+
+    error = assert_raises(NotImplementedError) do
+      validator.validate(Topic.new)
+    end
+
+    assert_equal "Subclasses must implement a validate(record) method.", error.message
+  end
+
+  test "base each validator requires subclasses to implement validate_each" do
+    validator_class = Class.new(ActiveModel::EachValidator)
+    validator = validator_class.new(attributes: [:title])
+
+    error = assert_raises(NotImplementedError) do
+      validator.validate(Topic.new(title: "Title"))
+    end
+
+    assert_equal "Subclasses must implement a validate_each(record, attribute, value) method", error.message
+  end
+
+  test "anonymous validator class has no kind" do
+    assert_nil Class.new(ActiveModel::Validator).kind
+  end
+
   test "each validator expects attributes to be given" do
     assert_raise ArgumentError do
       Topic.validates_with(ValidatorPerEachAttribute)

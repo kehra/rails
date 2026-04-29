@@ -250,6 +250,22 @@ class ComparisonValidationTest < ActiveModel::TestCase
     assert_valid_values([Date.new(2020, 8, 2), DateTime.new(2021, 8, 1)])
   end
 
+  def test_validates_comparison_with_callable_object
+    callable = Class.new do
+      def call(record)
+        record.requested
+      end
+    end.new
+
+    Topic.define_method(:requested) { Date.new(2020, 8, 1) }
+    Topic.validates_comparison_of :approved, greater_than_or_equal_to: callable
+
+    assert_invalid_values([Date.new(2020, 7, 1)], "must be greater than or equal to 2020-08-01")
+    assert_valid_values([Date.new(2020, 8, 2)])
+  ensure
+    Topic.remove_method :requested
+  end
+
   def test_validates_comparison_with_method
     Topic.define_method(:requested) { Date.new(2020, 8, 1) }
     Topic.validates_comparison_of :approved, greater_than_or_equal_to: :requested
