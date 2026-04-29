@@ -11,6 +11,23 @@ class ActionText::ContentTest < ActiveSupport::TestCase
     assert_not_equal content, html
   end
 
+  test "content helper class accessors" do
+    old_sanitizer = ActionText::ContentHelper.sanitizer
+    old_scrubber = ActionText::ContentHelper.scrubber
+
+    sanitizer = Rails::HTML4::Sanitizer.safe_list_sanitizer.new
+    scrubber = Rails::HTML::PermitScrubber.new
+
+    ActionText::ContentHelper.sanitizer = sanitizer
+    ActionText::ContentHelper.scrubber = scrubber
+
+    assert_same sanitizer, ActionText::ContentHelper.sanitizer
+    assert_same scrubber, ActionText::ContentHelper.scrubber
+  ensure
+    ActionText::ContentHelper.sanitizer = old_sanitizer
+    ActionText::ContentHelper.scrubber = old_scrubber
+  end
+
   test "basic predicates serialization and inspection" do
     content = content_from_html("<div>hello</div>")
     blank_content = content_from_html("")
@@ -184,6 +201,55 @@ class ActionText::ContentTest < ActiveSupport::TestCase
     attachment_html = '<action-text-attachment sgid="1" presentation="gallery"></action-text-attachment><action-text-attachment sgid="2" presentation="gallery"></action-text-attachment>'
     html = %Q(<blockquote><div class="attachment-gallery attachment-gallery--2">#{attachment_html}</div></blockquote>)
     assert_equal "<blockquote><div>#{attachment_html}</div></blockquote>", content_from_html(html).to_html
+  end
+
+  test "renders attachment galleries without rendering gallery attachments separately" do
+    blob_one = create_file_blob(filename: "racecar.jpg", content_type: "image/jpeg")
+    blob_two = create_file_blob(filename: "report.txt", content_type: "text/plain")
+    attachment_html = %Q(<action-text-attachment sgid="#{blob_one.attachable_sgid}" presentation="gallery"></action-text-attachment><action-text-attachment sgid="#{blob_two.attachable_sgid}" presentation="gallery"></action-text-attachment>)
+    html = %Q(<div class="attachment-gallery attachment-gallery--2">#{attachment_html}</div>)
+
+    rendered = content_from_html(html).to_s
+
+    assert_includes rendered, "attachment-gallery attachment-gallery--2"
+    assert_includes rendered, "racecar.jpg"
+    assert_includes rendered, "report.txt"
+  end
+
+  test "render_action_text_attachments skips attachments already in galleries" do
+    helper = Class.new do
+      include ActionText::ContentHelper
+      attr_accessor :prefix_partial_path_with_controller_namespace
+
+      def render(**options)
+        if block_given?
+          yield
+        else
+          "rendered #{options[:locals].inspect}"
+        end
+      end
+    end.new
+
+    attachment = Struct.new(:node) do
+      def in?(attachments) = attachments.include?(self)
+      def to_html = node.to_html
+    end.new(ActionText::HtmlConversion.create_element(ActionText::Attachment.tag_name))
+    gallery = Struct.new(:attachments).new([attachment])
+    content = Struct.new(:gallery_attachments, :gallery) do
+      def render_attachments
+        yield gallery_attachments.first
+        self
+      end
+
+      def render_attachment_galleries
+        yield gallery
+      end
+    end.new([attachment], gallery)
+
+    rendered = helper.render_action_text_attachments(content)
+
+    assert_equal "<action-text-attachment>rendered {in_gallery: true}</action-text-attachment>", rendered
+    assert_equal "rendered {in_gallery: true}", attachment.node.inner_html
   end
 
   test "renders with layout when ApplicationController is not defined" do
