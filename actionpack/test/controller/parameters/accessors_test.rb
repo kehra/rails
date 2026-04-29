@@ -53,6 +53,25 @@ class ParametersAccessorsTest < ActiveSupport::TestCase
       "addresses" => [{ "city" => "Chicago", "state" => "Illinois" }] } }.inspect, @params.to_s)
   end
 
+  test "to_query and to_param use permitted hash conversion" do
+    params = ActionController::Parameters.new(name: "David", nationality: "Danish").permit(:name, :nationality)
+
+    assert_equal "name=David&nationality=Danish", params.to_query
+    assert_equal "user%5Bname%5D=David&user%5Bnationality%5D=Danish", params.to_param("user")
+  end
+
+  test "always_permitted_parameters instance accessors delegate to class setting" do
+    original = ActionController::Parameters.always_permitted_parameters
+    params = ActionController::Parameters.new
+
+    params.always_permitted_parameters = %w( controller action token )
+
+    assert_equal %w( controller action token ), params.always_permitted_parameters
+    assert_equal %w( controller action token ), ActionController::Parameters.always_permitted_parameters
+  ensure
+    ActionController::Parameters.always_permitted_parameters = original
+  end
+
   test "each carries permitted status" do
     @params.permit!
     @params.each { |key, value| assert_predicate(value, :permitted?) if key == "person" }
