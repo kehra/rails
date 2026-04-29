@@ -90,5 +90,51 @@ module ActiveRecord
       assert_equal Post.where(author_id: author.id).order(:id).ids, subquery.reorder(:id).ids
       assert_match(/SELECT/i, relation.to_sql)
     end
+
+    test "reselect replaces projection while preserving order" do
+      source = Post.select(:id, :title).order(id: :desc)
+      source_sql = source.to_sql
+      relation = source.reselect(:id)
+      record = relation.first
+
+      assert_equal Post.order(id: :desc).first.id, record.id
+      assert_raises(ActiveModel::MissingAttributeError) { record.title }
+      assert_match(/ORDER BY/i, relation.to_sql)
+      assert_equal source_sql, source.to_sql
+    end
+
+    test "distinct select with order returns ordered unique projected values" do
+      relation = Post.select(:author_id).distinct.order(:author_id)
+
+      assert_equal Post.order(:author_id).pluck(:author_id).uniq, relation.map(&:author_id)
+      assert_match(/DISTINCT/i, relation.to_sql)
+    end
+
+    test "select with joins and where keeps joined predicate and protects missing attributes" do
+      author = authors(:david)
+      relation = Post.joins(:author).where("authors.id = ?", author.id).select(:id).order(:id)
+      record = relation.first
+
+      assert_equal Post.where(author_id: author.id).order(:id).first.id, record.id
+      assert_raises(ActiveModel::MissingAttributeError) { record.title }
+      assert_match(/JOIN/i, relation.to_sql)
+    end
+
+    test "pluck with select and distinct does not leak projection to later queries" do
+      source = Post.select(:author_id).distinct
+      source_sql = source.to_sql
+
+      assert_equal Post.distinct.order(:author_id).pluck(:author_id), source.order(:author_id).pluck(:author_id)
+      assert_equal source_sql, source.to_sql
+      assert_equal Post.order(:id).pluck(:id), Post.order(:id).ids
+    end
+
+    test "ids preserves order and limit" do
+      relation = Post.order(id: :desc).limit(2)
+
+      assert_equal Post.order(id: :desc).limit(2).pluck(:id), relation.ids
+      assert_equal 2, relation.limit_value
+      assert_match(/ORDER BY/i, relation.to_sql)
+    end
   end
 end
