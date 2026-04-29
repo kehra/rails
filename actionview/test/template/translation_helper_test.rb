@@ -81,6 +81,26 @@ class TranslationHelperTest < ActiveSupport::TestCase
     assert_nil translate(nil)
   end
 
+  def test_translate_raises_when_global_raise_on_missing_translations_is_enabled
+    previous = ActionView::Helpers::TranslationHelper.raise_on_missing_translations
+    ActionView::Helpers::TranslationHelper.raise_on_missing_translations = true
+
+    assert_raises(I18n::MissingTranslationData) do
+      translate(:"translations.missing")
+    end
+  ensure
+    ActionView::Helpers::TranslationHelper.raise_on_missing_translations = previous
+  end
+
+  def test_relative_translate_raises_without_virtual_path
+    @virtual_path = nil
+
+    error = assert_raises(RuntimeError) do
+      translate(".foo")
+    end
+    assert_equal 'Cannot use t(".foo") shortcut because path is not available', error.message
+  end
+
   def test_returns_default_for_nil_key_with_default
     assert_equal "Foo", translate(nil, default: "Foo")
     assert_equal "Foo", translate(nil, default: :"translations.foo")
