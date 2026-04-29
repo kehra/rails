@@ -11,7 +11,22 @@ class BaseTest < ActionCable::TestCase
   end
 
   class FakeConnection
-    def close
+    def close(**)
+    end
+
+    def disconnect
+    end
+  end
+
+  class TestConnection < ActionCable::Connection::Base
+    identified_by :current_user
+
+    def self.call
+      self
+    end
+
+    def process
+      [ -1, {}, [] ]
     end
   end
 
@@ -28,6 +43,57 @@ class BaseTest < ActionCable::TestCase
     assert_called(@server.worker_pool, :halt) do
       @server.restart
     end
+  end
+
+  test "class config accessor and logger delegate to config" do
+    original_config = ActionCable::Server::Base.config
+    config = ActionCable::Server::Configuration.new
+    logger = ActiveSupport::Logger.new(StringIO.new)
+    config.logger = logger
+
+    ActionCable::Server::Base.config = config
+
+    assert_same config, ActionCable::Server::Base.config
+    assert_same logger, ActionCable::Server::Base.logger
+  ensure
+    ActionCable::Server::Base.config = original_config
+  end
+
+  test "initializes with config and exposes dependencies" do
+    assert_same @server.config, @server.config
+    assert_same @server.config.logger, @server.logger
+    assert_instance_of Monitor, @server.mutex
+    assert_instance_of ActionCable::RemoteConnections, @server.remote_connections
+    assert_instance_of ActionCable::Connection::StreamEventLoop, @server.event_loop
+    assert_instance_of ActionCable::Server::Worker, @server.worker_pool
+    assert_instance_of ActionCable::SubscriptionAdapter::Async, @server.pubsub
+  end
+
+  test "call delegates health check path to health check application" do
+    @server.config.health_check_path = "/up"
+    @server.config.health_check_application = ->(_env) { [ 204, {}, [] ] }
+
+    assert_equal [ 204, {}, [] ], @server.call("PATH_INFO" => "/up")
+  end
+
+  test "call builds configured connection" do
+    @server.config.connection_class = -> { TestConnection }
+
+    assert_equal [ -1, {}, [] ], @server.call("PATH_INFO" => "/cable")
+  end
+
+  test "disconnect delegates to remote connections" do
+    identifiers = { current_user: "david" }
+
+    assert_called_with(@server.remote_connections, :where, [identifiers], returns: FakeConnection.new) do
+      @server.disconnect identifiers
+    end
+  end
+
+  test "connection identifiers come from configured connection class" do
+    @server.config.connection_class = -> { TestConnection }
+
+    assert_equal Set[:current_user], @server.connection_identifiers
   end
 
   test "#restart shuts down pub/sub adapter" do
