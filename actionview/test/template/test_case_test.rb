@@ -45,6 +45,65 @@ module ActionView
     include SharedTests
     test_case = self
 
+    test "setup_with_controller initializes controller request buffers rendered content and test case back reference" do
+      assert_kind_of ActionView::TestCase::TestController, controller
+      assert_same request, controller.request
+      assert_kind_of ActionView::OutputBuffer, output_buffer
+      assert_kind_of self.class.content_class, rendered
+      assert_same self, controller._test_case
+      assert_equal false, view.protect_against_forgery?
+    end
+
+    test "config delegates to controller when available" do
+      original_controller = @controller
+      @controller = Object.new
+      assert_nil config
+
+      @controller = original_controller
+      config = Object.new
+      controller.define_singleton_method(:config) { config }
+      assert_same config, self.config
+    ensure
+      @controller = original_controller if original_controller
+    end
+
+    test "routes delegates to controller when available" do
+      original_controller = @controller
+      @controller = Object.new
+      assert_nil _routes
+    ensure
+      @controller = original_controller
+    end
+
+    test "routes returns controller routes when controller responds" do
+      routes = ActionDispatch::Routing::RouteSet.new
+      controller.define_singleton_method(:_routes) { routes }
+      assert_same routes, _routes
+    end
+
+    test "rendered_views collection records views locals and matching expected locals" do
+      collection = rendered_views
+      collection.add("widgets/card", { title: "Hello", count: 1 })
+      assert_same collection, rendered_views
+      assert_equal ["widgets/card"], collection.rendered_views
+      assert_equal [{ title: "Hello", count: 1 }], collection.locals_for("widgets/card")
+      assert collection.view_rendered?("widgets/card", title: "Hello")
+      assert_not collection.view_rendered?("widgets/card", title: "Missing")
+    end
+
+    test "respond_to_missing delegates named routes" do
+      with_routing do |set|
+        set.draw { get "contents/new", to: "contents#new", as: :new_content }
+        assert_respond_to self, :new_content_path
+        assert_equal "/contents/new", new_content_path
+      end
+    end
+
+    test "respond_to_missing returns false when routes lookup raises" do
+      controller.define_singleton_method(:_routes) { raise "broken routes" }
+      assert_not respond_to?(:broken_path)
+    end
+
     test "memoizes the view" do
       assert_same view, view
     end
@@ -114,6 +173,20 @@ module ActionView
       assert_equal ATestHelper, test_case.helper_class
       assert_includes test_case.ancestors, ATestHelper
     end
+
+    test "tests resolves helper module names from strings and symbols" do
+      klass = Class.new(ActionView::TestCase)
+      klass.tests "action_view/a_test"
+      assert_equal ATestHelper, klass.helper_class
+
+      klass = Class.new(ActionView::TestCase)
+      klass.tests :"action_view/a_test"
+      assert_equal ATestHelper, klass.helper_class
+
+      klass = Class.new(ActionView::TestCase)
+      assert_nil klass.tests(Object.new)
+    end
+
 
     helper AnotherTestHelper
     test "additional helper classes can be specified as in a controller" do
