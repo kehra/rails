@@ -278,6 +278,16 @@ module SharedTrackerTests
     # unsupported
     assert_equal [], tracker.dependencies
   end
+
+  def test_dependencies_with_interpolation_containing_nested_braces
+    template = FakeTemplate.new(%q{
+      <%= render "orders/#{helper({ id: order.id })}/summary" %>
+    }, :erb)
+
+    tracker = make_tracker("interpolation/_string", template)
+
+    assert_equal [ "orders/*/summary" ], tracker.dependencies
+  end
 end
 
 class ERBTrackerTest < ActiveSupport::TestCase
@@ -286,6 +296,13 @@ class ERBTrackerTest < ActiveSupport::TestCase
   def make_tracker(name, template, view_paths = nil)
     ActionView::DependencyTracker::ERBTracker.new(name, template, view_paths)
   end
+
+  def test_call_instantiates_tracker_and_returns_dependencies
+    template = FakeTemplate.new(%{<%= render "messages/message" %>}, :erb)
+
+    assert_predicate ActionView::DependencyTracker::ERBTracker, :supports_view_paths?
+    assert_equal [ "messages/message" ], ActionView::DependencyTracker::ERBTracker.call("messages/show", template)
+  end
 end
 
 class RubyTrackerTest < Minitest::Test
@@ -293,6 +310,20 @@ class RubyTrackerTest < Minitest::Test
 
   def make_tracker(name, template, view_paths = nil)
     ActionView::DependencyTracker::RubyTracker.new(name, template, view_paths)
+  end
+
+  def test_call_instantiates_tracker_and_returns_dependencies
+    template = FakeTemplate.new(%{<%= render "messages/message" %>}, :erb)
+
+    assert_predicate ActionView::DependencyTracker::RubyTracker, :supports_view_paths?
+    assert_equal [ "messages/message" ], ActionView::DependencyTracker::RubyTracker.call("messages/show", template)
+  end
+
+  def test_dependencies_are_empty_when_source_does_not_reference_render
+    template = FakeTemplate.new("plain text", :erb)
+    tracker = make_tracker("messages/show", template)
+
+    assert_equal [], tracker.dependencies
   end
 
   def test_dependencies_skip_unknown_options
