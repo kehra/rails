@@ -91,6 +91,18 @@ module RoutingAssertionsSharedTests
     assert_generates("/articles", { controller: "articles", action: "index", page: "1" }, {}, { page: "1" })
   end
 
+  def test_assert_generates_normalizes_expected_paths
+    assert_generates("articles", controller: "articles", action: "index")
+
+    with_routing do |routes|
+      routes.draw do
+        root to: "articles#index"
+      end
+
+      assert_generates("https://example.test", controller: "articles", action: "index")
+    end
+  end
+
   def test_assert_recognizes
     assert_recognizes({ controller: "articles", action: "index" }, "/articles")
     assert_recognizes({ controller: "articles", action: "show", id: "1" }, "/articles/1")
@@ -103,6 +115,51 @@ module RoutingAssertionsSharedTests
   def test_assert_recognizes_with_method
     assert_recognizes({ controller: "articles", action: "create" }, { path: "/articles", method: :post })
     assert_recognizes({ controller: "articles", action: "update", id: "1" }, { path: "/articles/1", method: :put })
+  end
+
+  def test_assert_recognizes_with_all_method
+    with_routing do |routes|
+      routes.draw do
+        match "/all_articles", to: "articles#index", via: :all
+      end
+
+      assert_recognizes({ controller: "articles", action: "index" }, { path: "/all_articles", method: :all })
+    end
+  end
+
+  def test_assert_recognizes_without_method
+    assert_recognizes({ controller: "articles", action: "index" }, { path: "/articles" })
+  end
+
+  def test_assert_recognizes_relative_path
+    assert_recognizes({ controller: "articles", action: "index" }, "articles")
+  end
+
+  def test_assert_recognizes_without_controller_instance
+    controller = remove_instance_variable(:@controller) if defined?(@controller)
+    assert_recognizes({ controller: "articles", action: "index" }, "/articles")
+  ensure
+    @controller = controller if defined?(controller)
+  end
+
+  def test_assert_recognizes_invalid_absolute_url_uses_message
+    error = assert_raise(Minitest::Assertion) do
+      assert_recognizes({ controller: "articles", action: "index" }, "http://[invalid", {}, "bad route URI")
+    end
+
+    assert_equal "bad route URI", error.message
+  end
+
+  def test_assert_recognizes_absolute_url_without_host_or_port
+    assert_recognizes({ controller: "articles", action: "index" }, "https:///articles")
+  end
+
+  def test_assert_recognizes_not_found_uses_message
+    error = assert_raise(Minitest::Assertion) do
+      assert_recognizes({ controller: "articles", action: "show" }, "/missing", {}, "missing route")
+    end
+
+    assert_equal "missing route", error.message
   end
 
   def test_assert_recognizes_with_hash_constraint
@@ -207,6 +264,20 @@ module RoutingAssertionsSharedTests
 
   def test_assert_routing_with_extras
     assert_routing("/articles", { controller: "articles", action: "index", page: "1" }, {}, { page: "1" })
+  end
+
+  def test_assert_routing_with_method_hash
+    assert_routing({ path: "/articles/1", method: :put }, { controller: "articles", action: "update", id: "1" })
+  end
+
+  def test_assert_routing_with_namespaced_controller_defaults
+    with_routing do |routes|
+      routes.draw do
+        get "/admin/posts/:id", controller: "admin/posts", action: "show"
+      end
+
+      assert_routing("/admin/posts/1", { controller: "admin/posts", action: "show", id: "1" }, { controller: "admin/posts", action: "show" })
+    end
   end
 
   def test_assert_routing_with_hash_constraint
