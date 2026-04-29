@@ -298,9 +298,52 @@ class TestCaseTest < ActionController::TestCase
     assert_equal "document body", @response.body
   end
 
+  def test_document_body_with_patch
+    patch :render_body, body: "document body"
+    assert_equal "document body", @response.body
+  end
+
+  def test_delete_request
+    cookies["foo"] = "bar"
+    delete :delete_cookie
+    assert_response :ok
+    assert_nil cookies["foo"]
+  end
+
   def test_head
     head :test_params
     assert_equal 200, @response.status
+  end
+
+  def test_request_and_response_readers
+    assert_same @request, request
+    assert_same @response, response
+  end
+
+  def test_controller_class_attribute_accessors_on_instance_and_class
+    original = self.class._controller_class
+    self.class._controller_class = TestController
+
+    assert_equal TestController, self.class._controller_class
+    assert_equal TestController, _controller_class
+
+    self._controller_class = ContentController
+    assert_equal ContentController, _controller_class
+  ensure
+    self.class._controller_class = original
+  end
+
+  def test_generated_path_and_query_parameter_names
+    generated_extras = [ "/posts/1", [ :page ] ]
+
+    assert_equal "/posts/1", generated_path(generated_extras)
+    assert_equal [ :page, :controller, :action ], query_parameter_names(generated_extras)
+  end
+
+  def test_build_response
+    built_response = build_response(ActionDispatch::TestResponse)
+
+    assert_instance_of ActionDispatch::TestResponse, built_response
   end
 
   def test_process_without_flash
