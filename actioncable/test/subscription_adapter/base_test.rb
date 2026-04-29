@@ -13,6 +13,14 @@ class ActionCable::SubscriptionAdapter::BaseTest < ActionCable::TestCase
     @server = TestServer.new
     @server.config.subscription_adapter = BrokenAdapter
     @server.config.allowed_request_origins = %w( http://rubyonrails.com )
+    @server.config.cable = {}
+  end
+
+  test "initializes with server and logger" do
+    adapter = BrokenAdapter.new(@server)
+
+    assert_same @server, adapter.server
+    assert_same @server.logger, adapter.logger
   end
 
   test "#broadcast returns NotImplementedError by default" do
@@ -36,6 +44,25 @@ class ActionCable::SubscriptionAdapter::BaseTest < ActionCable::TestCase
     assert_raises NotImplementedError do
       BrokenAdapter.new(@server).unsubscribe("channel", callback)
     end
+  end
+
+  test "#shutdown returns NotImplementedError by default" do
+    assert_raises NotImplementedError do
+      BrokenAdapter.new(@server).shutdown
+    end
+  end
+
+  test "#identifier uses existing configured id" do
+    @server.config.cable[:id] = "custom-id"
+
+    assert_equal "custom-id", BrokenAdapter.new(@server).identifier
+  end
+
+  test "#identifier sets default id when missing" do
+    identifier = BrokenAdapter.new(@server).identifier
+
+    assert_equal "ActionCable-PID-#{$$}", identifier
+    assert_equal identifier, @server.config.cable[:id]
   end
 
   # TEST METHODS THAT ARE REQUIRED OF THE ADAPTER'S BACKEND STORAGE OBJECT
