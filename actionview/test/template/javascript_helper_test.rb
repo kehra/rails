@@ -76,6 +76,14 @@ class JavaScriptHelperTest < ActionView::TestCase
       javascript_tag("alert('hello')", id: "the_js_tag")
   end
 
+  def test_javascript_tag_with_block_and_options
+    assert_dom_equal "<script id=\"the_js_tag\">\n//<![CDATA[\nalert('hello from block')\n//]]>\n</script>",
+      javascript_tag(id: "the_js_tag") { "alert('hello from block')".html_safe }
+
+    assert_dom_equal "<script>\n//<![CDATA[\nalert('hello from default block')\n//]]>\n</script>",
+      javascript_tag { "alert('hello from default block')".html_safe }
+  end
+
   def test_javascript_cdata_section
     assert_dom_equal "\n//<![CDATA[\nalert('hello')\n//]]>\n", javascript_cdata_section("alert('hello')")
   end
