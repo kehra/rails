@@ -293,5 +293,105 @@ module ActiveRecord
       assert_nil where_only.limit_value
       assert_equal Post.order(:id).limit(1).ids, without_where.ids
     end
+
+    test "default scope with unscope and merge does not revive removed predicates" do
+      default_author = authors(:david)
+      merged_author = authors(:mary)
+      klass = relation_test_post_class do
+        default_scope { where(author_id: default_author.id) }
+      end
+
+      relation = klass.unscope(:where).merge(klass.unscoped.where(author_id: merged_author.id)).order(:id)
+
+      assert_equal Post.where(author_id: merged_author.id).order(:id).ids, relation.ids
+      assert_no_match(/#{default_author.id}.*#{merged_author.id}/, relation.to_sql)
+    end
+
+    test "default scope where with where and rewhere keeps replacement boundary" do
+      author = authors(:david)
+      post = posts(:welcome)
+      klass = relation_test_post_class do
+        default_scope { where(author_id: author.id) }
+      end
+
+      relation = klass.where(title: "missing title").rewhere(title: post.title)
+
+      assert_equal [post.id], relation.ids
+      assert_equal [author.id], relation.pluck(:author_id).uniq
+    end
+
+    test "default scope order with order and reorder keeps explicit ordering precedence" do
+      klass = relation_test_post_class do
+        default_scope { order(title: :asc) }
+      end
+      source = klass.order(id: :desc)
+      source_sql = source.to_sql
+      reordered = source.reorder(id: :asc)
+
+      assert_equal Post.order(id: :asc).ids, reordered.ids
+      assert_match(/ORDER BY/i, source_sql)
+      assert_equal source_sql, source.to_sql
+    end
+
+    test "default scope limit with limit and unscope limit handles overwrite and removal" do
+      klass = relation_test_post_class do
+        default_scope { limit(1) }
+      end
+
+      assert_equal 2, klass.limit(2).to_a.size
+      assert_equal Post.count, klass.unscope(:limit).count
+      assert_nil klass.unscope(:limit).limit_value
+    end
+
+    test "default scope select with select and reselect separates accumulated and replaced projections" do
+      klass = relation_test_post_class do
+        default_scope { select(:id) }
+      end
+      selected = klass.select(:title).order(:id)
+      reselected = selected.reselect(:id)
+
+      assert_equal Post.order(:id).first.title, selected.first.title
+      assert_raises(ActiveModel::MissingAttributeError) { reselected.first.title }
+      assert_match(/SELECT "posts"\."id"/i, reselected.to_sql)
+    end
+
+    test "default scope joins with left outer joins and where keeps join clauses distinct" do
+      author = authors(:david)
+      klass = relation_test_post_class do
+        belongs_to :author, class_name: "Author", foreign_key: :author_id, inverse_of: false
+        has_many :comments, class_name: "Comment", foreign_key: :post_id, inverse_of: false
+        default_scope { joins(:author) }
+      end
+      relation = klass.left_outer_joins(:comments).where(authors: { id: author.id }).distinct.order(:id)
+
+      assert_equal Post.where(author_id: author.id).order(:id).ids, relation.ids
+      assert_match(/INNER JOIN/i, relation.to_sql)
+      assert_match(/LEFT OUTER JOIN/i, relation.to_sql)
+    end
+
+    test "default scope includes with references and order keeps eager loading join" do
+      author = authors(:david)
+      klass = relation_test_post_class do
+        belongs_to :author, class_name: "Author", foreign_key: :author_id, inverse_of: false
+        default_scope { includes(:author) }
+      end
+      relation = klass.references(:author).where("authors.id = ?", author.id).order("authors.name ASC", "posts.id ASC")
+
+      assert_equal Post.where(author_id: author.id).order(:id).ids, relation.ids
+      assert_match(/LEFT OUTER JOIN/i, relation.to_sql)
+      assert_match(/ORDER BY/i, relation.to_sql)
+    end
+
+    private
+      def relation_test_post_class(&block)
+        klass = Class.new(ActiveRecord::Base)
+        self.class.const_set("RelationTestPost#{object_id.abs}", klass)
+        klass.class_eval do
+          self.table_name = "posts"
+          self.inheritance_column = :_type_disabled
+          class_eval(&block)
+        end
+        klass
+      end
   end
 end
