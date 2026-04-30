@@ -2,11 +2,13 @@
 
 require "cases/helper"
 require "models/author"
+require "models/comment"
 require "models/post"
+require "models/tagging"
 
 module ActiveRecord
   class QueryMethodIntegrationTest < ActiveRecord::TestCase
-    fixtures :authors, :posts
+    fixtures :authors, :posts, :taggings
 
     test "where chains with order and limit accumulate without mutating the source relation" do
       author = authors(:david)
@@ -134,6 +136,47 @@ module ActiveRecord
 
       assert_equal Post.order(id: :desc).limit(2).pluck(:id), relation.ids
       assert_equal 2, relation.limit_value
+      assert_match(/ORDER BY/i, relation.to_sql)
+    end
+
+    test "joins with where and merge combines association scope predicates" do
+      author = authors(:david)
+      post = posts(:welcome)
+      source = Post.joins(:author)
+      source_sql = source.to_sql
+      relation = source.where(title: post.title).merge(Author.where(id: author.id))
+
+      assert_equal [post], relation.to_a
+      assert_equal source_sql, source.to_sql
+      assert_match(/JOIN/i, relation.to_sql)
+    end
+
+    test "left outer joins with where and distinct keeps rows missing the association" do
+      relation = Post.left_outer_joins(:taggings).where("taggings.id IS NULL").distinct.order(:id)
+      tagged_post_ids = Tagging.where(taggable_type: "Post").select(:taggable_id)
+      expected = Post.where.not(id: tagged_post_ids).order(:id)
+
+      assert_equal expected.to_a, relation.to_a
+      assert_match(/LEFT OUTER JOIN/i, relation.to_sql)
+      assert_match(/DISTINCT/i, relation.to_sql)
+    end
+
+    test "includes with where preserves result count when eager loading changes" do
+      author = authors(:david)
+      plain = Post.where(author_id: author.id).order(:id)
+      included = Post.includes(:author).where(author_id: author.id).order(:id)
+
+      assert_equal plain.to_a, included.to_a
+      assert_equal plain.count, included.count
+      assert_no_queries { included.load.each(&:author) }
+    end
+
+    test "includes with references and order preserves joined table ordering" do
+      author = authors(:david)
+      relation = Post.includes(:author).references(:author).where("authors.id = ?", author.id).order("authors.name ASC", "posts.id ASC")
+
+      assert_equal Post.where(author_id: author.id).order(:id).to_a, relation.to_a
+      assert_match(/LEFT OUTER JOIN/i, relation.to_sql)
       assert_match(/ORDER BY/i, relation.to_sql)
     end
   end
