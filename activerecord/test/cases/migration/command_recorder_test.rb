@@ -59,6 +59,26 @@ module ActiveRecord
         assert_equal 1, @recorder.commands.length
       end
 
+      def test_replay_sends_recorded_commands_with_arguments_and_blocks
+        migration = Class.new do
+          attr_reader :calls
+
+          def initialize
+            @calls = []
+          end
+
+          def create_table(*args, &block)
+            @calls << [:create_table, args, block&.call]
+          end
+        end.new
+        block = Proc.new { :from_block }
+
+        @recorder.record :create_table, [:system_settings], &block
+        @recorder.replay(migration)
+
+        assert_equal [[:create_table, [:system_settings], :from_block]], migration.calls
+      end
+
       def test_inverted_commands_are_reversed
         @recorder.revert do
           @recorder.record :create_table, [:hello]
