@@ -54,6 +54,32 @@ class InspectBackportTest < ActiveSupport::TestCase
     assert_no_match(/@missing=nil/, obj.inspect)
   end
 
+  test "backport inspect handles empty variable list directly" do
+    klass = Class.new do
+      include ActiveSupport::InspectBackport
+
+      private
+        def instance_variables_to_inspect
+          [].freeze
+        end
+    end
+
+    assert_match(/\A#<#{Regexp.escape(klass.inspect)}:0x[0-9a-f]+>\z/, klass.new.inspect)
+  end
+
+  test "backport inspect skips missing variables directly" do
+    klass = Class.new do
+      include ActiveSupport::InspectBackport
+
+      private
+        def instance_variables_to_inspect
+          [:@missing].freeze
+        end
+    end
+
+    assert_no_match(/@missing=nil/, klass.new.inspect)
+  end
+
   class NamedExample
     include ActiveSupport::InspectBackport
 

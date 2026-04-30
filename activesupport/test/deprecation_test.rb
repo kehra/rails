@@ -386,6 +386,30 @@ class DeprecationTest < ActiveSupport::TestCase
     end
   end
 
+  test "deprecate_constant falls back when no deprecated constants are configured" do
+    legacy = Module.new.include(ActiveSupport::Deprecation::DeprecatedConstantAccessor)
+
+    assert_raises(NameError) { legacy::MISSING }
+  end
+
+  test "deprecate_constant falls back when missing constant is not deprecated" do
+    legacy = Module.new.include(ActiveSupport::Deprecation::DeprecatedConstantAccessor)
+    legacy.deprecate_constant "OLD", "Undeprecated::Foo", deprecator: @deprecator
+
+    assert_raises(NameError) { legacy::MISSING }
+  end
+
+  test "deprecate_constant appends to existing deprecated constants" do
+    legacy = Module.new { def self.name; "Legacy"; end }
+    legacy.include ActiveSupport::Deprecation::DeprecatedConstantAccessor
+    legacy.deprecate_constant "FUBAR", "Undeprecated::Foo::BAR", deprecator: @deprecator
+    legacy.deprecate_constant "FUZZ", "Undeprecated::Foo", deprecator: @deprecator, message: "custom warning"
+
+    assert_deprecated("custom warning", @deprecator) do
+      assert_equal Undeprecated::Foo, legacy::FUZZ
+    end
+  end
+
   test "assert_deprecated raises when no deprecation warning" do
     assert_raises(Minitest::Assertion) do
       assert_deprecated(@deprecator) { 1 + 1 }
@@ -635,6 +659,14 @@ class DeprecationTest < ActiveSupport::TestCase
     end
   end
 
+  test "disallowed_warnings ignores unsupported rule objects" do
+    @deprecator.disallowed_warnings = [Object.new]
+
+    assert_deprecated(/fubar/, @deprecator) do
+      @deprecator.warn("using fubar is deprecated")
+    end
+  end
+
   test "disallowed_warnings matches all warnings when set to :all" do
     @deprecator.disallowed_warnings = :all
 
@@ -704,6 +736,14 @@ class DeprecationTest < ActiveSupport::TestCase
     @deprecator.allow([/(foo|baz) (bar|qux)/]) do
       assert_deprecated(/foo bar/, @deprecator) { @deprecator.warn("foo bar") }
       assert_deprecated(/baz qux/, @deprecator) { @deprecator.warn("baz qux") }
+      assert_disallowed(/fubar/, @deprecator) { @deprecator.warn("fubar") }
+    end
+  end
+
+  test "allow ignores unsupported rule objects" do
+    @deprecator.disallowed_warnings = :all
+
+    @deprecator.allow([Object.new]) do
       assert_disallowed(/fubar/, @deprecator) { @deprecator.warn("fubar") }
     end
   end
@@ -795,6 +835,15 @@ class DeprecationTest < ActiveSupport::TestCase
     else
       assert_equal "DEPRECATION WARNING: Here (called from generated_method_that_call_deprecation at /path/to/template.html.erb:2)", @message
     end
+  end
+
+  test "warn deprecation can format callstack without method label" do
+    frame = Struct.new(:path, :lineno, :label, :absolute_path).new("/path/to/template.html.erb", 2, nil, nil)
+    @deprecator.behavior = ->(message, *) { @message = message }
+
+    @deprecator.warn("Here", [frame])
+
+    assert_equal "DEPRECATION WARNING: Here (called from /path/to/template.html.erb:2)", @message
   end
 
   test "warn deprecation can blame code from internal methods" do

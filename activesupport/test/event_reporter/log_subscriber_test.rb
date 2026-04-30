@@ -57,6 +57,16 @@ class ActiveSupport::EventReporter::LogSubscriberTest < ActiveSupport::TestCase
     assert_empty @logger.logged(:debug)
   end
 
+  test "skips events without a configured log level" do
+    assert_nothing_raised do
+      @log_subscriber.emit(name: "test.unconfigured")
+    end
+  end
+
+  test "namespace returns the configured class namespace" do
+    assert_equal "test", @log_subscriber.send(:namespace)
+  end
+
   test "default logger" do
     MyLogSubscriber.logger = nil
 

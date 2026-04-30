@@ -30,6 +30,24 @@ class ContinuousIntegrationTest < ActiveSupport::TestCase
     assert @CI.success?
   end
 
+  test "class run sets CI environment and returns the runner" do
+    ENV.delete("CI")
+
+    output = capture_io do
+      ci = ActiveSupport::ContinuousIntegration.run("CI", nil) do
+        step "Success!", "true"
+      end
+
+      assert_instance_of ActiveSupport::ContinuousIntegration, ci
+      assert_equal "true", ENV["CI"]
+      assert ci.success?
+    end.to_s
+
+    assert_match(/CI passed/, output)
+  ensure
+    ENV.delete("CI")
+  end
+
   test "run with successful and failed steps combined gives failure" do
     output = capture_io do
       assert_raises(SystemExit) do
@@ -62,6 +80,20 @@ class ContinuousIntegrationTest < ActiveSupport::TestCase
     assert_match(/↳ Also failed! failed/, output)
   end
 
+  test "failure summary skips successful entries defensively" do
+    @CI.results << [false, "actual failure"]
+    @CI.results << [true, "successful entry"]
+    @CI.define_singleton_method(:failures) { [[true, "successful entry"], [false, "actual failure"]] }
+    @CI.singleton_class.send(:private, :failures)
+
+    output = capture_io do
+      @CI.send(:execute, "CI") { }
+    end.to_s
+
+    assert_no_match(/successful entry failed/, output)
+    assert_match(/actual failure failed/, output)
+  end
+
   test "run with only one failing step does not print a failure summary" do
     output = capture_io do
       assert_raises(SystemExit) do
@@ -82,6 +114,20 @@ class ContinuousIntegrationTest < ActiveSupport::TestCase
   test "heading" do
     output = capture_io { @CI.heading "Hello", "To all of you" }.first.to_s
     assert_match(/Hello[\s\S]*To all of you/, output)
+  end
+
+  test "heading without subtitle" do
+    output = capture_io { @CI.heading "Hello" }.first.to_s
+    assert_match(/Hello/, output)
+  end
+
+  test "heading with subtitle and without padding" do
+    output = capture_io { @CI.heading "Hello", "To all of you", padding: false }.first.to_s
+    assert_equal "\e[1;32mHello\e[0m\n\e[1;90mTo all of you\e[0m\n", output
+  end
+
+  test "elapsed formatting includes minutes" do
+    assert_equal "1m1.50s", @CI.send(:format_elapsed, 61.5)
   end
 
   test "failure output" do
@@ -271,6 +317,75 @@ class ContinuousIntegrationTest < ActiveSupport::TestCase
       assert_not @CI.success?
       assert_match(/No permission failed/, output)
     end
+  end
+
+  test "parallel subgroup records failure and honors fail fast" do
+    group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 2) { }
+    executed = []
+    group.define_singleton_method(:execute_task) { |_type, title, _payload| executed << title; title != "Fail" }
+
+    with_argv(["-f"]) do
+      assert_equal false, group.send(:execute_group, "Subgroup", proc do
+        step "Fail", "false"
+        step "After fail", "true"
+      end)
+    end
+    assert_equal ["Fail"], executed
+
+    group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 2) { }
+    executed = []
+    group.define_singleton_method(:execute_task) { |_type, title, _payload| executed << title; title != "Fail" }
+
+    assert_equal false, group.send(:execute_group, "Subgroup", proc do
+      step "Fail", "false"
+      step "After fail", "true"
+    end)
+    assert_equal ["Fail", "After fail"], executed
+  end
+
+  test "parallel group ignores unknown task types" do
+    group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 2) { }
+
+    assert_nil group.send(:execute_task, :unknown, "Unknown", nil)
+  end
+
+  test "parallel group deletes existing log files on cleanup" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "ci.log")
+      File.write(path, "log")
+      group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 1) { }
+      group.instance_variable_get(:@log_files) << path
+
+      group.run
+
+      assert_not File.exist?(path)
+    end
+  end
+
+  test "parallel group pty availability handles missing pty" do
+    group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 2) { }
+
+    group.stub(:require, ->(_feature) { raise LoadError }) do
+      assert_equal false, group.send(:pty_available?)
+    end
+  end
+
+  test "parallel group pty child exited status is returned" do
+    group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 2) { }
+    status = Object.new
+    def status.success? = true
+    error = PTY::ChildExited.new("child exited")
+    error.define_singleton_method(:status) { status }
+
+    PTY.stub(:spawn, ->(*) { raise error }) do
+      assert_equal true, group.send(:spawn_via_pty, ["true"]) { }
+    end
+  end
+
+  test "parallel group brief elapsed formatting includes minutes" do
+    group = ActiveSupport::ContinuousIntegration::Group.new(@CI, "Checks", parallel: 2) { }
+
+    assert_equal "1m1s", group.send(:format_elapsed_brief, 61.5)
   end
 
   test "parallel group cleans up temp files on completion" do

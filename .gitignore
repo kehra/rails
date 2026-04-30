@@ -8,6 +8,7 @@
 /.bundle
 /dist/
 /doc/
+/coverage/
 /guides/output/
 /preview/
 preview.tar.gz

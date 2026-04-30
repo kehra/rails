@@ -450,6 +450,16 @@ class LoggerTest < ActiveSupport::TestCase
     assert_includes @output.string, "THIS IS HERE"
   end
 
+  def test_log_at_rejects_invalid_level
+    error = assert_raises(ArgumentError) do
+      @logger.log_at "debug" do
+        flunk "should not yield with an invalid level"
+      end
+    end
+
+    assert_equal "Invalid log level: \"debug\"", error.message
+  end
+
   def test_log_at_only_impact_receiver
     logger2 = Logger.new(StringIO.new)
     assert_equal Logger::DEBUG, logger2.level

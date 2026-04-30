@@ -25,6 +25,114 @@ class MemoryStoreTest < StoreTest
     @cache = lookup_store(expires_in: 60)
   end
 
+  def test_supports_cache_versioning
+    assert ActiveSupport::Cache::MemoryStore.supports_cache_versioning?
+  end
+
+  def test_local_store_read_entry_and_unset_local_cache
+    @cache.new_local_cache
+    local = @cache.local_cache
+    local.write_entry("key", "payload")
+
+    assert_equal "payload", local.read_entry("key")
+
+    @cache.unset_local_cache
+    assert_nil @cache.local_cache
+  end
+
+  def test_cleanup_without_local_cache_delegates_to_store
+    assert_nothing_raised { @cache.cleanup }
+  end
+
+  def test_cleanup_with_local_cache_clears_local_entries
+    @cache.with_local_cache do
+      @cache.write("name", "local")
+      @cache.send(:bypass_local_cache) { @cache.write("name", "remote") }
+
+      @cache.cleanup
+
+      assert_equal "remote", @cache.read("name")
+    end
+  end
+
+  def test_local_cache_fetch_multi_handles_recorded_misses
+    @cache.with_local_cache do
+      missing_key = @cache.send(:normalize_key, "missing", {})
+      @cache.local_cache.write_entry(missing_key, nil)
+
+      assert_equal({ "missing" => "fresh-missing" }, @cache.fetch_multi("missing") { |name| "fresh-#{name}" })
+    end
+  end
+
+  def test_local_cache_fetch_multi_handles_nil_and_expired_local_entries
+    @cache.with_local_cache do
+      invalid_key = @cache.send(:normalize_key, "invalid", {})
+      expired_key = @cache.send(:normalize_key, "expired", {})
+      @cache.local_cache.write_entry(invalid_key, @cache.send(:serialize_entry, ActiveSupport::Cache::Entry.new("invalid")))
+      @cache.local_cache.write_entry(expired_key, @cache.send(:serialize_entry, ActiveSupport::Cache::Entry.new("old", expires_in: -1)))
+
+      result = @cache.stub(:deserialize_entry, nil) do
+        @cache.fetch_multi("invalid") { |name| "fresh-#{name}" }
+      end
+      assert_nil result["invalid"]
+
+      result = @cache.fetch_multi("expired") { |name| "fresh-#{name}" }
+      assert_equal "fresh-expired", result["expired"]
+    end
+  end
+
+  def test_local_cache_read_multi_handles_nil_local_entries
+    @cache.with_local_cache do
+      invalid_key = @cache.send(:normalize_key, "invalid", {})
+      @cache.local_cache.write_entry(invalid_key, @cache.send(:serialize_entry, ActiveSupport::Cache::Entry.new("invalid")))
+
+      result = @cache.stub(:deserialize_entry, nil) do
+        @cache.send(:read_multi_entries, ["invalid"])
+      end
+      assert_equal({ "invalid" => nil }, result)
+    end
+  end
+
+  def test_clear_removes_entries_and_resets_size
+    @cache.write("name", "value")
+
+    @cache.clear
+
+    assert_nil @cache.read("name")
+    assert_equal 0, @cache.instance_variable_get(:@cache_size)
+  end
+
+  def test_cleanup_ignores_live_entries
+    @cache.write("name", "value")
+
+    assert_nothing_raised { @cache.cleanup }
+    assert_equal "value", @cache.read("name")
+  end
+
+  def test_cleanup_deletes_expired_entries_without_reading_first
+    key = @cache.send(:normalize_key, "expired", {})
+    @cache.send(:write_entry, key, ActiveSupport::Cache::Entry.new("value", expires_in: -1))
+
+    @cache.cleanup
+
+    assert_nil @cache.read("expired")
+  end
+
+  def test_prune_returns_while_already_pruning
+    @cache.instance_variable_set(:@pruning, true)
+
+    assert_nil @cache.prune(0)
+    assert_predicate @cache, :pruning?
+  ensure
+    @cache.instance_variable_set(:@pruning, false) if @cache
+  end
+
+  def test_inspect_includes_entries_size_and_options
+    assert_match(/entries=0/, @cache.inspect)
+    assert_match(/size=0/, @cache.inspect)
+    assert_match(/options=/, @cache.inspect)
+  end
+
   def test_increment_preserves_expiry
     @cache = lookup_store
     @cache.write("counter", 1, raw: true, expires_in: 30.seconds)

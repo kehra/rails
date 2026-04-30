@@ -3,6 +3,16 @@
 require_relative "../abstract_unit"
 
 class TestDistributorTest < ActiveSupport::TestCase
+  test "abstract distributor methods raise not implemented" do
+    distributor = ActiveSupport::Testing::Parallelization::TestDistributor.new
+
+    assert_raises(NotImplementedError) { distributor.add_test(["Test", "test", nil]) }
+    assert_raises(NotImplementedError) { distributor.take(worker_id: 0) }
+    assert_raises(NotImplementedError) { distributor.pending? }
+    assert_nil distributor.interrupt
+    assert_nil distributor.close
+  end
+
   test "distributes tests round-robin as they arrive" do
     distributor = ActiveSupport::Testing::Parallelization::RoundRobinDistributor.new(
       worker_count: 2
@@ -35,6 +45,18 @@ class TestDistributorTest < ActiveSupport::TestCase
     assert distributor.pending?
 
     distributor.interrupt
+    assert_not distributor.pending?
+  end
+
+  test "round robin returns nil when interrupted before taking" do
+    distributor = ActiveSupport::Testing::Parallelization::RoundRobinDistributor.new(
+      worker_count: 1
+    )
+
+    distributor.add_test(["FooTest", "test_a", nil])
+    distributor.interrupt
+
+    assert_nil distributor.take(worker_id: 0)
     assert_not distributor.pending?
   end
 
@@ -92,6 +114,17 @@ class TestDistributorTest < ActiveSupport::TestCase
     assert_nil distributor.take(worker_id: 1)
   end
 
+  test "work stealing distributor steals from another worker" do
+    distributor = ActiveSupport::Testing::Parallelization::RoundRobinWorkStealingDistributor.new(
+      worker_count: 2
+    )
+
+    distributor.add_test(["Test1", "test_a", nil])
+
+    test = distributor.take(worker_id: 1)
+    assert_equal "Test1", test[0]
+  end
+
   test "work stealing distributor returns nil when no work available anywhere" do
     distributor = ActiveSupport::Testing::Parallelization::RoundRobinWorkStealingDistributor.new(
       worker_count: 2
@@ -125,6 +158,35 @@ class TestDistributorTest < ActiveSupport::TestCase
     assert_not_nil test1
     assert_not_nil test2
     assert_not_equal test1[0], test2[0]
+  end
+
+  test "SharedQueueDistributor interrupt clears tests" do
+    distributor = ActiveSupport::Testing::Parallelization::SharedQueueDistributor.new
+
+    distributor.add_test(["Test1", "test_a", nil])
+    distributor.interrupt
+
+    assert_not distributor.pending?
+  end
+
+  test "SharedQueueDistributor close closes the queue" do
+    distributor = ActiveSupport::Testing::Parallelization::SharedQueueDistributor.new
+    distributor.close
+
+    assert_not distributor.pending?
+  end
+
+  test "round robin wait skips when queue is exhausted" do
+    distributor = ActiveSupport::Testing::Parallelization::RoundRobinDistributor.new(worker_count: 1)
+    distributor.close
+
+    assert_nil distributor.send(:wait, 0)
+  end
+
+  test "work stealing returns nil when other queues have no work but are not exhausted" do
+    distributor = ActiveSupport::Testing::Parallelization::RoundRobinWorkStealingDistributor.new(worker_count: 2)
+
+    assert_nil distributor.send(:steal, 0)
   end
 
   test "SharedQueueDistributor pending? reflects queue state" do

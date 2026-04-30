@@ -305,6 +305,18 @@ class OrderedHashTest < ActiveSupport::TestCase
     assert_match "!omap", YAML.dump(@ordered_hash)
   end
 
+  def test_to_yaml_type
+    assert_equal "!tag:yaml.org,2002:omap", @ordered_hash.to_yaml_type
+  end
+
+  def test_builtin_yaml_omap_type_builds_ordered_hash
+    _, handler = YAML.domain_types.fetch("tag:yaml.org,2002:omap")
+    ordered_hash = handler.call(nil, [{ "blue" => "000099" }, { "green" => "009900" }])
+
+    assert_instance_of ActiveSupport::OrderedHash, ordered_hash
+    assert_equal %w(blue green), ordered_hash.keys
+  end
+
   def test_update_sets_keys
     @updated_ordered_hash = ActiveSupport::OrderedHash.new
     @updated_ordered_hash.update(name: "Bob")

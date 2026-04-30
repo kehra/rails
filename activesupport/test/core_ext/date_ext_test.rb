@@ -13,6 +13,16 @@ class DateExtCalculationsTest < ActiveSupport::TestCase
   include DateAndTimeBehavior
   include TimeZoneTestHelpers
 
+  def test_invalid_beginning_of_week
+    error = assert_raises(ArgumentError) { Date.find_beginning_of_week!(:funday) }
+    assert_equal "Invalid beginning of week: funday", error.message
+  end
+
+  def test_duration_arithmetic
+    assert_equal Date.new(2005, 2, 22), Date.new(2005, 2, 21) + 1.day
+    assert_equal Date.new(2005, 2, 20), Date.new(2005, 2, 21) - 1.day
+  end
+
   def test_yesterday_in_calendar_reform
     assert_equal Date.new(1582, 10, 4), Date.new(1582, 10, 15).yesterday
   end
@@ -378,6 +388,7 @@ class DateExtBehaviorTest < ActiveSupport::TestCase
 
   def test_blank?
     assert_not_predicate Date.new, :blank?
+    assert_predicate Date.new, :present?
   end
 
   def test_freeze_doesnt_clobber_memoized_instance_methods

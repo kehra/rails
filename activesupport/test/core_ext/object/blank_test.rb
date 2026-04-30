@@ -34,6 +34,8 @@ class BlankTest < ActiveSupport::TestCase
   def test_present
     BLANK.each { |v| assert_equal false, v.present?, "#{v.inspect} should not be present" }
     NOT.each   { |v| assert_equal true, v.present?,  "#{v.inspect} should be present" }
+    assert_equal false, :"".present?
+    assert_equal true, :symbol.present?
   end
 
   def test_presence

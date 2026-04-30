@@ -113,4 +113,25 @@ class TransliterateTest < ActiveSupport::TestCase
     assert_predicate string, :ascii_only?
     assert_not_equal string.object_id, ActiveSupport::Inflector.transliterate(string).object_id
   end
+
+  def test_parameterize_defaults_to_dash_separator_and_downcases
+    assert_equal "tres-jolie", ActiveSupport::Inflector.parameterize("^très|Jolie-- ")
+  end
+
+  def test_parameterize_preserves_case
+    assert_equal "tres-Jolie", ActiveSupport::Inflector.parameterize("^très|Jolie-- ", preserve_case: true)
+  end
+
+  def test_parameterize_with_custom_single_character_separator
+    assert_equal "tres_jolie--", ActiveSupport::Inflector.parameterize("^très|Jolie-- ", separator: "_")
+  end
+
+  def test_parameterize_with_custom_multi_character_separator
+    assert_equal "donald.e.knuth", ActiveSupport::Inflector.parameterize("Donald E. Knuth", separator: ".")
+    assert_equal "donald--e--knuth", ActiveSupport::Inflector.parameterize("Donald E. Knuth", separator: "--")
+  end
+
+  def test_parameterize_with_empty_separator_skips_separator_cleanup
+    assert_equal "donaldeknuth", ActiveSupport::Inflector.parameterize(" Donald E. Knuth ", separator: "")
+  end
 end

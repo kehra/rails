@@ -109,6 +109,39 @@ class Stargate
   end
 end
 
+class EmptySosError < StandardError
+end
+
+class ZeroArityBlockError < StandardError
+end
+
+class OneArityMethodError < StandardError
+end
+
+class SelfCausedError < StandardError
+  def cause = self
+end
+
+class MethodHandlerStargate
+  include ActiveSupport::Rescuable
+
+  attr_reader :result
+
+  rescue_from EmptySosError, with: :empty_sos
+  rescue_from OneArityMethodError, with: :one_arity_sos
+  rescue_from ZeroArityBlockError do
+    @result = "zero arity block"
+  end
+
+  def empty_sos
+    @result = "empty sos"
+  end
+
+  def one_arity_sos(exception)
+    @result = exception.class.name
+  end
+end
+
 class CoolStargate < Stargate
   attr_accessor :result
 
@@ -172,5 +205,46 @@ class RescuableTest < ActiveSupport::TestCase
   def test_rescue_handles_loops_in_exception_cause_chain
     @stargate.dispatch :looped_crash
     assert_equal "unhandled", @stargate.result
+  end
+
+  def test_rescue_from_requires_a_handler
+    error = assert_raises(ArgumentError) { Class.new.include(ActiveSupport::Rescuable).rescue_from(StandardError) }
+    assert_equal "Need a handler. Pass the with: keyword argument or provide a block.", error.message
+  end
+
+  def test_rescue_from_requires_exception_class_or_string
+    error = assert_raises(ArgumentError) { Class.new.include(ActiveSupport::Rescuable).rescue_from(Object.new, with: :handle) }
+    assert_match(/must be an Exception class or a String/, error.message)
+  end
+
+  def test_zero_arity_method_and_proc_handlers
+    stargate = MethodHandlerStargate.new
+
+    stargate.rescue_with_handler(EmptySosError.new)
+    assert_equal "empty sos", stargate.result
+
+    stargate.rescue_with_handler(ZeroArityBlockError.new)
+    assert_equal "zero arity block", stargate.result
+
+    stargate.rescue_with_handler(OneArityMethodError.new)
+    assert_equal "OneArityMethodError", stargate.result
+  end
+
+  def test_handler_lookup_returns_nil_when_no_handler_exists
+    assert_nil @stargate.handler_for_rescue(RuntimeError.new)
+    assert_nil @stargate.class.rescue_with_handler(SelfCausedError.new)
+  end
+
+  def test_unknown_string_handler_class_is_ignored
+    rescuable = Class.new { include ActiveSupport::Rescuable }
+    rescuable.rescue_handlers = [["DefinitelyMissingError", :handle]]
+
+    assert_nil rescuable.send(:find_rescue_handler, RuntimeError.new)
+  end
+
+  def test_constantize_rescue_handler_class_returns_class_objects_directly
+    rescuable = Class.new { include ActiveSupport::Rescuable }
+
+    assert_equal StandardError, rescuable.send(:constantize_rescue_handler_class, StandardError)
   end
 end

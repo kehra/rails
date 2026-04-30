@@ -120,4 +120,68 @@ class IsolatedExecutionStateTest < ActiveSupport::TestCase
     assert_nil result[:secret2]
     assert_equal "keep this", result[:keep]
   end
+
+  test "invalid isolation level raises" do
+    error = assert_raises(ArgumentError) do
+      ActiveSupport::IsolatedExecutionState.isolation_level = :process
+    end
+
+    assert_equal "isolation_level must be `:thread` or `:fiber`, got: `:process`", error.message
+  end
+
+  test "key delete and clear handle absent and present state" do
+    Thread.current.active_support_execution_state = nil
+    assert_nil ActiveSupport::IsolatedExecutionState.key?(:test)
+    assert_nil ActiveSupport::IsolatedExecutionState.delete(:test)
+    assert_nil ActiveSupport::IsolatedExecutionState.clear
+
+    ActiveSupport::IsolatedExecutionState[:test] = 42
+    assert ActiveSupport::IsolatedExecutionState.key?(:test)
+    assert_equal 42, ActiveSupport::IsolatedExecutionState.delete(:test)
+    assert_not ActiveSupport::IsolatedExecutionState.key?(:test)
+
+    ActiveSupport::IsolatedExecutionState[:test] = 42
+    ActiveSupport::IsolatedExecutionState.clear
+    assert_not ActiveSupport::IsolatedExecutionState.key?(:test)
+  end
+
+  test "share_with without source state runs with nil state and restores old state" do
+    other = Thread.new { Thread.current }.value
+    ActiveSupport::IsolatedExecutionState[:existing] = "value"
+
+    ActiveSupport::IsolatedExecutionState.share_with(other) do
+      assert_nil ActiveSupport::IsolatedExecutionState[:existing]
+      ActiveSupport::IsolatedExecutionState[:temporary] = "inside"
+    end
+
+    assert_equal "value", ActiveSupport::IsolatedExecutionState[:existing]
+    assert_nil ActiveSupport::IsolatedExecutionState[:temporary]
+  end
+
+  test "isolation level case fallback is harmless for validated custom level" do
+    silence_warnings do
+      Array.class_eval do
+        alias_method :__isolated_execution_state_original_include?, :include?
+        def include?(object)
+          (self == [:thread, :fiber] && object == :custom) || __isolated_execution_state_original_include?(object)
+        end
+      end
+    end
+
+    ActiveSupport::IsolatedExecutionState.isolation_level = :custom
+
+    assert_nil ActiveSupport::IsolatedExecutionState.scope
+    assert_equal :custom, ActiveSupport::IsolatedExecutionState.isolation_level
+  ensure
+    ActiveSupport::IsolatedExecutionState.instance_variable_set(:@isolation_level, nil)
+    ActiveSupport::IsolatedExecutionState.isolation_level = @original_isolation_level
+    if Array.method_defined?(:__isolated_execution_state_original_include?)
+      silence_warnings do
+        Array.class_eval do
+          alias_method :include?, :__isolated_execution_state_original_include?
+          remove_method :__isolated_execution_state_original_include?
+        end
+      end
+    end
+  end
 end

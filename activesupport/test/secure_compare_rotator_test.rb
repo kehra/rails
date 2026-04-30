@@ -4,8 +4,11 @@ require_relative "abstract_unit"
 require "active_support/secure_compare_rotator"
 
 class SecureCompareRotatorTest < ActiveSupport::TestCase
-  test "#secure_compare! works correctly after rotation" do
+  test "#secure_compare! works correctly before and after rotation" do
     wrapper = ActiveSupport::SecureCompareRotator.new("old_secret")
+
+    assert_equal(true, wrapper.secure_compare!("old_secret"))
+
     wrapper.rotate("new_secret")
 
     assert_equal(true, wrapper.secure_compare!("new_secret"))

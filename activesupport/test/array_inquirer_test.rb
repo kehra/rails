@@ -14,6 +14,12 @@ class ArrayInquirerTest < ActiveSupport::TestCase
     assert_not_predicate @array_inquirer, :desktop?
   end
 
+  def test_missing_non_predicate_method_raises
+    assert_raises(NoMethodError) do
+      @array_inquirer.desktop
+    end
+  end
+
   def test_any
     assert @array_inquirer.any?(:mobile, :desktop)
     assert @array_inquirer.any?(:watch, :tablet)

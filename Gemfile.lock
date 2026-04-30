@@ -194,6 +194,7 @@ GEM
     declarative (0.0.20)
     digest-crc (0.6.5)
       rake (>= 12.0.0, < 14.0.0)
+    docile (1.4.1)
     dotenv (3.1.7)
     drb (2.2.3)
     ed25519 (1.3.0)
@@ -552,6 +553,12 @@ GEM
       faraday (>= 0.17.5, < 3.a)
       jwt (>= 1.5, < 3.0)
       multi_json (~> 1.10)
+    simplecov (0.22.0)
+      docile (~> 1.1)
+      simplecov-html (~> 0.11)
+      simplecov_json_formatter (~> 0.1)
+    simplecov-html (0.13.2)
+    simplecov_json_formatter (0.1.4)
     sinatra (4.1.1)
       logger (>= 1.6.0)
       mustermann (~> 3.0)
@@ -733,6 +740,7 @@ DEPENDENCIES
   rubyzip (~> 2.0)
   sdoc (~> 2.6.4)
   selenium-webdriver (>= 4.20.0)
+  simplecov
   sneakers
   solid_cable
   solid_cache
@@ -807,6 +815,7 @@ CHECKSUMS
   debug (1.10.0) sha256=11e28ca74875979e612444104f3972bd5ffb9e79179907d7ad46dba44bd2e7a4
   declarative (0.0.20) sha256=8021dd6cb17ab2b61233c56903d3f5a259c5cf43c80ff332d447d395b17d9ff9
   digest-crc (0.6.5) sha256=5ca456f3352dc5ff17eb95deb3dd5a79dc79f8bf751d8005abca5b7b9b252124
+  docile (1.4.1) sha256=96159be799bfa73cdb721b840e9802126e4e03dfc26863db73647204c727f21e
   dotenv (3.1.7) sha256=c670df478675d23889e657beaca6fb423228f75ce9f052a0690c0d0daa333cf3
   drb (2.2.3) sha256=0b00d6fdb50995fe4a45dea13663493c841112e4068656854646f418fda13373
   ed25519 (1.3.0) sha256=514a5584f84d39daac568a17ec93a4e7261e140c52c562ed8c382c18456e627d
@@ -967,6 +976,9 @@ CHECKSUMS
   set (1.1.2) sha256=ca33a60d202e788041d94a5d4c12315b1639875576f1a266f3a10913646d8ef1
   sigdump (0.2.5) sha256=bb706c1cce70458b285d2c3a57121e801ccb79f68be7f7377692eb40b5437242
   signet (0.19.0) sha256=537f3939f57f141f691e6069a97ec40f34fadafc4c7e5ba94edb06cf4350dd31
+  simplecov (0.22.0) sha256=fe2622c7834ff23b98066bb0a854284b2729a569ac659f82621fc22ef36213a5
+  simplecov-html (0.13.2) sha256=bd0b8e54e7c2d7685927e8d6286466359b6f16b18cb0df47b508e8d73c777246
+  simplecov_json_formatter (0.1.4) sha256=529418fbe8de1713ac2b2d612aa3daa56d316975d307244399fa4838c601b428
   sinatra (4.1.1) sha256=4e997b859aa1b5d2e624f85d5b0fd0f0b3abc0da44daa6cbdf10f7c0da9f4d00
   sneakers (2.11.0) sha256=539ae7980d685d1d796b9daf62e81efa0cb592f7a287a71b24777868a5bccfc1
   solid_cable (3.0.5) sha256=258ac22d103275b40affdf86421047899aab22376e78719cfe806c5561403459

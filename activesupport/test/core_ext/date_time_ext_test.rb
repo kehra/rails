@@ -424,6 +424,7 @@ class DateTimeExtCalculationsTest < ActiveSupport::TestCase
 
   def test_blank?
     assert_not_predicate DateTime.new, :blank?
+    assert_predicate DateTime.new, :present?
   end
 
   def test_utc?

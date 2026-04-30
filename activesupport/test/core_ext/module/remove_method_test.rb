@@ -42,6 +42,26 @@ class RemoveMethodTest < ActiveSupport::TestCase
     assert_not_respond_to RemoveMethodTests::A, :do_something_else
   end
 
+  def test_remove_possible_method_ignores_missing_methods
+    klass = Class.new
+
+    assert_nothing_raised do
+      klass.remove_possible_method(:missing_method)
+    end
+  end
+
+  def test_redefine_singleton_method_in_an_object
+    klass = Class.new do
+      def self.do_something
+        1
+      end
+    end
+
+    klass.redefine_singleton_method(:do_something) { 100 }
+
+    assert_equal 100, klass.do_something
+  end
+
   def test_redefine_method_in_an_object
     RemoveMethodTests::A.class_eval {
       redefine_method(:do_something) { return 100 }

@@ -148,4 +148,31 @@ class ParameterFilterTest < ActiveSupport::TestCase
     assert_equal [/token/i], ActiveSupport::ParameterFilter.precompile_filters(["user.token", "token"])
     assert_equal [/password/i], ActiveSupport::ParameterFilter.precompile_filters(["user_password", "password"])
   end
+
+  test "deep regexp filters nested keys" do
+    parameter_filter = ActiveSupport::ParameterFilter.new([/credit_card\.code/])
+
+    params = { "credit_card" => { "code" => "123", "name" => "David" }, "file" => { "code" => "456" } }
+
+    assert_equal({ "credit_card" => { "code" => "[FILTERED]", "name" => "David" }, "file" => { "code" => "456" } }, parameter_filter.filter(params))
+  end
+
+  test "proc filters duplicate duplicable key and value but pass non duplicable values" do
+    seen = []
+    parameter_filter = ActiveSupport::ParameterFilter.new([
+      ->(key, value) do
+        seen << [key, value]
+        key.replace("changed") if key.is_a?(String)
+        value.replace("changed") if value.is_a?(String)
+      end
+    ])
+
+    nonduplicable = Object.new
+    def nonduplicable.duplicable? = false
+    params = { "secret" => "value", :count => 1, nonduplicable => nonduplicable }
+
+    assert_equal({ "secret" => "changed", :count => 1, nonduplicable => nonduplicable }, parameter_filter.filter(params))
+    assert_equal({ "secret" => "value", :count => 1, nonduplicable => nonduplicable }, params)
+    assert_equal [["changed", "changed"], [:count, 1], [nonduplicable, nonduplicable]], seen
+  end
 end

@@ -64,6 +64,7 @@ class ObjectTryTest < ActiveSupport::TestCase
   def test_try_only_block_nil
     ran = false
     nil.try { ran = true }
+    nil.try! { ran = true }
     assert_equal false, ran
   end
 

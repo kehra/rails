@@ -62,4 +62,12 @@ class ProxyWrappersTest < ActiveSupport::TestCase
     end
     assert_predicate obj, :waffle?
   end
+
+  def test_deprecated_constant_proxy_inspect_does_not_warn
+    proxy = ActiveSupport::Deprecation::DeprecatedConstantProxy.new("OldWaffleModule", WaffleModule.name, @deprecator)
+
+    assert_not_deprecated(@deprecator) do
+      assert_equal WaffleModule.inspect, proxy.inspect
+    end
+  end
 end

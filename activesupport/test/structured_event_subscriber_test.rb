@@ -103,6 +103,15 @@ class StructuredEventSubscriberTest < ActiveSupport::TestCase
     ActiveSupport.event_reporter.unsubscribe(event_reporter_subscriber)
   end
 
+  def test_silenced_is_false_when_event_is_not_silenced
+    event_reporter_subscriber = TestEventReporterSubscriber.new
+    ActiveSupport.event_reporter.subscribe(event_reporter_subscriber)
+
+    assert_not @subscriber.silenced?("event.test")
+  ensure
+    ActiveSupport.event_reporter.unsubscribe(event_reporter_subscriber) if event_reporter_subscriber
+  end
+
   def test_no_event_reporter_subscribers
     ActiveSupport::StructuredEventSubscriber.attach_to :test, @subscriber
 

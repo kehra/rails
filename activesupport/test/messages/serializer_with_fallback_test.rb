@@ -78,6 +78,35 @@ class MessagesSerializerWithFallbackTest < ActiveSupport::TestCase
     end
   end
 
+  test "requires MessagePack when fetching a MessagePack serializer" do
+    serializer_with_fallback = ActiveSupport::Messages::SerializerWithFallback
+    message_pack = ActiveSupport.const_get(:MessagePack) if defined?(ActiveSupport::MessagePack)
+    ActiveSupport.send(:remove_const, :MessagePack) if defined?(ActiveSupport::MessagePack)
+    required = nil
+
+    serializer_with_fallback.stub(:require, ->(path) { required = path; ActiveSupport.const_set(:MessagePack, message_pack || Module.new) }) do
+      assert_equal serializer_with_fallback::MessagePackWithFallback, serializer_with_fallback[:message_pack]
+    end
+
+    assert_equal "active_support/message_pack", required
+  ensure
+    if message_pack && (!defined?(ActiveSupport::MessagePack) || ActiveSupport::MessagePack != message_pack)
+      ActiveSupport.send(:remove_const, :MessagePack) if defined?(ActiveSupport::MessagePack)
+      ActiveSupport.const_set(:MessagePack, message_pack)
+    end
+  end
+
+  test "MessagePack serializer detects unavailable MessagePack dependency" do
+    serializer = ActiveSupport::Messages::SerializerWithFallback::MessagePackWithFallback
+    serializer.remove_instance_variable(:@available) if serializer.instance_variable_defined?(:@available)
+
+    serializer.stub(:require, ->(*) { raise LoadError }) do
+      assert_not serializer.send(:available?)
+    end
+  ensure
+    serializer.remove_instance_variable(:@available) if serializer&.instance_variable_defined?(:@available)
+  end
+
   test "raises on invalid format name" do
     assert_raises KeyError do
       ActiveSupport::Messages::SerializerWithFallback[:invalid_format]

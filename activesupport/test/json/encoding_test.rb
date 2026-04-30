@@ -80,6 +80,25 @@ class TestJSONEncoding < ActiveSupport::TestCase
     ActiveSupport.escape_html_entities_in_json = global_config
   end
 
+  def test_hash_keys_encoding_with_html_escaping_and_js_separator_escaping_disabled
+    ActiveSupport::JSON::Encoding.with(escape_html_entities_in_json: true, escape_js_separators_in_json: false) do
+      assert_equal "{\"\\u003c\\u003e\":\"\u2028\"}", ActiveSupport::JSON.encode({ "<>" => "\u2028" })
+    end
+  end
+
+  def test_json_encoding_with_all_escaping_disabled_by_configuration
+    ActiveSupport::JSON::Encoding.with(escape_html_entities_in_json: false, escape_js_separators_in_json: false) do
+      assert_equal "{\"<>\":\"\u2028\"}", ActiveSupport::JSON.encode({ "<>" => "\u2028" })
+    end
+  end
+
+  def test_json_fragment_encoding
+    skip "JSON::Fragment is not available" unless defined?(::JSON::Fragment)
+
+    fragment = ::JSON::Fragment.new('{"a":1}')
+    assert_equal '[{"a":1}]', ActiveSupport::JSON::Encoding::JSONGemEncoder.new.encode([fragment])
+  end
+
   def test_utf8_string_encoded_properly
     result = ActiveSupport::JSON.encode("€2.99")
     assert_equal '"€2.99"', result

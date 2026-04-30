@@ -39,6 +39,17 @@ class DeprecationTest < ActiveSupport::TestCase
     @deprecators.each { |deprecator| assert_not_predicate deprecator, :silenced }
   end
 
+  test "previous options apply to newly added deprecators" do
+    @deprecators.debug = true
+    @deprecators.silenced = true
+    deprecator = ActiveSupport::Deprecation.new("2.0", "new")
+
+    @deprecators[:new] = deprecator
+
+    assert_predicate deprecator, :debug
+    assert_predicate deprecator, :silenced
+  end
+
   test "#debug= applies to each deprecator" do
     @deprecators.each { |deprecator| assert_not_predicate deprecator, :debug }
 

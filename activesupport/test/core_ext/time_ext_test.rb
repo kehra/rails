@@ -529,6 +529,25 @@ class TimeExtCalculationsTest < ActiveSupport::TestCase
     end
   end
 
+  def test_change_normalizes_fractional_utc_offset_from_zone_object
+    zone = Object.new
+    def zone.utc_to_local(time) = time
+    def zone.local_to_utc(time) = time
+    def zone.name = "TestZone"
+    def zone.abbr(_time) = "TZ"
+
+    time = Time.new(2000, 1, 1, 0, 0, 0, zone)
+    normalized_time = Object.new
+    def normalized_time.utc_offset = 0
+    new_time = Object.new
+    def new_time.utc_offset = Rational(1, 2)
+    new_time.define_singleton_method(:+) { |_offset| normalized_time }
+
+    Time.stub(:new, new_time) do
+      assert_same normalized_time, time.change(month: 2)
+    end
+  end
+
   def test_change_preserves_fractional_hour_offset_for_local_times_around_end_of_dst
     with_env_tz "Australia/Lord_Howe" do
       # DST ended just before 2005-03-27 2:00:00 AM in Australia/Lord_Howe, and
@@ -1060,6 +1079,15 @@ class TimeExtCalculationsTest < ActiveSupport::TestCase
     end
   end
 
+  def test_in_time_zone_converts_local_time_to_utc_for_time_with_zone
+    with_env_tz "US/Eastern" do
+      twz = Time.local(2005, 2, 10, 10, 30, 45).in_time_zone("Central Time (US & Canada)")
+
+      assert_equal "Central Time (US & Canada)", twz.time_zone.name
+      assert_equal Time.utc(2005, 2, 10, 15, 30, 45), twz.utc
+    end
+  end
+
   def test_past_with_time_current_as_time_with_zone
     with_env_tz "US/Eastern" do
       twz = Time.utc(2005, 2, 10, 15, 30, 45).in_time_zone("Central Time (US & Canada)")
@@ -1130,6 +1158,12 @@ class TimeExtCalculationsTest < ActiveSupport::TestCase
     assert_equal 1, Time.utc(2000) <=> DateTime.civil(1999, 12, 31, 23, 59, 59)
     assert_equal 0, Time.utc(2000) <=> DateTime.civil(2000, 1, 1, 0, 0, 0)
     assert_equal(-1, Time.utc(2000) <=> DateTime.civil(2000, 1, 1, 0, 0, 1))
+  end
+
+  def test_compare_with_time_subclass_without_comparable_time
+    time_class = Class.new(Time)
+
+    assert_equal 0, Time.utc(2000) <=> time_class.utc(2000)
   end
 
   def test_compare_with_time_with_zone

@@ -128,6 +128,36 @@ module ActiveSupport::Cache::RedisCacheStoreTests
       end
     end
 
+    test "supports cache versioning" do
+      assert ActiveSupport::Cache::RedisCacheStore.supports_cache_versioning?
+    end
+
+    test "default error handler logs and reports" do
+      output = StringIO.new
+      previous_logger = ActiveSupport::Cache::RedisCacheStore.logger
+      ActiveSupport::Cache::RedisCacheStore.logger = ActiveSupport::Logger.new(output)
+
+      assert_error_reported do
+        ActiveSupport::Cache::RedisCacheStore::DEFAULT_ERROR_HANDLER.call(method: :read, returning: nil, exception: Redis::BaseError.new("failed"))
+      end
+      assert_includes output.string, "RedisCacheStore: read failed"
+    ensure
+      ActiveSupport::Cache::RedisCacheStore.logger = previous_logger
+    end
+
+    test "default error handler reports without a logger or error reporter" do
+      previous_logger = ActiveSupport::Cache::RedisCacheStore.logger
+      ActiveSupport::Cache::RedisCacheStore.logger = nil
+
+      ActiveSupport.stub(:error_reporter, nil) do
+        assert_nothing_raised do
+          ActiveSupport::Cache::RedisCacheStore::DEFAULT_ERROR_HANDLER.call(method: :read, returning: nil, exception: Redis::BaseError.new("failed"))
+        end
+      end
+    ensure
+      ActiveSupport::Cache::RedisCacheStore.logger = previous_logger
+    end
+
     test "inspect shows options and redis" do
       store = build(url: REDIS_URL)
 
@@ -382,6 +412,99 @@ module ActiveSupport::Cache::RedisCacheStoreTests
   end
 
   class StoreAPITest < StoreTest
+    test "stats returns redis info" do
+      assert_kind_of Hash, @cache.stats
+    end
+
+    test "read_multi with no names is empty without touching redis" do
+      assert_equal({}, @cache.read_multi)
+    end
+
+    test "private helpers handle empty multi operations" do
+      assert_equal({}, @cache.send(:read_multi_entries, []))
+      assert_equal 0, @cache.send(:delete_multi_entries, [])
+      assert_nil @cache.send(:write_multi_entries, {})
+    end
+
+    test "read_multi_entries handles nil merged options" do
+      @cache.stub(:merged_options, nil) do
+        assert_equal({}, @cache.send(:read_multi_entries, ["missing"]))
+      end
+    end
+
+    test "serialize_entries serializes all entries" do
+      entries = { "a" => ActiveSupport::Cache::Entry.new("A"), "b" => ActiveSupport::Cache::Entry.new("B") }
+      serialized = @cache.send(:serialize_entries, entries)
+
+      assert_equal ["a", "b"], serialized.keys
+      assert_equal "A", @cache.send(:deserialize_entry, serialized["a"]).value
+      assert_equal "B", @cache.send(:deserialize_entry, serialized["b"]).value
+    end
+
+    test "write entry without modifiers writes via redis set" do
+      key = @cache.send(:normalize_key, SecureRandom.uuid, {})
+
+      assert @cache.send(:write_serialized_entry, key, "payload")
+      redis_backend { |r| assert_equal "payload", r.get(key) }
+    ensure
+      redis_backend { |r| r.del(key) } if key
+    end
+
+    test "write entry with unless exist but no expiry sets nx without px" do
+      key = @cache.send(:normalize_key, SecureRandom.uuid, {})
+
+      assert @cache.send(:write_serialized_entry, key, "payload", unless_exist: true)
+      assert_not @cache.send(:write_serialized_entry, key, "other", unless_exist: true)
+      redis_backend { |r| assert_equal "payload", r.get(key) }
+    ensure
+      redis_backend { |r| r.del(key) } if key
+    end
+
+    test "clear without namespace flushes redis db" do
+      cache = lookup_store(namespace: nil)
+      key = SecureRandom.uuid
+      cache.write(key, "value")
+
+      cache.clear
+
+      assert_nil cache.read(key)
+    end
+
+    test "change_counter without expire nx preserves existing ttl when present" do
+      key = @cache_no_ttl.send(:normalize_key, SecureRandom.uuid, {})
+      redis_backend(@cache_no_ttl) { |r| r.setex(key, 120, 1) }
+      @cache_no_ttl.instance_variable_set(:@supports_expire_nx, false)
+
+      assert_equal 2, @cache_no_ttl.send(:change_counter, key, 1, expires_in: 60)
+      redis_backend(@cache_no_ttl) { |r| assert_operator r.ttl(key), :>, 60 }
+    ensure
+      redis_backend(@cache_no_ttl) { |r| r.del(key) } if key
+    end
+
+    test "change_counter without expire nx sets expiry when ttl is absent" do
+      key = @cache_no_ttl.send(:normalize_key, SecureRandom.uuid, {})
+      redis_backend(@cache_no_ttl) { |r| r.set(key, 1) }
+      @cache_no_ttl.instance_variable_set(:@supports_expire_nx, false)
+
+      assert_equal 2, @cache_no_ttl.send(:change_counter, key, 1, expires_in: 60)
+      redis_backend(@cache_no_ttl) { |r| assert_operator r.ttl(key), :>, 0 }
+    ensure
+      redis_backend(@cache_no_ttl) { |r| r.del(key) } if key
+    end
+
+    test "failsafe with nil error handler returns fallback" do
+      cache = lookup_store(error_handler: nil)
+
+      assert_equal :fallback, cache.send(:failsafe, :read, returning: :fallback) { raise Redis::BaseError, "failed" }
+    end
+
+    private
+      def redis_backend(cache = @cache)
+        cache.redis.with do |r|
+          yield r if block_given?
+          return r
+        end
+      end
   end
 
   class UnavailableRedisClient < Redis::Client

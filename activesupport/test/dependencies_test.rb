@@ -98,4 +98,49 @@ class RequireDependencyTest < ActiveSupport::TestCase
       require_dependency("x")
     end
   end
+
+  test "dependencies interlock helpers yield block values" do
+    assert_equal :running, ActiveSupport::Dependencies.run_interlock { :running }
+    assert_equal :unloading, ActiveSupport::Dependencies.unload_interlock { :unloading }
+  end
+
+  test "load interlock is deprecated and yields only when block given" do
+    assert_deprecated(/load_interlock is deprecated/, ActiveSupport.deprecator) do
+      assert_equal :loading, ActiveSupport::Dependencies.load_interlock { :loading }
+    end
+
+    assert_deprecated(/load_interlock is deprecated/, ActiveSupport.deprecator) do
+      assert_nil ActiveSupport::Dependencies.load_interlock
+    end
+  end
+
+  test "clear reloads autoloader and clears tracked classes" do
+    reloaded = false
+    autoloader = Object.new
+    autoloader.define_singleton_method(:reload) { reloaded = true }
+    ActiveSupport::Dependencies.autoloader = autoloader
+    ActiveSupport::Dependencies._autoloaded_tracked_classes << String
+
+    ActiveSupport::Dependencies.clear
+
+    assert reloaded
+    assert_empty ActiveSupport::Dependencies._autoloaded_tracked_classes
+  ensure
+    ActiveSupport::Dependencies.autoloader = nil
+    ActiveSupport::Dependencies._autoloaded_tracked_classes.clear
+  end
+
+  test "search_for_file returns nil when no autoload path matches" do
+    assert_nil ActiveSupport::Dependencies.search_for_file("missing")
+  end
+
+  test "eager_load checks eager load paths" do
+    path = File.join(@root_dir, "eager")
+    ActiveSupport::Dependencies._eager_load_paths << path
+
+    assert ActiveSupport::Dependencies.eager_load?(path)
+    assert_not ActiveSupport::Dependencies.eager_load?(File.join(@root_dir, "other"))
+  ensure
+    ActiveSupport::Dependencies._eager_load_paths.clear
+  end
 end

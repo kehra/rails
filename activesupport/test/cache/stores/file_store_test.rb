@@ -40,6 +40,10 @@ class FileStoreTest < ActiveSupport::TestCase
   include CacheInstrumentationBehavior
   include CacheLoggingBehavior
 
+  def test_supports_cache_versioning
+    assert ActiveSupport::Cache::FileStore.supports_cache_versioning?
+  end
+
   def test_inspect_shows_cache_path_and_options
     assert_match(/\A#<ActiveSupport::Cache::FileStore:0x[0-9a-f]+/, @cache.inspect)
     assert_match(/@cache_path=/, @cache.inspect)
@@ -134,6 +138,41 @@ class FileStoreTest < ActiveSupport::TestCase
       @cache.send(:read_entry, "winston", **{})
       assert_predicate @buffer.string, :present?
     end
+  end
+
+  def test_read_failure_without_logger_returns_nil
+    @cache.logger = nil
+
+    File.stub(:exist?, -> { raise StandardError.new("failed") }) do
+      assert_nil @cache.send(:read_serialized_entry, "winston")
+    end
+  end
+
+  def test_delete_entry_returns_false_if_file_disappears_during_delete
+    path = @cache.send(:normalize_key, "race", {})
+    @cache.write("race", "value")
+
+    File.stub(:delete, ->(_) { FileUtils.rm_f(path); raise Errno::ENOENT }) do
+      assert_not @cache.send(:delete_entry, path)
+    end
+  end
+
+  def test_delete_entry_reraises_if_delete_fails_and_file_still_exists
+    path = @cache.send(:normalize_key, "stuck", {})
+    @cache.write("stuck", "value")
+
+    File.stub(:delete, ->(_) { raise Errno::EACCES }) do
+      assert_raises(Errno::EACCES) { @cache.send(:delete_entry, path) }
+    end
+  end
+
+  def test_delete_empty_directories_keeps_non_empty_directories
+    path = @cache.send(:normalize_key, "nested", {})
+    FileUtils.mkdir_p(File.dirname(path))
+    FileUtils.touch(File.join(File.dirname(path), "other"))
+
+    assert_nothing_raised { @cache.send(:delete_empty_directories, File.dirname(path)) }
+    assert_path_exists File.dirname(path)
   end
 
   def test_cleanup_removes_all_expired_entries

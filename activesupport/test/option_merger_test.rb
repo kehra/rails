@@ -137,6 +137,14 @@ class OptionMergerTest < ActiveSupport::TestCase
     assert_equal @options.merge(local_options), scope.method_with_options(local_options)
   end
 
+  def test_option_merger_respond_to_delegates_to_context
+    scope = with_options(@options)
+    respond_to = Kernel.instance_method(:respond_to?)
+
+    assert respond_to.bind_call(scope, :method_with_options, true)
+    assert_not respond_to.bind_call(scope, :missing_method, true)
+  end
+
   private
     def method_with_args(*args)
       args

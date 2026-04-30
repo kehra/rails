@@ -1284,4 +1284,205 @@ module CallbacksTest
       assert_equal ["after_save_2", "after_save_1"], klass.history
     end
   end
+
+  class CallbackCoverageEdgeTest < ActiveSupport::TestCase
+    def test_empty_callback_chain_yields_block
+      klass = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        def save = run_callbacks(:save) { :saved }
+      end
+
+      assert_equal :saved, klass.new.save
+    end
+
+    def test_before_callbacks_without_block_return_true
+      ran = false
+      klass = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        set_callback(:save) { ran = true }
+        set_callback :save, :before, :mark
+        def mark = true
+        def save = run_callbacks(:save)
+      end
+
+      assert_equal true, klass.new.save
+      assert ran
+    end
+
+    def test_halted_final_callback_sequence_without_block_returns_false
+      klass = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        set_callback(:save, :before) { throw :abort }
+        def save = run_callbacks(:save)
+      end
+
+      assert_equal false, klass.new.save
+    end
+
+    def test_final_callback_sequence_preserves_false_block_result
+      klass = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        set_callback(:save, :before) { true }
+        def save = run_callbacks(:save) { false }
+      end
+
+      assert_equal false, klass.new.save
+    end
+
+    def test_halted_final_callback_sequence_with_block_returns_false
+      klass = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        set_callback(:save, :before) { throw :abort }
+        def save = run_callbacks(:save) { true }
+      end
+
+      assert_equal false, klass.new.save
+    end
+
+    def test_invalid_callback_kind_compiles_to_nil
+      klass = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+      end
+      callback = ActiveSupport::Callbacks.const_get(:Callback).build(
+        klass.send(:get_callbacks, :save), :save, :invalid, {}
+      )
+
+      assert_nil callback.compiled
+    end
+
+    def test_class_attribute_callbacks_optimized_setter_path
+      klass = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+      end
+      klass.singleton_class.define_method(:__class_attr__callbacks) { }
+      klass.singleton_class.send(:private, :__class_attr__callbacks)
+
+      assert_same klass.__callbacks, klass.send(:set_callbacks, :save, klass.send(:get_callbacks, :save).dup)
+    end
+
+    def test_prepend_callbacks_run_before_appended_callbacks
+      events = []
+      klass = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        set_callback(:save, :before) { events << :second }
+        set_callback(:save, :before, prepend: true) { events << :first }
+        def save = run_callbacks(:save)
+      end
+
+      klass.new.save
+      assert_equal [:first, :second], events
+    end
+
+    def test_object_conditional_unless_callback
+      condition = Object.new
+      def condition.before(_target) = false
+
+      events = []
+      klass = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        set_callback(:save, :before, -> { events << :ran }, unless: condition)
+        def save = run_callbacks(:save)
+      end
+
+      klass.new.save
+      assert_equal [:ran], events
+    end
+
+    def test_conditionals_value_filter_and_condition_paths
+      events = []
+      value_filter = ActiveSupport::Callbacks.const_get(:Conditionals).const_get(:Value).new do |_value|
+        events << :filter
+      end
+      condition = ActiveSupport::Callbacks.const_get(:Conditionals).const_get(:Value).new do |_value|
+        true
+      end
+      inverted_condition = ActiveSupport::Callbacks.const_get(:Conditionals).const_get(:Value).new do |_value|
+        false
+      end
+
+      klass = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        set_callback :save, :before, -> { events << :run }
+        set_callback :save, :before, value_filter, if: condition, unless: inverted_condition
+        define_method(:save) { run_callbacks(:save) { events } }
+      end
+
+      assert_equal [:run, :filter], klass.new.save
+    end
+
+    def test_instance_exec_two_template_lambda_paths
+      events = []
+      template = ActiveSupport::Callbacks.const_get(:CallTemplate).const_get(:InstanceExec2).new(
+        ->(_target, block) { block.call; false }
+      )
+      target = Object.new
+
+      assert_raises(ArgumentError) { template.expand(target, nil, nil) }
+      assert_equal false, template.make_lambda.call(target, nil) { events << :make }
+      assert_equal true, template.inverted_lambda.call(target, nil) { events << :invert }
+      assert_raises(ArgumentError) { template.inverted_lambda.call(target, nil) }
+      assert_equal [:make, :invert], events
+    end
+
+    def test_around_callbacks_from_proc_arities_expand_templates
+      events = []
+      arity_zero = proc { events << :zero }
+      arity_one = proc { |record| record.events << :one }
+      arity_two = proc { |record, block| record.events << :two_before; block.call; record.events << :two_after }
+
+      zero_class = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        set_callback :save, :around, arity_zero
+        define_method(:save) { run_callbacks(:save) { events << :zero_body } }
+      end
+      one_class = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        attr_reader :events
+        define_method(:initialize) { @events = events }
+        set_callback :save, :around, arity_one
+        define_method(:save) { run_callbacks(:save) { events << :one_body } }
+      end
+      two_class = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        attr_reader :events
+        define_method(:initialize) { @events = events }
+        set_callback :save, :around, arity_two
+        define_method(:save) { run_callbacks(:save) { events << :two_body } }
+      end
+
+      zero_class.new.save
+      one_class.new.save
+      two_class.new.save
+      assert_equal [:zero, :one, :two_before, :two_body, :two_after], events
+    end
+
+    def test_around_callback_with_conditionals_value_filter_expands_proc_call_template
+      events = []
+      value_filter = ActiveSupport::Callbacks.const_get(:Conditionals).const_get(:Value).new do |_value|
+        events << :around
+      end
+      klass = Class.new do
+        include ActiveSupport::Callbacks
+        define_callbacks :save
+        set_callback :save, :around, value_filter
+        define_method(:save) { run_callbacks(:save) { events << :body } }
+      end
+
+      klass.new.save
+      assert_equal [:around], events
+    end
+  end
 end

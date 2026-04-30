@@ -51,6 +51,14 @@ class DeepDupTest < ActiveSupport::TestCase
     assert dup.instance_variable_defined?(:@a)
   end
 
+  def test_non_duplicable_object_deep_dup_returns_self
+    singleton_class = Class.new do
+      include Singleton
+    end
+
+    assert_same singleton_class.instance, singleton_class.instance.deep_dup
+  end
+
   def test_deep_dup_with_hash_class_key
     hash = { Integer => 1 }
     dup = hash.deep_dup

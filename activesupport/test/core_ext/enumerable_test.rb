@@ -49,6 +49,10 @@ class EnumerableTests < ActiveSupport::TestCase
     assert_equal(e, v, msg)
   end
 
+  def test_enumerable_const_missing_delegates_unknown_constants
+    assert_raises(NameError) { Enumerable.const_get(:UnknownEnumerableConstant) }
+  end
+
   def test_minimum
     payments = GenericEnumerable.new([ Payment.new(5), Payment.new(15), Payment.new(10) ])
     assert_equal 5, payments.minimum(:price)
@@ -286,6 +290,10 @@ class EnumerableTests < ActiveSupport::TestCase
     very_long_enum = 0..infinity
     assert_equal true, very_long_enum.many?
     assert_equal true, very_long_enum.many? { |x| x > 100 }
+  end
+
+  def test_including
+    assert_equal [1, 2, 3, 4, 5], GenericEnumerable.new([1, 2, 4]).including(3, 5).sort
   end
 
   def test_exclude?

@@ -305,6 +305,23 @@ class CurrentAttributesTest < ActiveSupport::TestCase
     assert_equal [[:req, :value]], current.method(:attr=).parameters
   end
 
+  test "method missing delegates to instance public methods" do
+    current = Class.new(ActiveSupport::CurrentAttributes) do
+      def self.name
+        "MyCurrent"
+      end
+    end
+
+    assert_equal current.instance.attributes, current.send(:method_missing, :attributes)
+    assert_not current.respond_to?(:missing_current_attribute)
+  end
+
+  test "clear all is a no-op without a current attributes instance store" do
+    ActiveSupport::ExecutionContext.stub(:current_attributes_instances, nil) do
+      assert_nil ActiveSupport::CurrentAttributes.clear_all
+    end
+  end
+
 
   test "set and restore attributes when re-entering the executor" do
     ActiveSupport::ExecutionContext.with(nestable: true) do

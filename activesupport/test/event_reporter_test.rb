@@ -111,6 +111,14 @@ module ActiveSupport
       end
     end
 
+    test "#notify with caller depth beyond stack omits source location" do
+      @reporter.notify(:test_event, caller_depth: 1_000_000)
+
+      event = @subscriber.events.last
+      assert_equal "test_event", event[:name]
+      assert_not event.key?(:source_location)
+    end
+
     test "#notify filters" do
       reporter = ActiveSupport::EventReporter.new
       reporter.subscribe(@subscriber) { |event| event[:name].start_with?("user_") }
@@ -656,6 +664,22 @@ module ActiveSupport
       end
     ensure
       ActiveSupport.filter_parameters.pop
+    end
+
+    test "event matcher rejects mismatches" do
+      event = {
+        name: "test_event",
+        payload: { key: "value" },
+        tags: { tag: true },
+        context: { request_id: "abc" },
+        source_location: { filepath: "file.rb", lineno: 42, label: "perform" }
+      }
+
+      assert_not event_matcher(name: "other_event", payload: event[:payload], tags: event[:tags], context: event[:context]).call(event)
+      assert_not event_matcher(name: "test_event", payload: { key: "other" }, tags: event[:tags], context: event[:context]).call(event)
+      assert_not event_matcher(name: "test_event", payload: event[:payload], tags: { other: true }, context: event[:context]).call(event)
+      assert_not event_matcher(name: "test_event", payload: event[:payload], tags: event[:tags], context: { other: true }).call(event)
+      assert_not event_matcher(name: "test_event", payload: event[:payload], tags: event[:tags], context: event[:context], source_location: { filepath: "other.rb" }).call(event)
     end
   end
 

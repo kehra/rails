@@ -170,6 +170,26 @@ class AssertionsTest < ActiveSupport::TestCase
     assert_equal "`@object.num` didn't change by 5, but by 2.\nExpected: 5\n  Actual: 2", error.message
   end
 
+  def test_assert_difference_failure_message_without_diff_on_minitest_6
+    original_version = Minitest::VERSION
+    silence_warnings do
+      Minitest.send(:remove_const, :VERSION)
+      Minitest.const_set(:VERSION, "6")
+    end
+
+    error = assert_raises Minitest::Assertion do
+      assert_difference "@object.num", +5 do
+        @object.increment
+      end
+    end
+    assert_equal "`@object.num` didn't change by 5, but by 1.", error.message
+  ensure
+    silence_warnings do
+      Minitest.send(:remove_const, :VERSION)
+      Minitest.const_set(:VERSION, original_version)
+    end
+  end
+
   def test_assert_difference_message_with_lambda
     skip if !defined?(RubyVM::InstructionSequence)
 
@@ -213,11 +233,13 @@ class AssertionsTest < ActiveSupport::TestCase
   end
 
   def test_assert_changes_with_from_option_with_wrong_value
-    assert_raises Minitest::Assertion do
-      assert_changes "@object.num", from: -1 do
+    error = assert_raises Minitest::Assertion do
+      assert_changes "@object.num", "Object should start at zero", from: -1 do
         @object.increment
       end
     end
+
+    assert_equal "Object should start at zero.\nExpected change from -1, got 0", error.message
   end
 
   def test_assert_changes_with_from_option_with_nil
@@ -244,6 +266,16 @@ class AssertionsTest < ActiveSupport::TestCase
     end
 
     assert_match "`@object.num` didn't change. It was already 0.", error.message
+  end
+
+  def test_assert_changes_no_change_with_message_without_special_to_message
+    error = assert_raises Minitest::Assertion do
+      assert_changes "@object.num", "Object should change", to: 1 do
+        # no changes
+      end
+    end
+
+    assert_equal "Object should change.\n`@object.num` didn't change", error.message
   end
 
   def test_assert_changes_message_with_lambda
@@ -339,12 +371,26 @@ class AssertionsTest < ActiveSupport::TestCase
     end
   end
 
+  def test_assert_no_changes_with_nil_initial_value_failure
+    @object = nil
+
+    error = assert_raises Minitest::Assertion do
+      assert_no_changes "@object" do
+        @object = 1
+      end
+    end
+
+    assert_equal "`@object` changed.\nExpected: nil\n  Actual: 1", error.message
+  end
+
   def test_assert_no_changes_with_from_option_with_wrong_value
-    assert_raises Minitest::Assertion do
-      assert_no_changes "@object.num", from: -1 do
+    error = assert_raises Minitest::Assertion do
+      assert_no_changes "@object.num", "Object should start at zero", from: -1 do
         # ...
       end
     end
+
+    assert_equal "Object should start at zero.\nExpected initial value of -1, got 0", error.message
   end
 
   def test_assert_no_changes_with_from_option_with_nil
@@ -372,6 +418,26 @@ class AssertionsTest < ActiveSupport::TestCase
     end
 
     assert_equal "@object.num should not change.\n`@object.num` changed.\nExpected: 0\n  Actual: 1", error.message
+  end
+
+  def test_assert_no_changes_failure_message_without_diff_on_minitest_6
+    original_version = Minitest::VERSION
+    silence_warnings do
+      Minitest.send(:remove_const, :VERSION)
+      Minitest.const_set(:VERSION, "6")
+    end
+
+    error = assert_raises Minitest::Assertion do
+      assert_no_changes "@object.num" do
+        @object.increment
+      end
+    end
+    assert_equal "`@object.num` changed.", error.message
+  ensure
+    silence_warnings do
+      Minitest.send(:remove_const, :VERSION)
+      Minitest.const_set(:VERSION, original_version)
+    end
   end
 
   def test_assert_no_changes_message_with_lambda
@@ -417,6 +483,58 @@ class AssertionsTest < ActiveSupport::TestCase
       end
     end
     assert_match(/#<Proc:0x.*changed/, error.message)
+  end
+
+  def test_assertion_warning_is_skipped_without_tagged_logger
+    original_logger = tagged_logger
+    self.tagged_logger = nil
+
+    assert_raises Minitest::UnexpectedError do
+      assert_no_changes -> { 1 } do
+        raise ArgumentError.new
+      end
+    end
+  ensure
+    self.tagged_logger = original_logger
+  end
+
+  def test_callable_source_string_uses_script_lines
+    skip if !defined?(RubyVM::InstructionSequence)
+
+    callable = -> { @object.num }
+    iseq = Struct.new(:script_lines, :absolute_path, :location).new(["assert_no_changes -> { @object.num } do\n"], nil, [1, 18, 1, 34])
+    def iseq.to_a
+      [nil, nil, nil, nil, { code_location: location }]
+    end
+
+    RubyVM::InstructionSequence.stub(:of, iseq) do
+      assert_equal "@object.num", send(:_callable_to_source_string, callable)
+    end
+  end
+
+  def test_callable_source_string_returns_callable_without_source
+    skip if !defined?(RubyVM::InstructionSequence)
+
+    callable = -> { @object.num }
+    iseq = Struct.new(:script_lines, :absolute_path).new(nil, "/path/that/does/not/exist")
+
+    RubyVM::InstructionSequence.stub(:of, iseq) do
+      assert_same callable, send(:_callable_to_source_string, callable)
+    end
+  end
+
+  def test_callable_source_string_returns_callable_without_location
+    skip if !defined?(RubyVM::InstructionSequence)
+
+    callable = -> { @object.num }
+    iseq = Struct.new(:script_lines, :absolute_path).new(["-> { @object.num }\n"], nil)
+    def iseq.to_a
+      [nil, nil, nil, nil, {}]
+    end
+
+    RubyVM::InstructionSequence.stub(:of, iseq) do
+      assert_same callable, send(:_callable_to_source_string, callable)
+    end
   end
 
   def test_assert_no_changes_message_with_multi_line_lambda
@@ -611,6 +729,36 @@ class SubclassSetupAndTeardownTest < SetupAndTeardownTest
     end
 end
 
+class SetupAndTeardownErrorHandlingTest < ActiveSupport::TestCase
+  def test_after_teardown_records_callback_errors
+    klass = Class.new(ActiveSupport::TestCase) do
+      teardown { raise "teardown boom" }
+      def noop; end
+    end
+    test = klass.new("noop")
+    test.instance_variable_set(:@__leak_checker_before_env, ENV.to_h)
+
+    test.after_teardown
+
+    assert_equal 1, test.failures.size
+    assert_instance_of Minitest::UnexpectedError, test.failures.first
+  end
+
+  def test_after_teardown_records_callback_assertions
+    klass = Class.new(ActiveSupport::TestCase) do
+      teardown { flunk "teardown assertion" }
+      def noop; end
+    end
+    test = klass.new("noop")
+    test.instance_variable_set(:@__leak_checker_before_env, ENV.to_h)
+
+    test.after_teardown
+
+    assert_equal 1, test.failures.size
+    assert_instance_of Minitest::Assertion, test.failures.first
+  end
+end
+
 class TestCaseTaggedLoggingTest < ActiveSupport::TestCase
   def before_setup
     require "stringio"
@@ -658,6 +806,42 @@ class TestOrderTest < ActiveSupport::TestCase
   end
 end
 
+
+class DeclarativeTest < ActiveSupport::TestCase
+  test "declarative test defines a test method" do
+    test_case = Class.new(ActiveSupport::TestCase) do
+      test "something useful" do
+        :ok
+      end
+    end
+
+    assert_includes test_case.instance_methods, :test_something_useful
+  end
+
+  test "declarative test without block flunks when run" do
+    test_case = Class.new(ActiveSupport::TestCase) do
+      test "nothing implemented"
+    end
+
+    error = assert_raises(Minitest::Assertion) do
+      test_case.new(:test_nothing_implemented).send(:test_nothing_implemented)
+    end
+    assert_equal "No implementation provided for nothing implemented", error.message
+  end
+
+  test "declarative test raises when already defined" do
+    test_case = Class.new(ActiveSupport::TestCase) do
+      test "duplicate" do
+      end
+    end
+
+    error = assert_raises(RuntimeError) do
+      test_case.test "duplicate" do
+      end
+    end
+    assert_match "test_duplicate is already defined", error.message
+  end
+end
 
 class ConstStubbable
   CONSTANT = 1

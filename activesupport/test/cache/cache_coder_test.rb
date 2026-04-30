@@ -131,6 +131,68 @@ class CacheCoderTest < ActiveSupport::TestCase
     end
   end
 
+  test "lazy entries reuse resolved values" do
+    serializer = Module.new do
+      @loads = 0
+
+      class << self
+        attr_reader :loads
+      end
+
+      def self.dump(value)
+        Marshal.dump(value)
+      end
+
+      def self.load(dumped)
+        @loads += 1
+        Marshal.load(dumped)
+      end
+    end
+
+    @coder = ActiveSupport::Cache::Coder.new(serializer, Compressor)
+    roundtripped = @coder.load(@coder.dump(ActiveSupport::Cache::Entry.new({ a: 1 })))
+
+    assert_equal({ a: 1 }, roundtripped.value)
+    assert_equal({ a: 1 }, roundtripped.value)
+    assert_equal 1, serializer.loads
+  end
+
+  test "mismatched lazy entries do not deserialize values" do
+    serializer = Module.new do
+      def self.dump(value)
+        Marshal.dump(value)
+      end
+
+      def self.load(*)
+        raise "LOAD!"
+      end
+    end
+
+    @coder = ActiveSupport::Cache::Coder.new(serializer, Compressor)
+    roundtripped = @coder.load(@coder.dump(ActiveSupport::Cache::Entry.new("value", version: "abc")))
+
+    assert roundtripped.mismatched?("other")
+  end
+
+  test "lazy entries mismatch when deserialization fails" do
+    serializer = Module.new do
+      def self.dump(value)
+        Marshal.dump(value)
+      end
+
+      def self.load(*)
+        raise "LOAD!"
+      end
+    end
+
+    @coder = ActiveSupport::Cache::Coder.new(serializer, Compressor)
+    roundtripped = @coder.load(@coder.dump(ActiveSupport::Cache::Entry.new({ value: true }, version: "abc")))
+
+    assert_error_reported do
+      assert roundtripped.mismatched?("abc")
+    end
+  end
+
   private
     module Serializer
       extend self

@@ -474,6 +474,12 @@ class HashToXmlTest < ActiveSupport::TestCase
     assert_includes xml, %(<name>David</name>)
   end
 
+  def test_to_xml_includes_xml_instruction_by_default
+    xml = {}.to_xml(root: :person, indent: 0)
+
+    assert_match(/\A<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>/, xml)
+  end
+
   def test_one_level_dasherize_false
     xml = { name: "David", street_name: "Paulina" }.to_xml(@xml_options.merge(dasherize: false))
     assert_equal "<person>", xml.first(8)
@@ -839,6 +845,19 @@ class HashToXmlTest < ActiveSupport::TestCase
     assert_equal "application/octet-stream", file.content_type
   end
 
+  def test_file_node_from_xml_is_promoted_to_parent_value
+    blog_xml = <<-XML
+      <blog>
+        <file type="file" name="logo.png" content_type="image/png">
+        </file>
+      </blog>
+    XML
+
+    file = Hash.from_xml(blog_xml)["blog"]
+    assert_equal "logo.png", file.original_filename
+    assert_equal "image/png", file.content_type
+  end
+
   def test_tag_with_attrs_and_whitespace
     xml = <<-XML
       <blog name="bacon is the best">
@@ -944,6 +963,28 @@ class HashToXmlTest < ActiveSupport::TestCase
     assert_nothing_raised do
       ActiveSupport::XMLConverter.new("").to_h
     end
+  end
+
+  def test_xml_converter_rejects_unsupported_internal_values
+    converter = ActiveSupport::XMLConverter.new("<hash></hash>")
+
+    assert_raise(RuntimeError, match: /can't typecast Object/) do
+      converter.send(:deep_to_h, Object.new)
+    end
+  end
+
+  def test_xml_converter_rejects_unsupported_array_entries
+    converter = ActiveSupport::XMLConverter.new("<hash></hash>")
+
+    assert_raise(RuntimeError, match: /can't typecast/) do
+      converter.send(:process_hash, "type" => "array", "object" => Object.new)
+    end
+  end
+
+  def test_xml_converter_single_item_internal_array_returns_item
+    converter = ActiveSupport::XMLConverter.new("<hash></hash>")
+
+    assert_equal "value", converter.send(:process_array, ["value"])
   end
 
   def test_escaping_to_xml

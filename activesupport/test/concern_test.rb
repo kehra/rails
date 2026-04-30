@@ -210,4 +210,34 @@ class ConcernTest < ActiveSupport::TestCase
 
     assert_equal [:included, :class, :prepended], @klass.foo
   end
+
+  def test_prepend_collects_dependencies_for_concerns
+    dependency = Module.new.extend(ActiveSupport::Concern)
+    concern = Module.new do
+      extend ActiveSupport::Concern
+      prepend dependency
+    end
+
+    @klass.prepend concern
+
+    assert_equal [concern, dependency], @klass.included_modules[0..1]
+  end
+
+  def test_class_methods_reopens_existing_class_methods_module
+    concern = Module.new do
+      extend ActiveSupport::Concern
+      const_set(:ClassMethods, Module.new do
+        def existing_class_method = :existing
+      end)
+
+      class_methods do
+        def added_class_method = :added
+      end
+    end
+
+    @klass.include concern
+
+    assert_equal :existing, @klass.existing_class_method
+    assert_equal :added, @klass.added_class_method
+  end
 end

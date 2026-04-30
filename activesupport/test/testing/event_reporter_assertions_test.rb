@@ -210,6 +210,65 @@ module ActiveSupport
           @reporter.notify("user.created", { id: 123 })
         end
       end
+
+      test "with_debug_event_reporting captures debug events" do
+        assert_event_reported("debug.event") do
+          with_debug_event_reporting do
+            @reporter.debug("debug.event")
+          end
+        end
+      end
+
+      test "event collector emit succeeds without recorders" do
+        ActiveSupport::IsolatedExecutionState[:active_support_event_reporter_assertions] = nil
+
+        assert_equal true, EventReporterAssertions::EventCollector.emit(name: "ignored", payload: {}, tags: {})
+      end
+
+      test "event collector emit succeeds when recorder storage is nil" do
+        collector = EventReporterAssertions::EventCollector
+        singleton = class << collector; self; end
+        original = collector.method(:event_recorders)
+        singleton.send(:define_method, :event_recorders) { nil }
+
+        assert_equal true, collector.emit(name: "ignored", payload: {}, tags: {})
+      ensure
+        singleton.send(:define_method, :event_recorders, original) if original
+      end
+
+      test "event collector handles concurrent subscribe" do
+        collector = EventReporterAssertions::EventCollector
+        original_subscribed = collector.instance_variable_get(:@subscribed)
+        original_mutex = collector.instance_variable_get(:@mutex)
+        collector.instance_variable_set(:@subscribed, false)
+        collector.instance_variable_set(:@mutex, Object.new.tap do |mutex|
+          mutex.define_singleton_method(:synchronize) do |&block|
+            collector.instance_variable_set(:@subscribed, true)
+            block.call
+          end
+        end)
+
+        assert_equal [], collector.record { }
+      ensure
+        collector.instance_variable_set(:@mutex, original_mutex)
+        collector.instance_variable_set(:@subscribed, original_subscribed)
+      end
+
+      test "event collector requires configured reporter" do
+        collector = EventReporterAssertions::EventCollector
+        original_reporter = ActiveSupport.event_reporter
+        original_subscribed = collector.instance_variable_get(:@subscribed)
+        collector.instance_variable_set(:@subscribed, false)
+        ActiveSupport.event_reporter = nil
+
+        error = assert_raises(Minitest::Assertion) do
+          collector.record { }
+        end
+        assert_equal "No event reporter is configured", error.message
+      ensure
+        ActiveSupport.event_reporter = original_reporter
+        collector.instance_variable_set(:@subscribed, original_subscribed)
+      end
     end
   end
 end

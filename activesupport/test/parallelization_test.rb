@@ -34,6 +34,115 @@ class ParallelizationTest < ActiveSupport::TestCase
     assert_equal 5, instance.parallel_worker_id
   end
 
+  test "test order delegates to Active Support configuration" do
+    original_order = ActiveSupport.test_order
+    ActiveSupport.test_order = nil
+
+    assert_equal :random, ActiveSupport::TestCase.test_order
+    ActiveSupport::TestCase.test_order = :sorted
+    assert_equal :sorted, ActiveSupport::TestCase.test_order
+  ensure
+    ActiveSupport.test_order = original_order
+  end
+
+  test "parallelize supports processor count and thread executor without database setting" do
+    original_executor = Minitest.parallel_executor
+    original_databases = ActiveSupport.parallelize_test_databases
+    original_parallel_workers = ENV.delete("PARALLEL_WORKERS")
+
+    ActiveSupport::TestCase.parallelize(workers: :number_of_processors, with: :threads, threshold: 1)
+
+    executor = Minitest.parallel_executor
+    assert_instance_of ActiveSupport::Testing::ParallelizeExecutor, executor
+    assert_equal original_databases, ActiveSupport.parallelize_test_databases
+  ensure
+    ENV["PARALLEL_WORKERS"] = original_parallel_workers if original_parallel_workers
+    Minitest.parallel_executor = original_executor
+    ActiveSupport.parallelize_test_databases = original_databases
+  end
+
+  test "parallelize supports explicit process workers and database setting" do
+    original_executor = Minitest.parallel_executor
+    original_databases = ActiveSupport.parallelize_test_databases
+    original_parallel_workers = ENV.delete("PARALLEL_WORKERS")
+
+    ActiveSupport::TestCase.parallelize(workers: 2, with: :processes, parallelize_databases: false, threshold: 1)
+
+    assert_instance_of ActiveSupport::Testing::ParallelizeExecutor, Minitest.parallel_executor
+    assert_equal false, ActiveSupport.parallelize_test_databases
+  ensure
+    ENV["PARALLEL_WORKERS"] = original_parallel_workers if original_parallel_workers
+    Minitest.parallel_executor = original_executor
+    ActiveSupport.parallelize_test_databases = original_databases
+  end
+
+  test "parallelize environment variable overrides worker count" do
+    original_executor = Minitest.parallel_executor
+    original_parallel_workers = ENV["PARALLEL_WORKERS"]
+    ENV["PARALLEL_WORKERS"] = "1"
+
+    ActiveSupport::TestCase.parallelize(workers: :number_of_processors, with: :threads, threshold: 1)
+
+    assert_instance_of ActiveSupport::Testing::ParallelizeExecutor, Minitest.parallel_executor
+  ensure
+    ENV["PARALLEL_WORKERS"] = original_parallel_workers
+    Minitest.parallel_executor = original_executor
+  end
+
+  test "parallelize hooks are registered" do
+    before_count = ActiveSupport::Testing::Parallelization.before_fork_hooks.size
+    setup_count = ActiveSupport::Testing::Parallelization.after_fork_hooks.size
+    teardown_count = ActiveSupport::Testing::Parallelization.run_cleanup_hooks.size
+
+    ActiveSupport::TestCase.parallelize_before_fork { :before }
+    ActiveSupport::TestCase.parallelize_setup { :setup }
+    ActiveSupport::TestCase.parallelize_teardown { :teardown }
+
+    assert_equal before_count + 1, ActiveSupport::Testing::Parallelization.before_fork_hooks.size
+    assert_equal setup_count + 1, ActiveSupport::Testing::Parallelization.after_fork_hooks.size
+    assert_equal teardown_count + 1, ActiveSupport::Testing::Parallelization.run_cleanup_hooks.size
+  end
+
+  test "test case inspect uses object identity string" do
+    assert_match(/#<ParallelizationTest:/, inspect)
+  end
+
+  test "run order follows configured test order" do
+    original_order = ActiveSupport.test_order
+    ActiveSupport.test_order = :sorted
+
+    assert_equal :sorted, ActiveSupport::TestCase.run_order
+  ensure
+    ActiveSupport.test_order = original_order
+  end if ActiveSupport::TestCase.respond_to?(:run_order)
+
+  test "parallelization exposes worker count size" do
+    parallelization = ActiveSupport::Testing::Parallelization.new(2)
+
+    assert_equal 2, parallelization.size
+  ensure
+    DRb.stop_service if defined?(DRb)
+  end
+
+  test "shutdown treats already reaped workers as dead" do
+    parallelization = ActiveSupport::Testing::Parallelization.new(1)
+    server = parallelization.instance_variable_get(:@queue_server)
+    parallelization.instance_variable_set(:@worker_pool, [123])
+    removed = nil
+    shutdown_called = false
+    server.define_singleton_method(:remove_dead_workers) { |workers| removed = workers }
+    server.define_singleton_method(:shutdown) { shutdown_called = true }
+
+    Process.stub(:waitpid, ->(*) { raise Errno::ECHILD }) do
+      parallelization.shutdown
+    end
+
+    assert_equal [123], removed
+    assert_equal true, shutdown_called
+  ensure
+    DRb.stop_service if defined?(DRb)
+  end
+
   test "shutdown handles dead workers gracefully" do
     # Use a blocking queue strategy so workers wait for work
     blocking_distributor = ActiveSupport::Testing::Parallelization::SharedQueueDistributor.new

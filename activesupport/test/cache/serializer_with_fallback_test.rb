@@ -68,6 +68,41 @@ class CacheSerializerWithFallbackTest < ActiveSupport::TestCase
     assert_nil serializer(:message_pack).load(dumped)
   end
 
+  test "loads message pack dependency when constant is missing" do
+    message_pack = ActiveSupport.send(:remove_const, :MessagePack) if defined?(ActiveSupport::MessagePack)
+
+    assert_same serializer(:message_pack), ActiveSupport::Cache::SerializerWithFallback[:message_pack]
+  ensure
+    ActiveSupport.const_set(:MessagePack, message_pack) if message_pack
+  end
+
+  test "marshal 7.0 compression keeps uncompressed payload when compression is not smaller" do
+    entry = ActiveSupport::Cache::Entry.new(Random.bytes(64))
+    dumped = serializer(:marshal_7_0).dump_compressed(entry, 1)
+
+    assert serializer(:marshal_7_0).send(:dumped?, dumped)
+    assert_entry entry, serializer(:marshal_7_0).load(dumped)
+  end
+
+  test "raises deserialization error for invalid marshal payload" do
+    assert_raises ActiveSupport::Cache::DeserializationError do
+      serializer(:marshal_7_1).load("\x04\x08".b)
+    end
+  end
+
+  test "message pack availability is false when dependency cannot be loaded" do
+    message_pack = ActiveSupport.send(:remove_const, :MessagePack) if defined?(ActiveSupport::MessagePack)
+    serializer = serializer(:message_pack)
+    serializer.remove_instance_variable(:@available) if serializer.instance_variable_defined?(:@available)
+
+    serializer.stub(:require, ->(*) { raise LoadError }) do
+      assert_not serializer.send(:available?)
+    end
+  ensure
+    ActiveSupport.const_set(:MessagePack, message_pack) if message_pack
+    serializer&.remove_instance_variable(:@available) if serializer&.instance_variable_defined?(:@available)
+  end
+
   test "raises on invalid format name" do
     assert_raises KeyError do
       ActiveSupport::Cache::SerializerWithFallback[:invalid_format]

@@ -79,6 +79,26 @@ module RotationCoordinatorTests
       end
     end
 
+    test "#prepend raises when both a block and options are provided" do
+      assert_raises ArgumentError do
+        make_coordinator.prepend(digest: "MD5") { {} }
+      end
+    end
+
+    test "requires a secret generator block" do
+      assert_raises ArgumentError do
+        ActiveSupport::Messages::RotationCoordinator.new
+      end
+    end
+
+    test "base coordinator build must be implemented by subclasses" do
+      coordinator = ActiveSupport::Messages::RotationCoordinator.new { "secret" }
+
+      assert_raises NotImplementedError do
+        coordinator.send(:build, "salt", secret_generator: ->(*) { "secret" }, secret_generator_options: {})
+      end
+    end
+
     test "#rotate block can return nil to skip a rotation for specific salts" do
       coordinator = make_coordinator.rotate(digest: "SHA1")
       coordinator.rotate do |salt|

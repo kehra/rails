@@ -9,6 +9,10 @@ class NullStoreTest < ActiveSupport::TestCase
     @cache = ActiveSupport::Cache.lookup_store(:null_store)
   end
 
+  def test_supports_cache_versioning
+    assert ActiveSupport::Cache::NullStore.supports_cache_versioning?
+  end
+
   def test_clear
     @cache.write("name", "value")
     @cache.clear
@@ -38,6 +42,13 @@ class NullStoreTest < ActiveSupport::TestCase
   def test_increment
     @cache.write("name", 1, raw: true)
     assert_nil @cache.increment("name")
+  end
+
+  def test_local_cache_increment_removes_nil_counter_value
+    @cache.with_local_cache do
+      assert_nil @cache.increment("name")
+      assert_nil @cache.read("name", raw: true)
+    end
   end
 
   def test_increment_with_options

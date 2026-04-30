@@ -9,6 +9,12 @@ module TestsWithoutAssertionsTest
     end
   end
 
+  class TestsWithAssertionsTest < ActiveSupport::TestCase
+    def test_with_assertions
+      assert true
+    end
+  end
+
   class TestsWithoutAssertionsWarnTest < ActiveSupport::TestCase
     module AfterTeardown
       def after_teardown

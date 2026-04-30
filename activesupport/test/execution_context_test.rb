@@ -65,4 +65,34 @@ class ExecutionContextTest < ActiveSupport::TestCase
     context[:foo] = 43
     assert_equal 42, ActiveSupport::ExecutionContext.to_h[:foo]
   end
+
+  test "after_change callback runs on assignments and set blocks" do
+    callbacks = ActiveSupport::ExecutionContext.instance_variable_get(:@after_change_callbacks)
+    calls = 0
+    callback = -> { calls += 1 }
+    ActiveSupport::ExecutionContext.after_change(&callback)
+
+    ActiveSupport::ExecutionContext[:foo] = "bar"
+    ActiveSupport::ExecutionContext.set(foo: "baz") { }
+
+    assert_equal 3, calls
+  ensure
+    callbacks&.delete(callback)
+  end
+
+  test "push and pop clear context when not nestable" do
+    ActiveSupport::ExecutionContext[:foo] = "bar"
+    assert_same ActiveSupport::ExecutionContext, ActiveSupport::ExecutionContext.push
+    assert_empty ActiveSupport::ExecutionContext.to_h
+
+    ActiveSupport::ExecutionContext[:foo] = "baz"
+    assert_same ActiveSupport::ExecutionContext, ActiveSupport::ExecutionContext.pop
+    assert_empty ActiveSupport::ExecutionContext.to_h
+  end
+
+  test "current_attributes_instances returns the active record store" do
+    ActiveSupport::ExecutionContext.current_attributes_instances[:current] = "value"
+
+    assert_equal({ current: "value" }, ActiveSupport::ExecutionContext.current_attributes_instances)
+  end
 end

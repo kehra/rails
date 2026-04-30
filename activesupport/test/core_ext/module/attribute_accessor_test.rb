@@ -145,6 +145,14 @@ class ModuleAttributeAccessorTest < ActiveSupport::TestCase
     end
     assert_equal "module attributes should be defined directly on class, not singleton", ex.message
 
+    ex = assert_raises TypeError do
+      class << klass
+        mattr_writer :my_writer
+      end
+    end
+    assert_equal "module attributes should be defined directly on class, not singleton", ex.message
+
     assert_not_includes Module.class_variables, :@@my_attr
+    assert_not_includes Module.class_variables, :@@my_writer
   end
 end
