@@ -89,6 +89,25 @@ module ActiveRecord
       assert_nil adapter_class.validate_default_timezone(nil)
       assert_raises(ArgumentError) { adapter_class.validate_default_timezone("tokyo") }
       assert_raises(NotImplementedError) { adapter_class.dbconsole({}) }
+      Dir.mktmpdir("abstract-adapter-client") do |dir|
+        client = File.join(dir, "ar-client")
+        File.write(client, "#!/bin/sh\n")
+        File.chmod(0755, client)
+        old_path = ENV["PATH"]
+        ENV["PATH"] = dir
+        executed = nil
+        adapter_class.define_singleton_method(:exec) { |command, *args| executed = [command, args] }
+        adapter_class.send(:find_cmd_and_exec, "ar-client", "--version")
+        assert_equal [client, ["--version"]], executed
+      ensure
+        ENV["PATH"] = old_path
+      end
+      old_path = ENV["PATH"]
+      ENV["PATH"] = ""
+      adapter_class.define_singleton_method(:abort) { |message| raise message }
+      error = assert_raises(RuntimeError) { adapter_class.send(:find_cmd_and_exec, ["missing-client"]) }
+      assert_match(/Couldn't find database client: missing-client/, error.message)
+      ENV["PATH"] = old_path
       extended_type_map = adapter_class.extended_type_map(default_timezone: :utc)
       assert_kind_of ActiveRecord::Type::Time, extended_type_map.lookup("time(6)")
 
@@ -256,6 +275,19 @@ module ActiveRecord
       adapter.verify
       assert adapter.verified?
       assert_nil adapter.reset!
+
+      reconnect_calls = 0
+      adapter.define_singleton_method(:reconnect) { reconnect_calls += 1 }
+      adapter.define_singleton_method(:enable_lazy_transactions!) { @lazy_transactions_enabled = true }
+      adapter.define_singleton_method(:reset_transaction) { |restore: false, &block| @restore_transactions = restore; block&.call }
+      adapter.define_singleton_method(:clear_cache!) { |new_connection: false| @cache_cleared_with_new_connection = new_connection }
+      adapter.define_singleton_method(:configure_connection) { @configured_after_reconnect = true }
+      assert_equal true, adapter.reconnect!(restore_transactions: true)
+      assert_equal 1, reconnect_calls
+      assert adapter.instance_variable_get(:@lazy_transactions_enabled)
+      assert adapter.instance_variable_get(:@cache_cleared_with_new_connection)
+      assert adapter.instance_variable_get(:@configured_after_reconnect)
+      assert adapter.instance_variable_get(:@restore_transactions)
 
       current_transaction = Struct.new(:invalidated) do
         def invalidated? = invalidated
