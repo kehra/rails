@@ -1066,6 +1066,40 @@ module ActiveRecord
       assert_includes relation, post
     end
 
+    test "finder remaining ordinal methods return expected ordered records" do
+      ordered = Post.order(:id)
+
+      records = ordered.to_a
+
+      assert_equal records[1], ordered.second
+      assert_equal records[2], ordered.third
+      assert_equal records[-2], ordered.second_to_last
+      assert_equal records[-3], ordered.third_to_last
+      assert_equal records.last, ordered.last!
+      assert_equal records.first, ordered.take
+    end
+
+    test "finder remaining bang ordinal methods raise when missing" do
+      empty = Post.where(id: -1)
+
+      assert_raises(ActiveRecord::RecordNotFound) { empty.second! }
+      assert_raises(ActiveRecord::RecordNotFound) { empty.third! }
+      assert_raises(ActiveRecord::RecordNotFound) { empty.second_to_last! }
+      assert_raises(ActiveRecord::RecordNotFound) { empty.third_to_last! }
+      assert_raises(ActiveRecord::RecordNotFound) { empty.last! }
+      assert_raises(ActiveRecord::RecordNotFound) { empty.take! }
+    end
+
+    test "finder sole returns exactly one record and raises for none or many" do
+      sole_relation = Post.where(id: posts(:welcome).id)
+      empty_relation = Post.where(id: -1)
+      many_relation = Post.where(author_id: authors(:david).id)
+
+      assert_equal posts(:welcome), sole_relation.sole
+      assert_raises(ActiveRecord::RecordNotFound) { empty_relation.sole }
+      assert_raises(ActiveRecord::SoleRecordExceeded) { many_relation.sole }
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
