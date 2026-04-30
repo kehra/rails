@@ -76,6 +76,41 @@ class ReflectionTest < ActiveRecord::TestCase
     assert_equal "attribute_that_doesnt_exist", column.name
   end
 
+  def test_load_schema_returns_when_schema_is_loaded_inside_monitor
+    klass = Class.new(ActiveRecord::Base)
+    monitor = Class.new do
+      def initialize(model)
+        @model = model
+      end
+
+      def synchronize
+        @model.instance_variable_set(:@schema_loaded, true)
+        yield
+      end
+    end.new(klass)
+    klass.instance_variable_set(:@load_schema_monitor, monitor)
+
+    assert_nil klass.load_schema
+  end
+
+  def test_next_sequence_value_uses_connection_and_sequence_name
+    klass = Class.new(ActiveRecord::Base)
+    connection = Class.new do
+      attr_reader :sequence_name
+
+      def next_sequence_value(sequence_name)
+        @sequence_name = sequence_name
+        42
+      end
+    end.new
+
+    klass.define_singleton_method(:sequence_name) { "topics_seq" }
+    klass.define_singleton_method(:with_connection) { |&block| block.call(connection) }
+
+    assert_equal 42, klass.next_sequence_value
+    assert_equal "topics_seq", connection.sequence_name
+  end
+
   def test_columns_are_returned_in_the_order_they_were_declared
     column_names = Topic.columns.map(&:name)
     assert_equal %w(id title author_name author_email_address written_on bonus_time last_read content important binary_content approved replies_count unique_replies_count parent_id parent_title type group created_at updated_at), column_names
