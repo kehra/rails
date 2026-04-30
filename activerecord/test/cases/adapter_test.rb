@@ -244,6 +244,29 @@ module ActiveRecord
       adapter.instance_variable_set(:@connected_since, 123.0)
       adapter.force_retirement
       assert_equal(-Float::INFINITY, adapter.instance_variable_get(:@connected_since))
+      raw = Object.new
+      adapter.instance_variable_set(:@raw_connection, raw)
+      adapter.instance_variable_set(:@verified, true)
+      assert_same raw, adapter.send(:any_raw_connection)
+      assert_same raw, adapter.send(:valid_raw_connection)
+      assert_same raw, adapter.raw_connection
+      assert adapter.instance_variable_get(:@raw_connection_dirty)
+      adapter.define_singleton_method(:active?) { true }
+      adapter.instance_variable_set(:@verified, false)
+      adapter.verify
+      assert adapter.verified?
+      assert_nil adapter.reset!
+
+      current_transaction = Struct.new(:invalidated) do
+        def invalidated? = invalidated
+        def invalidate! = self.invalidated = true
+      end.new(false)
+      adapter.define_singleton_method(:current_transaction) { current_transaction }
+      adapter.define_singleton_method(:savepoint_errors_invalidate_transactions?) { true }
+      adapter.send(:invalidate_transaction, ActiveRecord::StatementInvalid.new("boom"))
+      refute current_transaction.invalidated?
+      adapter.send(:invalidate_transaction, ActiveRecord::TransactionRollbackError.new("rollback"))
+      assert current_transaction.invalidated?
 
       assert_equal "INSERT INTO posts (id) VALUES (1)", adapter.build_insert_sql(Struct.new(:skip_duplicates?, :update_duplicates?, :into, :values_list).new(false, false, "INTO posts", "(id) VALUES (1)"))
       assert_raises(NotImplementedError) { adapter.build_insert_sql(Struct.new(:skip_duplicates?, :update_duplicates?, :into, :values_list).new(true, false, "INTO posts", "(id) VALUES (1)")) }
