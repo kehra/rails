@@ -28,6 +28,11 @@ class SQLite3VirtualTableTest < ActiveRecord::SQLite3TestCase
     assert_not_includes output, 'create_virtual_table "searchables"'
   end
 
+  def test_virtual_table_exists_checks_virtual_table_scope
+    assert @connection.virtual_table_exists?(:searchables)
+    assert_not @connection.virtual_table_exists?(:missing_searchables)
+  end
+
   def test_schema_dumper_primary_key_autoincrement_is_false_without_current_table
     dumper = ActiveRecord::ConnectionAdapters::SQLite3::SchemaDumper.create(@connection, {})
 

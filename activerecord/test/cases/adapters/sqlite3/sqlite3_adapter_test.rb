@@ -1131,6 +1131,41 @@ module ActiveRecord
         assert_not_equal stored_column, virtual_column
       end
 
+      def test_schema_statement_indexes_handles_indexes_without_sql
+        fake_adapter = Class.new do
+          include SQLite3::SchemaStatements
+
+          def quote_table_name(name) = %Q("#{name}")
+          def quote(value) = "'#{value}'"
+
+          def query_all(sql)
+            case sql
+            when /index_list/
+              [{ "name" => "index_posts_on_title", "unique" => 0 }]
+            when /index_info/
+              [{ "name" => "title" }]
+            else
+              []
+            end
+          end
+
+          def query_value(_sql) = nil
+        end.new
+
+        index = fake_adapter.indexes("posts").first
+        assert_equal "index_posts_on_title", index.name
+        assert_equal ["title"], index.columns
+        assert_empty index.orders
+      end
+
+      def test_add_foreign_key_rejects_invalid_deferrable_option
+        error = assert_raises(ArgumentError) do
+          @conn.add_foreign_key :children, :parents, deferrable: :later
+        end
+
+        assert_match(/deferrable must be `:immediate` or `:deferred`/, error.message)
+      end
+
       def test_sqlite_column_public_contracts
         cast_type = @conn.lookup_cast_type("integer")
         type_metadata = SqlTypeMetadata.new(sql_type: "integer", type: :integer)
