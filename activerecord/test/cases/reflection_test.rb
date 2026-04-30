@@ -111,6 +111,48 @@ class ReflectionTest < ActiveRecord::TestCase
     assert_equal "topics_seq", connection.sequence_name
   end
 
+  def test_table_name_setter_skips_column_reset_when_disconnected
+    klass = Class.new(ActiveRecord::Base) do
+      self.table_name = "topics"
+
+      def self.connected?
+        false
+      end
+
+      def self.reset_column_information
+        raise "should not reset columns while disconnected"
+      end
+    end
+
+    klass.table_name = "other_topics"
+
+    assert_equal "other_topics", klass.table_name
+  end
+
+  def test_reset_column_information_allows_no_active_connection
+    schema_cache = Class.new do
+      attr_reader :cleared_table
+
+      def clear_data_source_cache!(table_name)
+        @cleared_table = table_name
+      end
+    end.new
+    pool = Class.new do
+      def active_connection
+        nil
+      end
+    end.new
+    klass = Class.new(ActiveRecord::Base) do
+      self.table_name = "topics"
+    end
+    klass.define_singleton_method(:connection_pool) { pool }
+    klass.define_singleton_method(:schema_cache) { schema_cache }
+
+    klass.reset_column_information
+
+    assert_equal "topics", schema_cache.cleared_table
+  end
+
   def test_columns_are_returned_in_the_order_they_were_declared
     column_names = Topic.columns.map(&:name)
     assert_equal %w(id title author_name author_email_address written_on bonus_time last_read content important binary_content approved replies_count unique_replies_count parent_id parent_title type group created_at updated_at), column_names
