@@ -39,6 +39,85 @@ module ActiveRecord
         assert SQLite3Adapter.database_exists?(adapter: "sqlite3", database: db_path)
       end
 
+      def test_database_requires_database_path
+        error = assert_raises(ArgumentError) do
+          SQLite3Adapter.new(adapter: "sqlite3", database: "")
+        end
+
+        assert_match(/No database file specified/, error.message)
+      end
+
+      def test_new_client_translates_missing_database_directory
+        database_class = class << ::SQLite3::Database; self; end
+        original = ::SQLite3::Database.method(:new)
+        database_class.define_method(:new) do |*_args|
+          raise Errno::ENOENT, "No such file or directory"
+        end
+
+        assert_raises(ActiveRecord::NoDatabaseError) do
+          SQLite3Adapter.new_client(database: "/missing/sqlite/directory/database.sqlite3")
+        end
+      ensure
+        database_class.define_method(:new, original)
+      end
+
+      def test_dbconsole_builds_sqlite_cli_arguments
+        config = ActiveRecord::DatabaseConfigurations::HashConfig.new("default_env", "primary", { database: "db/development.sqlite3" })
+        calls = []
+        adapter_class = class << SQLite3Adapter; self; end
+        original = SQLite3Adapter.method(:find_cmd_and_exec)
+        adapter_class.define_method(:find_cmd_and_exec) do |cmd, *args|
+          calls << [cmd, args]
+        end
+
+        SQLite3Adapter.dbconsole(config, mode: "line", header: true)
+
+        assert_equal ActiveRecord.database_cli[:sqlite], calls.first.first
+        assert_equal ["-line", "-header", File.expand_path("db/development.sqlite3")], calls.first.last
+      ensure
+        adapter_class.define_method(:find_cmd_and_exec, original)
+      end
+
+      def test_resolve_path_handles_sqlite_uri_forms_and_root
+        assert_equal "/tmp/app.sqlite3", SQLite3Adapter.resolve_path("file:/tmp/app.sqlite3?mode=ro")
+        assert_equal "relative.sqlite3", SQLite3Adapter.resolve_path("file:relative.sqlite3?cache=shared")
+        assert_equal File.expand_path("db/test.sqlite3", "/tmp/app"), SQLite3Adapter.resolve_path("db/test.sqlite3", root: "/tmp/app")
+      end
+
+      def test_support_flags_encoding_and_shared_cache_contracts
+        assert @conn.supports_ddl_transactions?
+        assert @conn.supports_savepoints?
+        assert @conn.supports_transaction_isolation?
+        assert @conn.requires_reloading?
+        assert @conn.supports_views?
+        assert @conn.supports_json?
+        assert @conn.supports_common_table_expressions?
+        assert @conn.supports_explain?
+        assert_equal "UTF-8", @conn.encoding
+        refute @conn.supports_concurrent_connections?
+        refute @conn.shared_cache?
+
+        shared = SQLite3Adapter.new(adapter: "sqlite3", database: ":memory:", flags: ::SQLite3::Constants::Open::SHAREDCACHE)
+        assert shared.shared_cache?
+      ensure
+        shared&.disconnect!
+      end
+
+      def test_strict_strings_default_class_attribute
+        original = SQLite3Adapter.strict_strings_by_default
+        SQLite3Adapter.strict_strings_by_default = true
+
+        assert SQLite3Adapter.strict_strings_by_default?
+        assert_equal true, SQLite3Adapter.strict_strings_by_default
+        adapter = SQLite3Adapter.new(adapter: "sqlite3", database: ":memory:")
+        assert adapter.strict_strings_by_default?
+        assert_equal true, adapter.strict_strings_by_default
+        assert_equal true, adapter.instance_variable_get(:@config)[:strict]
+      ensure
+        adapter&.disconnect!
+        SQLite3Adapter.strict_strings_by_default = original
+      end
+
       def test_database_exists_returns_false_when_the_database_does_not_exist
         assert_not SQLite3Adapter.database_exists?(adapter: "sqlite3", database: "non_extant_db"),
           "expected non_extant_db to not exist"
@@ -1164,6 +1243,37 @@ module ActiveRecord
         end
 
         assert_match(/deferrable must be `:immediate` or `:deferred`/, error.message)
+      end
+
+      def test_check_all_foreign_keys_valid_passes_and_raises_with_table_names
+        assert_nothing_raised { @conn.check_all_foreign_keys_valid! }
+
+        fake = @conn.dup
+        fake.define_singleton_method(:execute) do |_sql|
+          [{ "table" => "comments" }, { "table" => "posts" }]
+        end
+
+        error = assert_raises(ActiveRecord::StatementInvalid) { fake.check_all_foreign_keys_valid! }
+        assert_match(/Foreign key violations found: comments, posts/, error.message)
+      end
+
+      def test_rename_table_updates_table_and_drop_virtual_table_removes_it
+        @conn.create_table :ar_sqlite_rename_sources, force: true do |t|
+          t.string :name
+        end
+
+        @conn.rename_table :ar_sqlite_rename_sources, :ar_sqlite_rename_targets
+        assert @conn.table_exists?(:ar_sqlite_rename_targets)
+        assert_not @conn.table_exists?(:ar_sqlite_rename_sources)
+
+        @conn.create_virtual_table :ar_sqlite_rename_searchables, :fts5, ["content"]
+        assert @conn.virtual_table_exists?(:ar_sqlite_rename_searchables)
+        @conn.drop_virtual_table :ar_sqlite_rename_searchables, :fts5, ["content"]
+        assert_not @conn.virtual_table_exists?(:ar_sqlite_rename_searchables)
+      ensure
+        @conn.drop_table :ar_sqlite_rename_sources, if_exists: true
+        @conn.drop_table :ar_sqlite_rename_targets, if_exists: true
+        @conn.drop_table :ar_sqlite_rename_searchables, if_exists: true
       end
 
       def test_sqlite_column_public_contracts
