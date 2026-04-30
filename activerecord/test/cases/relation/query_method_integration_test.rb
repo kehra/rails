@@ -687,6 +687,71 @@ module ActiveRecord
       Developer.collection_cache_versioning = previous
     end
 
+    test "relation create and create bang apply scoped attributes and blocks" do
+      author = authors(:david)
+      relation = Post.where(author_id: author.id, type: "Post")
+      created = relation.create(title: "relation create", body: "created body") { |post| post.tags_count = 2 }
+      created_bang = relation.create!(title: "relation create bang", body: "created bang body")
+
+      assert_predicate created, :persisted?
+      assert_equal author.id, created.author_id
+      assert_equal 2, created.tags_count
+      assert_predicate created_bang, :persisted?
+      assert_equal author.id, created_bang.author_id
+    end
+
+    test "relation create or find by variants return existing rows on unique conflict" do
+      post = posts(:welcome)
+      attributes = { id: post.id, title: post.title, body: post.body, type: post.type, author_id: post.author_id }
+
+      assert_equal post.id, Post.create_or_find_by(attributes).id
+      assert_equal post.id, Post.create_or_find_by!(attributes).id
+      assert_equal 1, Post.where(id: post.id).count
+    end
+
+    test "relation delete and delete all remove scoped rows without instantiation" do
+      first = Post.create!(title: "relation delete", body: "delete body", type: "Post", author_id: authors(:david).id)
+      second = Post.create!(title: "relation delete all", body: "delete all body", type: "Post", author_id: authors(:david).id)
+      relation = Post.where(author_id: authors(:david).id)
+
+      assert_equal 1, relation.delete(first.id)
+      assert_equal 1, relation.where(id: second.id).delete_all
+      assert_empty Post.where(id: [first.id, second.id])
+    end
+
+    test "relation delete by removes rows matching additional conditions" do
+      post = Post.create!(title: "relation delete by", body: "delete by body", type: "Post", author_id: authors(:david).id)
+      relation = Post.where(author_id: authors(:david).id)
+
+      assert_equal 1, relation.delete_by(title: post.title)
+      assert_empty Post.where(id: post.id)
+    end
+
+    test "relation destroy and destroy all instantiate and remove scoped rows" do
+      first = Post.create!(title: "relation destroy", body: "destroy body", type: "Post", author_id: authors(:david).id)
+      second = Post.create!(title: "relation destroy all", body: "destroy all body", type: "Post", author_id: authors(:david).id)
+      relation = Post.where(author_id: authors(:david).id)
+
+      destroyed = relation.destroy(first.id)
+      destroyed_all = relation.where(id: second.id).destroy_all
+
+      assert_predicate destroyed, :destroyed?
+      assert_equal [second.id], destroyed_all.map(&:id)
+      assert destroyed_all.all?(&:destroyed?)
+      assert_empty Post.where(id: [first.id, second.id])
+    end
+
+    test "relation destroy by returns destroyed records for matching conditions" do
+      post = Post.create!(title: "relation destroy by", body: "destroy by body", type: "Post", author_id: authors(:david).id)
+      relation = Post.where(author_id: authors(:david).id)
+
+      destroyed = relation.destroy_by(title: post.title)
+
+      assert_equal [post.id], destroyed.map(&:id)
+      assert destroyed.all?(&:destroyed?)
+      assert_empty Post.where(id: post.id)
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
