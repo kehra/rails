@@ -103,6 +103,40 @@ class MigrationTest < ActiveRecord::TestCase
     assert_equal ActiveRecord::VERSION::STRING.to_f, ActiveRecord::Migration.current_version
   end
 
+  def test_migration_proxy_initializes_and_exposes_basename
+    proxy = ActiveRecord::MigrationProxy.new("CreateWidgets", 20240101010101, "/tmp/db/migrate/20240101010101_create_widgets.rb", "blog")
+
+    assert_equal "CreateWidgets", proxy.name
+    assert_equal 20240101010101, proxy.version
+    assert_equal "/tmp/db/migrate/20240101010101_create_widgets.rb", proxy.filename
+    assert_equal "blog", proxy.scope
+    assert_equal "20240101010101_create_widgets.rb", proxy.basename
+  end
+
+  def test_environment_mismatch_error_message_with_and_without_rails_env
+    rails_was_defined = Object.const_defined?(:Rails)
+    rails_was = Rails if rails_was_defined
+    Object.send(:remove_const, :Rails) if rails_was_defined
+    Object.const_set(:Rails, Module.new do
+      def self.env = "test"
+    end)
+
+    error = ActiveRecord::EnvironmentMismatchError.new(current: "development", stored: "production")
+
+    assert_includes error.message, "last run in `production` environment"
+    assert_includes error.message, "running in `development` environment"
+    assert_includes error.message, "bin/rails db:environment:set"
+    assert_includes error.message, "RAILS_ENV=test"
+
+    Object.send(:remove_const, :Rails)
+
+    error_without_rails = ActiveRecord::EnvironmentMismatchError.new(current: "test", stored: "staging")
+    assert_includes error_without_rails.message, "last run in `staging` environment"
+    assert_not_includes error_without_rails.message, "RAILS_ENV="
+  ensure
+    Object.const_set(:Rails, rails_was) if rails_was_defined && !Object.const_defined?(:Rails)
+  end
+
   def test_migrator_versions
     migrations_path = MIGRATIONS_ROOT + "/valid"
     migrator = ActiveRecord::MigrationContext.new(migrations_path, @schema_migration, @internal_metadata)
