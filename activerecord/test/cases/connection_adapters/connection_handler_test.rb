@@ -279,6 +279,46 @@ module ActiveRecord
         assert_equal([@pool], @handler.connection_pools)
       end
 
+      def test_connection_handler_public_pool_lifecycle_methods
+        assert_empty @handler.connection_pool_list(:reading)
+        assert_equal [@pool], @handler.connection_pool_list
+        assert_equal [@pool], @handler.connection_pool_list(:all)
+        assert_equal [@pool], @handler.connection_pool_list(:writing)
+
+        assert_not @handler.connected?(@connection_name)
+        @handler.retrieve_connection(@connection_name)
+        assert_equal @pool.connected?, @handler.connected?(@connection_name)
+        assert_equal !!@pool.active_connection?, @handler.active_connections?(:all)
+
+        @handler.clear_active_connections!(:all)
+        assert_not @handler.active_connections?(:all)
+        assert @handler.retrieve_connection(@connection_name)
+
+        @handler.clear_reloadable_connections!(:writing)
+        @handler.flush_idle_connections!(:writing)
+        assert @handler.retrieve_connection_pool(@connection_name)
+
+        @handler.clear_all_connections!(:writing)
+        assert_not @handler.connected?(@connection_name)
+
+        removed_pool_config = @handler.remove_connection_pool(@connection_name)
+        assert_equal @pool.db_config, removed_pool_config
+        assert_nil @handler.retrieve_connection_pool(@connection_name)
+        assert_raises(ActiveRecord::ConnectionNotDefined) do
+          @handler.retrieve_connection_pool(@connection_name, strict: true)
+        end
+      end
+
+      def test_connection_handler_establish_connection_reuses_and_replaces_pool_configs
+        db_config = ActiveRecord::Base.configurations.configs_for(env_name: "arunit", name: "primary")
+        reused_pool = @handler.establish_connection(db_config)
+        assert_same @pool, reused_pool
+
+        replacement_pool = @handler.establish_connection(db_config, clobber: true)
+        assert_not_same @pool, replacement_pool
+        assert_same replacement_pool, @handler.retrieve_connection_pool(@connection_name)
+      end
+
       def test_a_class_using_custom_pool_and_switching_back_to_primary
         klass2 = Class.new(Base) { def self.name; "klass2"; end }
 
