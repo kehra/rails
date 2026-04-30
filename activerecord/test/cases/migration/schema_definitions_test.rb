@@ -63,6 +63,41 @@ module ActiveRecord
         connection.drop_table(:test) if connection.table_exists?(:test)
       end
 
+      def test_sqlite_table_definition_change_column_preserves_existing_options_except_precision
+        table = ActiveRecord::ConnectionAdapters::SQLite3::TableDefinition.new(connection, "sqlite_schema_definition_posts")
+        table.column :amount, :decimal, precision: 8, scale: 2, null: false, default: "1.25"
+
+        table.change_column :amount, :integer, default: 2
+
+        column = table["amount"]
+        assert_equal :integer, column.type
+        assert_equal 2, column.options[:default]
+        assert_equal 2, column.options[:scale]
+        assert_equal false, column.options[:null]
+        assert_not column.options.key?(:precision)
+      end
+
+      def test_sqlite_table_definition_change_column_adds_missing_column
+        table = ActiveRecord::ConnectionAdapters::SQLite3::TableDefinition.new(connection, "sqlite_schema_definition_posts")
+
+        table.change_column :title, :string, limit: 120
+
+        column = table["title"]
+        assert_equal :string, column.type
+        assert_equal 120, column.options[:limit]
+      end
+
+      def test_sqlite_table_definition_references_default_to_integer
+        table = ActiveRecord::ConnectionAdapters::SQLite3::TableDefinition.new(connection, "sqlite_schema_definition_posts")
+
+        table.references :author, index: true
+        table.belongs_to :editor
+
+        assert_equal :integer, table["author_id"].type
+        assert_equal :integer, table["editor_id"].type
+        assert_equal [["author_id"], ["editor_id"]], table.indexes.map(&:first)
+      end
+
       def test_schema_definition_value_objects_and_table_definition_contracts
         index = ActiveRecord::ConnectionAdapters::IndexDefinition.new(
           "posts", "idx_posts_on_title", true, ["title"],
