@@ -899,6 +899,48 @@ module ActiveRecord
       assert_equal({ "author_id" => authors(:david).id, "type" => "Post", "body" => "scope body" }, scope)
     end
 
+    test "relation scoping size to ary and to sql keep scoped query behavior" do
+      relation = Post.where(author_id: authors(:david).id).order(:id)
+
+      scoped_ids = relation.scoping { Post.where(title: posts(:welcome).title).ids }
+      array = relation.to_ary
+
+      assert_equal [posts(:welcome).id], scoped_ids
+      assert_equal Post.where(author_id: authors(:david).id).count, relation.size
+      assert_equal relation.records, array
+      assert_not_same relation.records, array
+      assert_match(/WHERE/i, relation.to_sql)
+      assert_match(/ORDER BY/i, relation.to_sql)
+    end
+
+    test "relation touch all update all and update counters mutate only scoped rows" do
+      relation = Developer.where(name: "Jamis")
+      baseline = Time.utc(2001, 1, 1)
+      Developer.update_all(updated_at: baseline, salary: 100)
+
+      assert_equal relation.count, relation.update_all(salary: 200)
+      assert_equal [200], relation.distinct.pluck(:salary)
+      assert_equal [100], Developer.where.not(name: "Jamis").distinct.pluck(:salary)
+
+      assert_equal relation.count, relation.update_counters(salary: 5)
+      assert_equal [205], relation.distinct.pluck(:salary)
+
+      assert_equal relation.count, relation.touch_all(:updated_at)
+      assert_operator relation.minimum(:updated_at), :>, baseline
+      assert_equal [baseline], Developer.where.not(name: "Jamis").distinct.pluck(:updated_at)
+    end
+
+    test "relation upsert and upsert all use scoped defaults and returning shape" do
+      relation = Post.create_with(type: "Post", author_id: authors(:david).id, body: "upsert body")
+      one = relation.upsert({ id: posts(:welcome).id, title: "relation upsert" }, unique_by: :id, returning: %w[id title])
+      many = relation.upsert_all([{ id: posts(:thinking).id, title: "relation upsert all" }], unique_by: :id, returning: %w[id title])
+
+      assert_equal [[posts(:welcome).id, "relation upsert"]], one.rows
+      assert_equal [[posts(:thinking).id, "relation upsert all"]], many.rows
+      assert_equal "relation upsert", Post.find(posts(:welcome).id).title
+      assert_equal "relation upsert all", Post.find(posts(:thinking).id).title
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
