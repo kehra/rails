@@ -759,6 +759,10 @@ class AttributeMethodsTest < ActiveRecord::TestCase
     assert_not Topic.dangerous_class_method?(:not_a_class_method)
   end
 
+  test "instance_method_already_implemented? delegates to Active Model for direct descendants" do
+    assert_not Topic.instance_method_already_implemented?(:title)
+  end
+
   test "converted values are returned after assignment" do
     developer = Developer.new(name: 1337, salary: "50000")
 
