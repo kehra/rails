@@ -59,6 +59,18 @@ if ActiveRecord::Base.lease_connection.supports_virtual_columns?
       assert_equal 5, VirtualColumn.take.octet_name
     end
 
+    def test_schema_creation_emits_stored_and_virtual_generated_column_sql
+      assert_queries_match(/GENERATED ALWAYS AS \(UPPER\(name\)\) STORED.*GENERATED ALWAYS AS \(LOWER\(name\)\) VIRTUAL/m) do
+        @connection.create_table :virtual_column_sql_checks, force: true do |t|
+          t.string :name
+          t.virtual :upper_name, type: :string, as: "UPPER(name)", stored: true
+          t.virtual :lower_name, type: :string, as: "LOWER(name)", stored: false
+        end
+      end
+    ensure
+      @connection.drop_table :virtual_column_sql_checks, if_exists: true
+    end
+
     def test_virtual_column_with_comma_in_definition
       column = VirtualColumn.columns_hash["mutated_name"]
       assert_predicate column, :virtual?
