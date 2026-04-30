@@ -71,8 +71,7 @@ module ActiveRecord
 
     def test_abstract_adapter_public_default_contracts
       adapter_class = Class.new(ActiveRecord::ConnectionAdapters::AbstractAdapter) do
-        def arel_visitor = Arel::Visitors::ToSql.new(self)
-        def build_statement_pool = nil
+        def self.native_database_types = { string: { name: "varchar" } }
         def columns(_table_name) = [Struct.new(:name).new("title")]
         def connect! = true
       end
@@ -89,10 +88,38 @@ module ActiveRecord
       assert_equal :local, adapter_class.validate_default_timezone("local")
       assert_nil adapter_class.validate_default_timezone(nil)
       assert_raises(ArgumentError) { adapter_class.validate_default_timezone("tokyo") }
+      assert_raises(NotImplementedError) { adapter_class.dbconsole({}) }
+      extended_type_map = adapter_class.extended_type_map(default_timezone: :utc)
+      assert_kind_of ActiveRecord::Type::Time, extended_type_map.lookup("time(6)")
 
       adapter_class.migration_strategy = :custom_strategy
       assert_equal :custom_strategy, adapter_class.migration_strategy
+      assert_predicate adapter_class, :migration_strategy?
       assert_equal :custom_strategy, adapter.migration_strategy
+      assert_predicate adapter, :migration_strategy?
+
+      version = ActiveRecord::ConnectionAdapters::AbstractAdapter::Version.new("12.3.4", "12.3.4-full")
+      assert_equal "12.3.4", version.to_s
+      assert_equal "12.3.4-full", version.full_version_string
+      assert_operator version, :>, "12.3.3"
+
+      assert_equal true, adapter.valid_type?(:string)
+      assert_equal true, adapter_class.valid_type?(:string)
+      assert_equal false, adapter.valid_type?(:integer)
+      assert_equal false, adapter_class.valid_type?(:integer)
+      assert_equal false, adapter.replica?
+      assert_equal false, adapter.preventing_writes?
+      assert_equal false, adapter.prepared_statements?
+      assert_equal 1, adapter.connection_retries
+      assert_equal 2, adapter.verify_timeout
+      assert_nil adapter.retry_deadline
+      assert_operator adapter.pool_jitter(10.0), :<=, 10.0
+      assert_operator adapter.pool_jitter(10.0), :>=, 0.0
+      assert_nil adapter.seconds_since_last_activity
+      assert_nil adapter.connection_age
+      assert_operator adapter.seconds_idle, :>=, 0
+      adapter.allow_preconnect = true
+      assert_equal true, adapter.allow_preconnect
 
       assert_equal "TestAbstract", adapter.adapter_name
       assert_equal false, adapter.supports_ddl_transactions?
@@ -135,16 +162,67 @@ module ActiveRecord
       assert_equal true, adapter.supports_concurrent_connections?
       assert_equal false, adapter.supports_nulls_not_distinct?
       assert_equal false, adapter.supports_disabling_indexes?
+      assert_equal false, adapter.async_enabled?
       assert_equal false, adapter.advisory_locks_enabled?
       assert_equal [], adapter.extensions
       assert_equal({}, adapter.index_algorithms)
       assert_equal true, adapter.disable_referential_integrity { true }
       assert_nil adapter.check_all_foreign_keys_valid!
       assert_nil adapter.active?
+      assert_equal false, adapter.connected?
       assert_nil adapter.discard!
       assert_equal false, adapter.requires_reloading?
       assert_equal false, adapter.verified?
       assert_kind_of ActiveRecord::Result, adapter.send(:build_result, columns: ["id"], rows: [[1]])
+      assert_kind_of Arel::Visitors::ToSql, adapter.send(:arel_visitor)
+      assert_nil adapter.send(:build_statement_pool)
+      assert_equal true, adapter.send(:can_perform_case_insensitive_comparison_for?, nil)
+      assert_equal true, adapter.send(:default_index_type?, Struct.new(:using).new(nil))
+      assert_equal false, adapter.send(:default_index_type?, Struct.new(:using).new(:btree))
+
+      attribute_class = Struct.new(:name, :relation) do
+        def eq(value) = [:eq, value]
+        def lower = LoweredAttribute.new(self)
+      end
+      lowered_attribute_class = Class.new do
+        def initialize(attribute) = @attribute = attribute
+        def eq(value) = [:lower_eq, @attribute.name, value]
+      end
+      Object.const_set(:LoweredAttribute, lowered_attribute_class) unless Object.const_defined?(:LoweredAttribute)
+      relation = Struct.new(:name) { def lower(value) = [:lower, value] }.new("posts")
+      attribute = attribute_class.new("title", relation)
+      cache = Class.new do
+        def columns_hash(table_name) = { "title" => Struct.new(:name).new("title") }
+      end.new
+      adapter.pool = Struct.new(:schema_cache) do
+        def schema_reflection = nil
+        def db_config = Struct.new(:name, :env_name).new("primary", "test")
+        def role = :writing
+        def shard = :default
+      end.new(cache)
+      assert_equal [:eq, "value"], adapter.case_sensitive_comparison(attribute, "value")
+      assert_equal [:lower_eq, "title", [:lower, "value"]], adapter.case_insensitive_comparison(attribute, "value")
+      assert_equal "title", adapter.send(:column_for, :posts, :title).name
+      assert_raises(ActiveRecord::ActiveRecordError) { adapter.send(:column_for, :posts, :missing) }
+      assert_equal "title", adapter.send(:column_for_attribute, attribute).name
+
+      assert adapter.send(:retryable_connection_error?, ActiveRecord::ConnectionNotEstablished.new)
+      assert adapter.send(:retryable_connection_error?, ActiveRecord::ConnectionFailed.new)
+      refute adapter.send(:retryable_connection_error?, ActiveRecord::ConnectionNotDefined.new)
+      refute adapter.send(:retryable_query_error?, ActiveRecord::StatementInvalid.new("boom"))
+      assert_raises(NotImplementedError) { adapter.send(:reconnect) }
+      assert_equal 0, adapter.send(:backoff, 0)
+      translated = adapter.send(:translate_exception_class, RuntimeError.new("boom"), "SELECT", [])
+      assert_instance_of RuntimeError, translated
+      statement_error = adapter.send(:translate_exception_class, StandardError.new("boom"), "SELECT", [])
+      assert_instance_of ActiveRecord::StatementInvalid, statement_error
+
+      old_warning_ignore = ActiveRecord.db_warnings_ignore
+      ActiveRecord.db_warnings_ignore = [/ignore-me/, "123"]
+      assert adapter.send(:warning_ignored?, Struct.new(:message, :code).new("ignore-me please", nil))
+      assert adapter.send(:warning_ignored?, Struct.new(:message, :code).new("other", 123))
+      refute adapter.send(:warning_ignored?, Struct.new(:message, :code).new("other", 456))
+      ActiveRecord.db_warnings_ignore = old_warning_ignore
 
       populated_column = Struct.new(:auto_populated?).new(true)
       plain_column = Struct.new(:auto_populated?).new(false)
@@ -162,15 +240,32 @@ module ActiveRecord
       adapter.drop_virtual_table(:searches)
       assert_nil adapter.get_advisory_lock(1)
       assert_nil adapter.release_advisory_lock(1)
+      assert_equal "yielded", adapter.unprepared_statement { "yielded" }
+      adapter.instance_variable_set(:@connected_since, 123.0)
+      adapter.force_retirement
+      assert_equal(-Float::INFINITY, adapter.instance_variable_get(:@connected_since))
 
       assert_equal "INSERT INTO posts (id) VALUES (1)", adapter.build_insert_sql(Struct.new(:skip_duplicates?, :update_duplicates?, :into, :values_list).new(false, false, "INTO posts", "(id) VALUES (1)"))
       assert_raises(NotImplementedError) { adapter.build_insert_sql(Struct.new(:skip_duplicates?, :update_duplicates?, :into, :values_list).new(true, false, "INTO posts", "(id) VALUES (1)")) }
       assert_nil adapter.get_database_version
       assert_nil adapter.check_version
 
-      adapter.pool = Struct.new(:migration_context) { def server_version(_connection) = "1.2.3" }.new(Struct.new(:current_version).new(0))
+      db_config = Struct.new(:name, :env_name).new("primary", "test")
+      pool = Struct.new(:migration_context, :db_config, :role, :shard, :checked_in) do
+        def server_version(_connection) = "1.2.3"
+        def checkin(connection) = self.checked_in = connection
+        def remove(connection) = self.checked_in = [:removed, connection]
+      end.new(Struct.new(:current_version).new(0), db_config, :writing, :default)
+      adapter.pool = pool
       assert_equal 0, adapter.schema_version
       assert_equal "1.2.3", adapter.database_version
+      assert_equal :writing, adapter.role
+      assert_equal :default, adapter.shard
+      assert_match(/env_name="test"/, adapter.inspect)
+      adapter.close
+      assert_same adapter, pool.checked_in
+      adapter.throw_away!
+      assert_equal [:removed, adapter], pool.checked_in
       assert_equal true, adapter.database_exists?
       assert_equal false, Class.new(adapter_class) { def connect! = raise ActiveRecord::NoDatabaseError }.database_exists?({})
     ensure
