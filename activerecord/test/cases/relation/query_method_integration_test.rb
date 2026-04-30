@@ -465,6 +465,47 @@ module ActiveRecord
       assert_no_queries { records.each(&:author) }
     end
 
+    test "order limit and offset return deterministic paging results" do
+      relation = Post.order(id: :asc).limit(3).offset(2)
+
+      assert_equal Post.order(id: :asc).pluck(:id)[2, 3], relation.ids
+      assert_equal 3, relation.limit_value
+      assert_equal 2, relation.offset_value
+      assert_match(/ORDER BY/i, relation.to_sql)
+    end
+
+    test "limit reorder and first last keep finder order corrections bounded" do
+      relation = Post.limit(2).reorder(id: :asc)
+
+      assert_equal Post.order(id: :asc).limit(2).first, relation.first
+      assert_equal Post.order(id: :asc).limit(2).last, relation.last
+      assert_equal Post.order(id: :asc).limit(2).ids, relation.ids
+    end
+
+    test "in batches with where and order separates batch order from user order" do
+      relation = Post.where.not(author_id: nil).order(title: :desc)
+      batches = relation.in_batches(of: 3, error_on_ignore: false).map { |batch| batch.order(title: :desc).ids }
+
+      assert_equal relation.pluck(:id).sort, batches.flatten.sort
+      assert batches.all? { |ids| ids == Post.where(id: ids).order(title: :desc).ids }
+    end
+
+    test "find each with limit and offset handles ignored order warning and limit bound" do
+      relation = Post.order(title: :desc).limit(4).offset(1)
+      previous_logger = ActiveRecord::Base.logger
+      ActiveRecord::Base.logger = ActiveSupport::Logger.new(nil)
+      ids = nil
+
+      assert_called(ActiveRecord::Base.logger, :warn) do
+        ids = relation.find_each(batch_size: 2, error_on_ignore: false).map(&:id)
+      end
+
+      assert_equal 4, ids.size
+      assert_not_equal relation.ids, ids
+    ensure
+      ActiveRecord::Base.logger = previous_logger
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
