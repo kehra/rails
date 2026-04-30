@@ -8,7 +8,7 @@ require "models/tagging"
 
 module ActiveRecord
   class QueryMethodIntegrationTest < ActiveRecord::TestCase
-    fixtures :authors, :posts, :taggings
+    fixtures :authors, :posts, :comments, :taggings
 
     test "where chains with order and limit accumulate without mutating the source relation" do
       author = authors(:david)
@@ -206,6 +206,51 @@ module ActiveRecord
       assert_equal Post.where(author_id: author.id).order(:id).to_a, relation.to_a
       assert_match(/JOIN/i, relation.to_sql)
       assert_no_queries { relation.load.each(&:author) }
+    end
+
+    test "group having and count preserve grouped result and having predicate" do
+      relation = Post.group(:author_id).having("COUNT(*) > 1")
+      expected = Post.all.group_by(&:author_id).transform_values(&:size).select { |_author_id, count| count > 1 }
+
+      assert_equal expected, relation.count
+      assert_match(/GROUP BY/i, relation.to_sql)
+      assert_match(/HAVING/i, relation.to_sql)
+    end
+
+    test "group select and order keep aggregate projection ordered" do
+      relation = Post.select("author_id, COUNT(*) AS posts_count").group(:author_id).order("posts_count DESC", "author_id ASC")
+      expected = Post.all.group_by(&:author_id).transform_values(&:size).sort_by { |author_id, count| [-count, author_id || 0] }
+
+      assert_equal expected.map(&:first), relation.map(&:author_id)
+      assert_equal expected.map(&:last), relation.map { |record| record.posts_count.to_i }
+      assert_match(/ORDER BY/i, relation.to_sql)
+    end
+
+    test "left outer joins group and having keep rows with missing associations" do
+      relation = Post.left_outer_joins(:taggings).group("posts.id").having("COUNT(taggings.id) = 0").order("posts.id ASC")
+      tagged_post_ids = Tagging.where(taggable_type: "Post").select(:taggable_id)
+      expected = Post.where.not(id: tagged_post_ids).order(:id)
+
+      assert_equal expected.to_a, relation.to_a
+      assert_match(/LEFT OUTER JOIN/i, relation.to_sql)
+      assert_match(/HAVING/i, relation.to_sql)
+    end
+
+    test "distinct group and count keep SQL shape and grouped return values" do
+      relation = Post.select(:author_id).distinct.group(:author_id)
+      expected = Post.distinct.pluck(:author_id).index_with { 1 }
+
+      assert_equal expected, relation.count
+      assert_match(/DISTINCT/i, relation.to_sql)
+      assert_match(/GROUP BY/i, relation.to_sql)
+    end
+
+    test "calculate with includes and references keeps aggregate result" do
+      author = authors(:david)
+      relation = Post.includes(:author).references(:author).where("authors.id = ?", author.id)
+
+      assert_equal Post.where(author_id: author.id).count, relation.count
+      assert_match(/LEFT OUTER JOIN/i, relation.to_sql)
     end
   end
 end
