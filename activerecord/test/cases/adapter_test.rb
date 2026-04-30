@@ -354,6 +354,22 @@ module ActiveRecord
       adapter_class.const_set(:ADAPTER_NAME, "LifecycleAbstract")
 
       assert_raises(ArgumentError) { adapter_class.new({}, Object.new) }
+      old_exeext = RbConfig::CONFIG["EXEEXT"]
+      RbConfig::CONFIG["EXEEXT"] = ".exe"
+      Dir.mktmpdir("abstract-adapter-client-exe") do |dir|
+        client = File.join(dir, "ar-client.exe")
+        File.write(client, "#!/bin/sh\n")
+        File.chmod(0755, client)
+        old_path = ENV["PATH"]
+        ENV["PATH"] = dir
+        executed = nil
+        adapter_class.define_singleton_method(:exec) { |command, *args| executed = [command, args] }
+        adapter_class.send(:find_cmd_and_exec, "ar-client", "--version")
+        assert_equal [client, ["--version"]], executed
+      ensure
+        ENV["PATH"] = old_path
+      end
+      RbConfig::CONFIG["EXEEXT"] = old_exeext
 
       deprecated_connection = Object.new
       deprecated = adapter_class.new(deprecated_connection, nil, { pool_jitter: 0.0 }, { replica: true, retry_deadline: "1.25" })
@@ -363,6 +379,8 @@ module ActiveRecord
       assert_operator deprecated.pool_jitter(10.0), :<=, 10.0
       assert_operator deprecated.pool_jitter(10.0), :>=, 0.0
       assert_same deprecated_connection, deprecated.instance_variable_get(:@unconfigured_connection)
+      deprecated_without_config = adapter_class.new(deprecated_connection, nil, { replica: true })
+      assert deprecated_without_config.replica?
 
       primary_config = Struct.new(:name, :env_name).new("primary", "test")
       named_config = Struct.new(:name, :env_name).new("animals", "test")
@@ -392,6 +410,13 @@ module ActiveRecord
       assert_instance_of Monitor, adapter.instance_variable_get(:@lock)
 
       adapter.instance_variable_set(:@owner, ActiveSupport::IsolatedExecutionState.context)
+      assert_raises(ActiveRecord::ActiveRecordError) { adapter.lease }
+      other_owner = Object.new
+      adapter.instance_variable_set(:@owner, other_owner)
+      assert_raises(ActiveRecord::ActiveRecordError) { adapter.lease }
+      assert_raises(ActiveRecord::ActiveRecordError) { adapter.expire }
+
+      adapter.instance_variable_set(:@owner, ActiveSupport::IsolatedExecutionState.context)
       assert adapter.in_use?
       assert_equal 0, adapter.seconds_idle
       adapter.instance_variable_set(:@raw_connection, Object.new)
@@ -409,6 +434,141 @@ module ActiveRecord
 
       assert_raises(ActiveRecord::ActiveRecordError) { adapter.expire }
       assert_raises(ActiveRecord::ActiveRecordError) { adapter.steal! }
+      adapter.instance_variable_set(:@owner, other_owner)
+      removed_owner = nil
+      adapter.pool = Class.new(pool_class) do
+        define_method(:remove_connection_from_thread_cache) { |_connection, owner| removed_owner = owner }
+      end.new(primary_config, :writing, :default)
+      adapter.steal!
+      assert_same other_owner, removed_owner
+      assert_same ActiveSupport::IsolatedExecutionState.context, adapter.owner
+
+      statements = Struct.new(:events) do
+        def clear = events << :clear
+        def reset = events << :reset
+      end.new([])
+      adapter.instance_variable_set(:@statements, statements)
+      adapter.clear_cache!
+      adapter.clear_cache!(new_connection: true)
+      assert_equal [:clear, :reset], statements.events
+
+      adapter.instance_variable_set(:@last_activity, Process.clock_gettime(Process::CLOCK_MONOTONIC))
+      adapter.instance_variable_set(:@verified, false)
+      adapter.verify
+      refute adapter.verified?
+
+      unconfigured = Object.new
+      configured = false
+      unconfigured_adapter = adapter_class.new(unconfigured, nil, {})
+      unconfigured_adapter.define_singleton_method(:active?) { false }
+      unconfigured_adapter.define_singleton_method(:configure_connection) { configured = true }
+      unconfigured_adapter.verify!
+      assert_same unconfigured, unconfigured_adapter.instance_variable_get(:@raw_connection)
+      assert configured
+      assert unconfigured_adapter.verified?
+
+      assert_kind_of Arel::Collectors::Composite, adapter.send(:collector)
+      adapter.instance_variable_set(:@prepared_statements, false)
+      assert_kind_of Arel::Collectors::SubstituteBinds, adapter.send(:collector)
+    ensure
+      RbConfig::CONFIG["EXEEXT"] = old_exeext if defined?(old_exeext)
+    end
+
+    def test_abstract_adapter_raw_connection_retry_and_log_public_contracts
+      adapter_class = Class.new(ActiveRecord::ConnectionAdapters::AbstractAdapter) do
+        def self.native_database_types = { string: { name: "varchar" } }
+        def columns(_table_name) = []
+        def connect! = (@raw_connection ||= Object.new)
+      end
+      adapter_class.const_set(:ADAPTER_NAME, "RetryAbstract")
+
+      adapter = adapter_class.new({ connection_retries: 1, prepared_statements: false })
+      adapter.instance_variable_set(:@raw_connection, Object.new)
+      adapter.define_singleton_method(:reconnect_can_restore_state?) { true }
+      adapter.define_singleton_method(:materialize_transactions) { @materialized = true }
+      adapter.define_singleton_method(:dirty_current_transaction) { @dirtied = true }
+
+      calls = 0
+      result = adapter.send(:with_raw_connection, allow_retry: true) do |connection|
+        calls += 1
+        raise ActiveRecord::Deadlocked.new("deadlock") if calls == 1
+        connection
+      end
+      assert_same adapter.instance_variable_get(:@raw_connection), result
+      assert_equal 2, calls
+      assert adapter.instance_variable_get(:@materialized)
+      assert adapter.instance_variable_get(:@dirtied)
+
+      retryable_query = false
+      adapter.define_singleton_method(:retryable_query_error?) { |_exception| retryable_query }
+      reconnects = 0
+      adapter.define_singleton_method(:reconnect!) { |restore_transactions: false| reconnects += 1; @restore_transactions = restore_transactions }
+      calls = 0
+      adapter.send(:with_raw_connection, allow_retry: true) do |connection|
+        calls += 1
+        raise ActiveRecord::ConnectionNotEstablished.new("lost") if calls == 1
+        connection
+      end
+      assert_equal 1, reconnects
+      assert adapter.instance_variable_get(:@restore_transactions)
+
+      adapter.define_singleton_method(:retryable_connection_error?) { |_exception| false }
+      error = assert_raises(ActiveRecord::StatementInvalid) do
+        adapter.send(:with_raw_connection, allow_retry: false) { raise StandardError, "boom" }
+      end
+      assert_match(/boom/, error.message)
+      refute adapter.verified?
+
+      error = assert_raises(ActiveRecord::StatementInvalid) do
+        adapter.send(:with_raw_connection, allow_retry: true) { raise StandardError, "nonretryable boom" }
+      end
+      assert_match(/nonretryable boom/, error.message)
+
+      retryable_query = true
+      assert_raises(ActiveRecord::StatementInvalid) do
+        adapter.send(:with_raw_connection, allow_retry: false) { raise StandardError, "retryable boom" }
+      end
+
+      reconnecting_adapter = adapter_class.new({ connection_retries: 1, prepared_statements: false })
+      reconnecting_adapter.define_singleton_method(:enable_lazy_transactions!) { @lazy_transactions_enabled = true }
+      reconnecting_adapter.define_singleton_method(:reset_transaction) { |restore: false, &block| @restore_transactions = restore; block&.call }
+      reconnecting_adapter.define_singleton_method(:clear_cache!) { |new_connection: false| @cache_cleared_with_new_connection = new_connection }
+      reconnecting_adapter.define_singleton_method(:configure_connection) { @configured_after_reconnect = true }
+      reconnect_calls = 0
+      reconnecting_adapter.define_singleton_method(:reconnect) do
+        reconnect_calls += 1
+        raise ActiveRecord::ConnectionNotEstablished.new("lost") if reconnect_calls == 1
+        @raw_connection = Object.new
+      end
+      reconnecting_adapter.reconnect!
+      assert_equal 2, reconnect_calls
+      assert reconnecting_adapter.verified?
+
+      failing_adapter = adapter_class.new({ connection_retries: 1, prepared_statements: false })
+      failing_adapter.define_singleton_method(:enable_lazy_transactions!) { true }
+      failing_adapter.define_singleton_method(:reset_transaction) { |restore: false, &block| block&.call }
+      failing_adapter.define_singleton_method(:clear_cache!) { |new_connection: false| true }
+      failing_adapter.define_singleton_method(:configure_connection) { true }
+      failing_adapter.define_singleton_method(:reconnect) { raise StandardError, "still broken" }
+      assert_raises(ActiveRecord::StatementInvalid) { failing_adapter.reconnect! }
+
+      no_retry_adapter = adapter_class.new({ connection_retries: 0, prepared_statements: false })
+      no_retry_adapter.define_singleton_method(:enable_lazy_transactions!) { true }
+      no_retry_adapter.define_singleton_method(:reset_transaction) { |restore: false, &block| block&.call }
+      no_retry_adapter.define_singleton_method(:clear_cache!) { |new_connection: false| true }
+      no_retry_adapter.define_singleton_method(:configure_connection) { true }
+      no_retry_adapter.define_singleton_method(:reconnect) { raise StandardError, "no retry" }
+      assert_raises(ActiveRecord::StatementInvalid) { no_retry_adapter.reconnect! }
+
+      current_transaction = Struct.new(:user_transaction).new(nil)
+      adapter.define_singleton_method(:current_transaction) { current_transaction }
+      ActiveRecord.deprecator.silence do
+        assert_equal "logged", adapter.send(:log, "SELECT 1") { "logged" }
+        error = assert_raises(ActiveRecord::StatementInvalid) do
+          adapter.send(:log, "SELECT 2", "SQL", []) { raise ActiveRecord::StatementInvalid.new("bad") }
+        end
+        assert_equal "SELECT 2", error.sql
+      end
     end
 
     def test_savepoint_public_methods_issue_transaction_commands
