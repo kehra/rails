@@ -39,6 +39,18 @@ module ActiveRecord
         end
       end
 
+      def test_connection_url_resolver_rejects_blank_urls
+        assert_raises(RuntimeError, match: /Database URL cannot be empty/) do
+          ActiveRecord::DatabaseConfigurations::ConnectionUrlResolver.new("")
+        end
+      end
+
+      def test_connection_url_resolver_handles_opaque_sqlite_urls
+        config = ActiveRecord::DatabaseConfigurations::ConnectionUrlResolver.new("sqlite3:db/development.sqlite3?pool=5&timeout=3000").to_hash
+
+        assert_equal({ adapter: "sqlite3", database: "db/development.sqlite3", pool: "5", timeout: "3000" }, config)
+      end
+
       def test_invalid_symbol_config
         config = { "foo" => :bar }
 
