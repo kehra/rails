@@ -1232,6 +1232,59 @@ module ActiveRecord
       assert_match(/"posts"\."id" !=/, relation.to_sql)
     end
 
+    test "query methods reshape select where group and order clauses" do
+      post = posts(:welcome)
+      relation = Post.select(:id, :title).where(author_id: authors(:david).id).group(:id).having("COUNT(*) = 1").order(:title)
+      reshaped = relation.reselect(:id).rewhere(author_id: authors(:david).id).regroup(:id).reorder(id: :desc).reverse_order
+      unscoped = reshaped.unscope(:select, :group, :having, :order)
+
+      assert_raises(ActiveModel::MissingAttributeError) { reshaped.first.title }
+      assert_equal Post.where(author_id: authors(:david).id).order(id: :asc).ids, reshaped.ids
+      assert_no_match(/GROUP BY/i, unscoped.to_sql)
+      assert_no_match(/ORDER BY/i, unscoped.to_sql)
+      assert_equal [post], Post.where(id: post.id).select(:id, :title).to_a
+    end
+
+    test "query methods readonly strict loading references and where chain keep policies" do
+      klass = relation_test_post_class do
+        belongs_to :author, class_name: "Author", foreign_key: :author_id, inverse_of: false
+      end
+      associated = klass.where.associated(:author).readonly.strict_loading
+      missing = klass.where.missing(:author)
+      not_author = klass.where.not(author_id: authors(:david).id)
+      referenced = klass.includes(:author).references(:author).where("authors.id = ?", authors(:david).id)
+
+      assert associated.first.readonly?
+      assert associated.first.strict_loading?
+      assert_empty missing.where.not(author_id: 0)
+      assert_not_includes not_author.ids, posts(:welcome).id
+      assert_match(/LEFT OUTER JOIN/i, referenced.to_sql)
+    end
+
+    test "query methods with and with recursive expose CTE SQL and results" do
+      author = authors(:david)
+      cte = Post.where(author_id: author.id)
+      with_relation = Post.with(posts_by_author: cte).from("posts_by_author AS posts").order(:id)
+      recursive = Post.with_recursive(post_ids: Post.where(id: posts(:welcome).id).select(:id)).joins("JOIN post_ids ON post_ids.id = posts.id")
+
+      assert_equal Post.where(author_id: author.id).order(:id).ids, with_relation.ids
+      assert_equal [posts(:welcome).id], recursive.ids
+      assert_match(/WITH/i, with_relation.to_sql)
+      assert_match(/WITH RECURSIVE/i, recursive.to_sql)
+    end
+
+    test "query methods structural compatibility and uniq mutation expose relation metadata" do
+      compatible = Post.where(author_id: authors(:david).id)
+      other = Post.where(title: posts(:welcome).title)
+      incompatible = Post.order(:id)
+      relation = Post.includes(:author, :author)
+
+      assert compatible.structurally_compatible?(other)
+      assert_not compatible.structurally_compatible?(incompatible)
+      assert_same relation, relation.uniq!(:includes)
+      assert_equal [:author], relation.includes_values
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
