@@ -87,6 +87,80 @@ module ActiveRecord
         end
       end
 
+      def test_bound_schema_reflection_public_methods_delegate_with_pool
+        pool = Object.new
+        calls = []
+        reflection = Class.new do
+          define_method(:initialize) { |calls| @calls = calls }
+          define_method(:clear!) { @calls << [:clear!]; :cleared }
+          define_method(:load!) { |pool| @calls << [:load!, pool]; :loaded }
+          define_method(:cached?) { |table_name| @calls << [:cached?, table_name]; :cached }
+          define_method(:primary_keys) { |pool, table_name| @calls << [:primary_keys, pool, table_name]; :primary_keys }
+          define_method(:data_source_exists?) { |pool, name| @calls << [:data_source_exists?, pool, name]; :data_source_exists }
+          define_method(:add) { |pool, name| @calls << [:add, pool, name]; :added }
+          define_method(:data_sources) { |pool, name| @calls << [:data_sources, pool, name]; :data_sources }
+          define_method(:columns) { |pool, table_name| @calls << [:columns, pool, table_name]; :columns }
+          define_method(:columns_hash) { |pool, table_name| @calls << [:columns_hash, pool, table_name]; :columns_hash }
+          define_method(:columns_hash?) { |pool, table_name| @calls << [:columns_hash?, pool, table_name]; :columns_hash? }
+          define_method(:indexes) { |pool, table_name| @calls << [:indexes, pool, table_name]; :indexes }
+          define_method(:version) { |pool| @calls << [:version, pool]; :version }
+          define_method(:size) { |pool| @calls << [:size, pool]; :size }
+          define_method(:clear_data_source_cache!) { |pool, name| @calls << [:clear_data_source_cache!, pool, name]; :cleared_data_source }
+          define_method(:dump_to) { |pool, filename| @calls << [:dump_to, pool, filename]; :dumped }
+        end.new(calls)
+
+        bound = BoundSchemaReflection.new(reflection, pool)
+        assert_equal :cleared, bound.clear!
+        assert_equal :loaded, bound.load!
+        assert_equal :cached, bound.cached?(:posts)
+        assert_equal :primary_keys, bound.primary_keys(:posts)
+        assert_equal :data_source_exists, bound.data_source_exists?(:posts)
+        assert_equal :added, bound.add(:posts)
+        assert_equal :data_sources, bound.data_sources(:posts)
+        assert_equal :columns, bound.columns(:posts)
+        assert_equal :columns_hash, bound.columns_hash(:posts)
+        assert_equal :columns_hash?, bound.columns_hash?(:posts)
+        assert_equal :indexes, bound.indexes(:posts)
+        assert_equal :version, bound.version
+        assert_equal :size, bound.size
+        assert_equal :cleared_data_source, bound.clear_data_source_cache!(:posts)
+        assert_equal :dumped, bound.dump_to("schema-cache.yml")
+
+        assert_equal [
+          [:clear!],
+          [:load!, pool],
+          [:cached?, :posts],
+          [:primary_keys, pool, :posts],
+          [:data_source_exists?, pool, :posts],
+          [:add, pool, :posts],
+          [:data_sources, pool, :posts],
+          [:columns, pool, :posts],
+          [:columns_hash, pool, :posts],
+          [:columns_hash?, pool, :posts],
+          [:indexes, pool, :posts],
+          [:version, pool],
+          [:size, pool],
+          [:clear_data_source_cache!, pool, :posts],
+          [:dump_to, pool, "schema-cache.yml"],
+        ], calls
+      end
+
+      def test_bound_schema_reflection_for_lone_connection_uses_fake_pool
+        connection = Object.new
+        yielded = nil
+        reflection = Class.new do
+          define_method(:initialize) { |connection, yielded| @connection = connection; @yielded = yielded }
+          define_method(:columns) do |pool, _table_name|
+            pool.with_connection { |conn| @yielded << conn }
+            [:columns, @yielded.last.equal?(@connection)]
+          end
+        end.new(connection, yielded = [])
+
+        bound = BoundSchemaReflection.for_lone_connection(reflection, connection)
+        assert_equal [:columns, true], bound.columns(:posts)
+        assert_equal [connection], yielded
+      end
+
       def test_cache_path_can_be_in_directory
         cache = new_bound_reflection
         tmp_dir = Dir.mktmpdir
