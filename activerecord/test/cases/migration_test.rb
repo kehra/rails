@@ -188,6 +188,95 @@ class MigrationTest < ActiveRecord::TestCase
     assert called
   end
 
+  def test_migration_method_missing_honors_reverting_connections_and_unknown_methods
+    strategy_calls = []
+    strategy = Class.new do
+      define_method(:initialize) { |migration| @migration = migration }
+      define_method(:create_table) do |*args|
+        strategy_calls << args
+        "created"
+      end
+    end
+    connection = Object.new
+    connection.define_singleton_method(:migration_strategy) { strategy }
+    connection.define_singleton_method(:revert) { |&block| block&.call }
+    migration = Class.new(ActiveRecord::Migration::Current) do
+      define_method(:connection) { connection }
+    end.new
+
+    migration.verbose = false
+
+    assert_equal "created", migration.method_missing(:create_table, :widgets)
+    assert_equal [[:widgets]], strategy_calls
+    assert_raises(NoMethodError) { migration.method_missing(:not_a_migration_command, :widgets) }
+  end
+
+  def test_migration_revert_records_and_replays_when_connection_cannot_revert
+    strategy_calls = []
+    strategy = Class.new do
+      define_method(:initialize) { |migration| @migration = migration }
+      define_method(:drop_table) { |*args| strategy_calls << [:drop_table, args] }
+    end
+    connection = Object.new
+    connection.define_singleton_method(:migration_strategy) { strategy }
+    migration = Class.new(ActiveRecord::Migration::Current) do
+      define_method(:connection) { @connection || connection }
+    end.new
+
+    migration.verbose = false
+    migration.revert do
+      migration.connection.create_table(:horses)
+    end
+
+    assert_equal [[:drop_table, ["horses"]]], strategy_calls
+  end
+
+  def test_migration_reversible_up_only_and_run_follow_reverting_state
+    executed_blocks = []
+    directions = []
+    strategy = Class.new do
+      define_method(:initialize) { |migration| @migration = migration }
+    end
+    connection = Object.new
+    connection.define_singleton_method(:migration_strategy) { strategy }
+    connection.define_singleton_method(:reverting) { @reverting }
+    connection.define_singleton_method(:reverting=) { |value| @reverting = value }
+    connection.define_singleton_method(:revert) do |&block|
+      old_reverting = @reverting
+      @reverting = !old_reverting
+      block.call
+    ensure
+      @reverting = old_reverting
+    end
+    connection.reverting = false
+    migration = Class.new(ActiveRecord::Migration::Current) do
+      define_method(:connection) { @connection || connection }
+    end.new
+    runnable = Class.new do
+      define_method(:exec_migration) { |conn, direction| directions << [conn, direction] }
+    end
+
+    migration.reversible do |dir|
+      dir.up { executed_blocks << :up }
+      dir.down { executed_blocks << :down }
+    end
+    migration.up_only { executed_blocks << :up_only }
+    migration.run(runnable)
+    migration.run(runnable, direction: :down, revert: true)
+    migration.revert(runnable)
+
+    connection.reverting = true
+    migration.reversible do |dir|
+      dir.up { executed_blocks << :reverting_up }
+      dir.down { executed_blocks << :reverting_down }
+    end
+    migration.up_only { executed_blocks << :reverting_up_only }
+    migration.run(runnable, direction: :up)
+
+    assert_equal [:up, :up_only, :reverting_down], executed_blocks
+    assert_equal [[connection, :up], [connection, :up], [connection, :down], [connection, :down]], directions
+  end
+
   def test_migrator_versions
     migrations_path = MIGRATIONS_ROOT + "/valid"
     migrator = ActiveRecord::MigrationContext.new(migrations_path, @schema_migration, @internal_metadata)
