@@ -941,6 +941,51 @@ module ActiveRecord
       assert_equal "relation upsert all", Post.find(posts(:thinking).id).title
     end
 
+    test "batches find each find in batches and in batches honor cursor bounds" do
+      relation = Developer.where("id >= ?", developers(:dev_3).id)
+      expected_ids = relation.order(:id).ids.first(5)
+
+      each_ids = relation.find_each(start: expected_ids.first, finish: expected_ids.last, batch_size: 2).map(&:id)
+      batch_ids = relation.find_in_batches(start: expected_ids.first, finish: expected_ids.last, batch_size: 2).map { |batch| batch.map(&:id) }
+      relation_batches = relation.in_batches(of: 2, start: expected_ids.first, finish: expected_ids.last).map(&:ids)
+
+      assert_equal expected_ids, each_ids
+      assert_equal expected_ids, batch_ids.flatten
+      assert_equal expected_ids, relation_batches.flatten
+    end
+
+    test "batch enumerator exposes batch size and yields records and relations" do
+      enumerator = Developer.where("id <= ?", developers(:dev_5).id).in_batches(of: 2)
+
+      assert_equal 2, enumerator.batch_size
+      assert_equal Developer.where("id <= ?", developers(:dev_5).id).order(:id).ids, enumerator.each_record.map(&:id)
+      assert enumerator.each.all? { |batch| batch.is_a?(ActiveRecord::Relation) }
+    end
+
+    test "batch enumerator update all touch all delete all and destroy all affect scoped rows" do
+      Developer.update_all(salary: 100, updated_at: Time.utc(2001, 1, 1))
+      update_scope = Developer.where(id: [developers(:dev_3).id, developers(:dev_4).id]).in_batches(of: 1)
+
+      assert_equal 2, update_scope.update_all(salary: 321)
+      assert_equal [321], Developer.where(id: [developers(:dev_3).id, developers(:dev_4).id]).distinct.pluck(:salary)
+      assert_equal 2, update_scope.touch_all(:updated_at)
+      assert_operator Developer.where(id: developers(:dev_3).id).pick(:updated_at), :>, Time.utc(2001, 1, 1)
+
+      deletable = Post.where(id: [
+        Post.create!(title: "batch delete one", body: "body", type: "Post", author_id: authors(:david).id).id,
+        Post.create!(title: "batch delete two", body: "body", type: "Post", author_id: authors(:david).id).id,
+      ])
+      destroyable = Post.where(id: [
+        Post.create!(title: "batch destroy one", body: "body", type: "Post", author_id: authors(:david).id).id,
+        Post.create!(title: "batch destroy two", body: "body", type: "Post", author_id: authors(:david).id).id,
+      ])
+
+      assert_equal 2, deletable.in_batches(of: 1).delete_all
+      assert_empty deletable
+      assert_equal 2, destroyable.in_batches(of: 1).destroy_all
+      assert_empty destroyable
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
