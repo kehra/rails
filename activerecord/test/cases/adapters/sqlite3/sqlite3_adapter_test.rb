@@ -96,21 +96,63 @@ module ActiveRecord
         adapter_class.define_method(:find_cmd_and_exec, original)
       end
 
+      def test_dbconsole_expands_database_relative_to_rails_root_when_available
+        config = ActiveRecord::DatabaseConfigurations::HashConfig.new("default_env", "primary", { database: "db/development.sqlite3" })
+        calls = []
+        adapter_class = class << SQLite3Adapter; self; end
+        original = SQLite3Adapter.method(:find_cmd_and_exec)
+        rails_was_defined = Object.const_defined?(:Rails)
+        rails_was = Rails if rails_was_defined
+        Object.send(:remove_const, :Rails) if rails_was_defined
+        Object.const_set(:Rails, Module.new do
+          def self.root = "/tmp/rails-root"
+        end)
+        adapter_class.define_method(:find_cmd_and_exec) do |cmd, *args|
+          calls << [cmd, args]
+        end
+
+        SQLite3Adapter.dbconsole(config)
+
+        assert_equal [File.expand_path("db/development.sqlite3", "/tmp/rails-root")], calls.last.last
+      ensure
+        adapter_class.define_method(:find_cmd_and_exec, original)
+        Object.send(:remove_const, :Rails) if Object.const_defined?(:Rails)
+        Object.const_set(:Rails, rails_was) if rails_was_defined
+      end
+
       def test_resolve_path_handles_sqlite_uri_forms_and_root
         assert_equal "/tmp/app.sqlite3", SQLite3Adapter.resolve_path("file:/tmp/app.sqlite3?mode=ro")
         assert_equal "relative.sqlite3", SQLite3Adapter.resolve_path("file:relative.sqlite3?cache=shared")
         assert_equal File.expand_path("db/test.sqlite3", "/tmp/app"), SQLite3Adapter.resolve_path("db/test.sqlite3", root: "/tmp/app")
       end
 
+      def test_resolve_path_uses_rails_root_when_available
+        rails_was_defined = Object.const_defined?(:Rails)
+        rails_was = Rails if rails_was_defined
+        Object.send(:remove_const, :Rails) if rails_was_defined
+        Object.const_set(:Rails, Module.new do
+          def self.root = "/tmp/rails-root"
+        end)
+
+        assert_equal File.expand_path("db/test.sqlite3", "/tmp/rails-root"), SQLite3Adapter.resolve_path("db/test.sqlite3")
+      ensure
+        Object.send(:remove_const, :Rails) if Object.const_defined?(:Rails)
+        Object.const_set(:Rails, rails_was) if rails_was_defined
+      end
+
       def test_support_flags_encoding_and_shared_cache_contracts
         assert @conn.supports_ddl_transactions?
         assert @conn.supports_savepoints?
         assert @conn.supports_transaction_isolation?
+        @conn.stub(:database_version, SQLite3Adapter::Version.new("3.45.0")) do
+          assert @conn.supports_insert_on_conflict?
+        end
         assert @conn.requires_reloading?
         assert @conn.supports_views?
         assert @conn.supports_json?
         assert @conn.supports_common_table_expressions?
         assert @conn.supports_explain?
+        assert @conn.supports_deferrable_constraints?
         assert_equal "UTF-8", @conn.encoding
         refute @conn.supports_concurrent_connections?
         refute @conn.shared_cache?
@@ -127,6 +169,32 @@ module ActiveRecord
         assert_equal "file:memory_adapter_contract?mode=memory&cache=shared", adapter.instance_variable_get(:@config)[:database]
       ensure
         adapter&.disconnect!
+      end
+
+      def test_database_directory_creation_failure_raises_no_database
+        parent = Tempfile.new("sqlite-parent-file")
+        database = File.join(parent.path, "child.sqlite3")
+
+        assert_raises(ActiveRecord::NoDatabaseError) do
+          SQLite3Adapter.new(adapter: "sqlite3", database: database)
+        end
+      ensure
+        parent&.close!
+      end
+
+      def test_configure_connection_rejects_non_integer_timeout_and_warns_unknown_pragmas
+        @conn.instance_variable_set(:@raw_connection, ::SQLite3::Database.new(":memory:", results_as_hash: true))
+        @conn.instance_variable_get(:@config)[:timeout] = "invalid"
+        assert_raises(TypeError) { @conn.send(:configure_connection) }
+
+        @conn.instance_variable_get(:@config)[:timeout] = 1
+        @conn.instance_variable_get(:@config)[:pragmas] = { made_up_pragma: true }
+        assert_output(nil, /Unknown SQLite pragma: made_up_pragma/) do
+          @conn.send(:configure_connection)
+        end
+      ensure
+        @conn.instance_variable_get(:@config).delete(:pragmas)
+        @conn.instance_variable_get(:@config)[:timeout] = 100
       end
 
       def test_strict_strings_default_class_attribute
@@ -1263,6 +1331,133 @@ module ActiveRecord
         assert_empty index.orders
       end
 
+      def test_sqlite_adapter_schema_mutation_contracts
+        @conn.create_table :ar_sqlite_mutations, force: true do |t|
+          t.string :name, default: "old"
+          t.string :email
+          t.integer :obsolete_id
+          t.index :name
+        end
+
+        @conn.remove_index :ar_sqlite_mutations, :name
+        assert_empty @conn.indexes(:ar_sqlite_mutations)
+
+        @conn.change_column_default :ar_sqlite_mutations, :name, "new"
+        assert_equal "new", @conn.columns(:ar_sqlite_mutations).find { |column| column.name == "name" }.default
+
+        @conn.rename_column :ar_sqlite_mutations, :email, :email_address
+        assert @conn.column_exists?(:ar_sqlite_mutations, :email_address)
+
+        @conn.remove_columns :ar_sqlite_mutations, :obsolete_id
+        assert_not @conn.column_exists?(:ar_sqlite_mutations, :obsolete_id)
+
+        @conn.add_timestamps :ar_sqlite_mutations, precision: 3, null: true
+        assert_equal 3, @conn.columns(:ar_sqlite_mutations).find { |column| column.name == "created_at" }.precision
+
+        @conn.add_reference :ar_sqlite_mutations, :owner
+        assert_equal :integer, @conn.columns(:ar_sqlite_mutations).find { |column| column.name == "owner_id" }.type
+
+        assert_nothing_raised { @conn.remove_index :ar_sqlite_mutations, :missing, if_exists: true }
+      ensure
+        @conn.drop_table :ar_sqlite_mutations, if_exists: true
+      end
+
+      def test_rename_table_legacy_option_skips_length_validation
+        @conn.create_table :ar_sqlite_legacy_renames, force: true do |t|
+          t.string :name
+        end
+
+        @conn.rename_table :ar_sqlite_legacy_renames, :ar_sqlite_legacy_renamed, _uses_legacy_table_name: true
+        assert @conn.table_exists?(:ar_sqlite_legacy_renamed)
+      ensure
+        @conn.drop_table :ar_sqlite_legacy_renames, if_exists: true
+        @conn.drop_table :ar_sqlite_legacy_renamed, if_exists: true
+      end
+
+      def test_statement_pool_does_not_close_already_closed_statement
+        pool = SQLite3Adapter::StatementPool.new(@conn)
+        statement = Object.new
+        closed = false
+        statement.define_singleton_method(:closed?) { true }
+        statement.define_singleton_method(:close) { closed = true }
+
+        pool.send(:dealloc, statement)
+
+        assert_not closed
+      end
+
+      def test_alter_table_preserves_foreign_key_renames_and_virtual_columns
+        @conn.create_table :ar_sqlite_fk_parents, force: true do |t|
+          t.string :name
+        end
+        @conn.create_table :ar_sqlite_fk_children, force: true do |t|
+          t.integer :parent_id
+          t.string :name
+          t.virtual :upper_name, type: :string, as: "UPPER(name)", stored: true
+          t.foreign_key :ar_sqlite_fk_parents, column: :parent_id
+        end
+
+        @conn.rename_column :ar_sqlite_fk_children, :parent_id, :renamed_parent_id
+
+        fk = @conn.foreign_keys(:ar_sqlite_fk_children).first
+        assert_equal "renamed_parent_id", fk.column
+        column = @conn.columns(:ar_sqlite_fk_children).find { |c| c.name == "upper_name" }
+        assert_predicate column, :virtual?
+        assert_predicate column, :virtual_stored?
+      ensure
+        @conn.drop_table :ar_sqlite_fk_children, if_exists: true
+        @conn.drop_table :ar_sqlite_fk_parents, if_exists: true
+      end
+
+      def test_reconnect_rolls_back_when_active
+        @conn.send(:connect) unless @conn.connected?
+
+        assert_nothing_raised { @conn.send(:reconnect) }
+      end
+
+      def test_connect_sets_pool_on_connection_not_established
+        adapter = SQLite3Adapter.new(adapter: "sqlite3", database: ":memory:")
+        adapter.class.stub(:new_client, ->(_params) { raise ActiveRecord::ConnectionNotEstablished }) do
+          error = assert_raises(ActiveRecord::ConnectionNotEstablished) { adapter.send(:connect) }
+          assert_equal adapter.pool, error.connection_pool
+        end
+      end
+
+      def test_virtual_tables_returns_module_and_arguments
+        @conn.create_virtual_table :ar_sqlite_virtual_contracts, :fts5, ["content", "tokenize='porter'"]
+
+        virtual_tables = @conn.virtual_tables.to_h
+        assert_equal ["fts5", "content, tokenize='porter'"], virtual_tables["ar_sqlite_virtual_contracts"]
+      ensure
+        @conn.drop_table :ar_sqlite_virtual_contracts, if_exists: true
+      end
+
+      def test_build_insert_sql_variants
+        insert = Struct.new(:into, :values_list, :conflict_target, :returning, :mode, keyword_init: true) do
+          def skip_duplicates? = mode == :skip
+          def update_duplicates? = mode == :update
+          def raw_update_sql? = false
+          def raw_update_sql = nil
+          def touch_model_timestamps_unless = "updated_at=(CASE WHEN "
+          def updatable_columns = ["name", "email"]
+        end
+
+        assert_equal "INSERT INTO users (name) VALUES ('a') ON CONFLICT (name) DO NOTHING", @conn.send(:build_insert_sql, insert.new(into: "INTO users", values_list: "(name) VALUES ('a')", conflict_target: "(name)", mode: :skip))
+        assert_equal "INSERT INTO users (name) VALUES ('a') ON CONFLICT (name) DO UPDATE SET updated_at=(CASE WHEN name=excluded.name,email=excluded.email RETURNING id", @conn.send(:build_insert_sql, insert.new(into: "INTO users", values_list: "(name) VALUES ('a')", conflict_target: "(name)", returning: "id", mode: :update))
+        assert_equal "INSERT INTO users (name) VALUES ('a')", @conn.send(:build_insert_sql, insert.new(into: "INTO users", values_list: "(name) VALUES ('a')"))
+      end
+
+      def test_build_insert_sql_uses_raw_update_sql
+        insert = Struct.new(:into, :values_list, :conflict_target, :returning, keyword_init: true) do
+          def skip_duplicates? = false
+          def update_duplicates? = true
+          def raw_update_sql? = true
+          def raw_update_sql = "name=excluded.name"
+        end
+
+        assert_equal "INSERT INTO users (name) VALUES ('a') ON CONFLICT (name) DO UPDATE SET name=excluded.name", @conn.send(:build_insert_sql, insert.new(into: "INTO users", values_list: "(name) VALUES ('a')", conflict_target: "(name)"))
+      end
+
       def test_add_foreign_key_rejects_invalid_deferrable_option
         error = assert_raises(ArgumentError) do
           @conn.add_foreign_key :children, :parents, deferrable: :later
@@ -1334,11 +1529,95 @@ module ActiveRecord
         assert_equal "NOCASE", columns["name"]["collation"]
         assert_equal "UPPER(name)", columns["upper_name"]["dflt_value"]
 
-        @conn.stub(:supports_virtual_columns?, false) do
-          assert @conn.send(:table_info, "ar_sqlite_structure_checks").any?
-        end
       ensure
         @conn.drop_table :ar_sqlite_structure_checks, if_exists: true
+      end
+
+      def test_table_info_uses_table_info_when_virtual_columns_are_unsupported
+        @conn.create_table :ar_sqlite_table_info_checks, force: true do |t|
+          t.string :name
+        end
+        @conn.singleton_class.define_method(:supports_virtual_columns?) { false }
+
+        assert @conn.send(:table_info, "ar_sqlite_table_info_checks").any?
+      ensure
+        @conn.singleton_class.remove_method(:supports_virtual_columns?) if @conn.singleton_class.method_defined?(:supports_virtual_columns?)
+        @conn.drop_table :ar_sqlite_table_info_checks, if_exists: true
+      end
+
+      def test_copy_table_indexes_preserves_expression_indexes_without_order
+        @conn.create_table :ar_sqlite_index_sources, force: true do |t|
+          t.string :name
+        end
+        @conn.create_table :ar_sqlite_index_targets, force: true do |t|
+          t.string :name
+        end
+        @conn.add_index :ar_sqlite_index_sources, "lower(name)", name: "idx_ar_sqlite_index_sources_on_lower_name"
+
+        @conn.send(:copy_table_indexes, "ar_sqlite_index_sources", "ar_sqlite_index_targets")
+
+        index = @conn.indexes(:ar_sqlite_index_targets).find { |idx| idx.name == "idx_ar_sqlite_index_targets_on_lower_name" }
+        assert_not_nil index
+        assert_equal "lower(name)", index.columns
+      ensure
+        @conn.drop_table :ar_sqlite_index_sources, if_exists: true
+        @conn.drop_table :ar_sqlite_index_targets, if_exists: true
+      end
+
+      def test_copy_table_indexes_omits_order_when_index_orders_nil
+        @conn.create_table :ar_sqlite_nil_order_targets, force: true do |t|
+          t.string :name
+        end
+        fake_index = Struct.new(:name, :columns, :unique, :where, :orders).new("idx_ar_sqlite_nil_order_sources_on_name", ["name"], false, nil, nil)
+
+        @conn.stub(:indexes, [fake_index]) do
+          @conn.send(:copy_table_indexes, "ar_sqlite_nil_order_sources", "ar_sqlite_nil_order_targets")
+        end
+
+        assert @conn.indexes(:ar_sqlite_nil_order_targets).any? { |idx| idx.name == "idx_ar_sqlite_nil_order_targets_on_name" }
+      ensure
+        @conn.drop_table :ar_sqlite_nil_order_targets, if_exists: true
+      end
+
+      def test_copy_table_skips_default_for_autoincrement_primary_key
+        @conn.create_table :ar_sqlite_auto_sources, force: true do |t|
+          t.string :name
+        end
+        @conn.drop_table :ar_sqlite_auto_targets, if_exists: true
+
+        @conn.send(:copy_table, "ar_sqlite_auto_sources", "ar_sqlite_auto_targets")
+
+        assert @conn.columns(:ar_sqlite_auto_targets).find { |column| column.name == "id" }.auto_increment?
+      ensure
+        @conn.drop_table :ar_sqlite_auto_sources, if_exists: true
+        @conn.drop_table :ar_sqlite_auto_targets, if_exists: true
+      end
+
+      def test_copy_table_does_not_copy_defaults_for_autoincrement_columns
+        cast_type = Object.new
+        def cast_type.deserialize(_value) = 1
+        column = Struct.new(:name, :limit, :precision, :scale, :null, :collation, :default, :cast_type, keyword_init: true) do
+          def virtual? = false
+          def has_default? = true
+          def auto_increment? = true
+          def bigint? = false
+          def type = :integer
+        end.new(name: "id", null: false, default: "1", cast_type: cast_type)
+
+        @conn.create_table :ar_sqlite_auto_fake_sources, force: true do |t|
+          t.string :name
+        end
+
+        @conn.stub(:primary_key, "id") do
+          @conn.stub(:columns, [column]) do
+            @conn.send(:copy_table, "ar_sqlite_auto_fake_sources", "ar_sqlite_auto_fake_targets")
+          end
+        end
+
+        assert @conn.table_exists?(:ar_sqlite_auto_fake_targets)
+      ensure
+        @conn.drop_table :ar_sqlite_auto_fake_sources, if_exists: true
+        @conn.drop_table :ar_sqlite_auto_fake_targets, if_exists: true
       end
 
       def test_rename_table_updates_table_and_drop_virtual_table_removes_it
