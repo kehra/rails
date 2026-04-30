@@ -1874,6 +1874,28 @@ class CopyMigrationsTest < ActiveRecord::TestCase
     clear
   end
 
+  def test_copying_migrations_invokes_on_copy_callback
+    @migrations_path = MIGRATIONS_ROOT + "/valid_with_timestamps"
+    @existing_migrations = Dir[@migrations_path + "/*.rb"]
+
+    copied_callbacks = []
+    on_copy = Proc.new do |scope, migration, old_path|
+      copied_callbacks << [scope, migration.name, File.basename(old_path), File.basename(migration.filename)]
+    end
+
+    travel_to(Time.utc(2010, 7, 26, 10, 10, 10)) do
+      copied = ActiveRecord::Migration.copy(@migrations_path, { bukkits: MIGRATIONS_ROOT + "/to_copy_with_timestamps" }, on_copy: on_copy)
+
+      assert_equal 2, copied.length
+      assert_equal [
+        [:bukkits, "PeopleHaveHobbies", "20090101010101_people_have_hobbies.rb", "20100726101010_people_have_hobbies.bukkits.rb"],
+        [:bukkits, "PeopleHaveDescriptions", "20090101010202_people_have_descriptions.rb", "20100726101011_people_have_descriptions.bukkits.rb"]
+      ], copied_callbacks
+    end
+  ensure
+    clear
+  end
+
   def test_skip_is_not_called_if_migrations_are_from_the_same_plugin
     @migrations_path = MIGRATIONS_ROOT + "/valid_with_timestamps"
     @existing_migrations = Dir[@migrations_path + "/*.rb"]
