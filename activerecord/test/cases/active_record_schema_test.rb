@@ -106,6 +106,13 @@ class ActiveRecordSchemaTest < ActiveRecord::TestCase
     assert_equal "20131219224947", @schema_migration.normalize_migration_number("20131219224947")
   end
 
+  def test_schema_migration_count_uses_schema_migrations_table
+    @schema_migration.create_table
+    @schema_migration.create_version("42")
+
+    assert_equal 1, @schema_migration.count
+  end
+
   def test_schema_load_with_multiple_indexes_for_column_of_different_names
     ActiveRecord::Schema.define do
       create_table :multiple_indexes do |t|
