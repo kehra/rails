@@ -277,6 +277,158 @@ class MigrationTest < ActiveRecord::TestCase
     assert_equal [[connection, :up], [connection, :up], [connection, :down], [connection, :down]], directions
   end
 
+  def test_migration_class_migrate_delegates_to_instance
+    assert_nil ActiveRecord::Migration.migrate(:missing)
+  end
+
+  def test_migration_check_all_pending_raises_only_when_pending_migrations_exist
+    pending_migration = Struct.new(:filename).new("pending_migration")
+    pool_with_pending = Struct.new(:migration_context).new(
+      Struct.new(:open).new(Struct.new(:pending_migrations).new([pending_migration]))
+    )
+    pool_without_pending = Struct.new(:migration_context).new(
+      Struct.new(:open).new(Struct.new(:pending_migrations).new(nil))
+    )
+    singleton = ActiveRecord::Tasks::DatabaseTasks.singleton_class
+    original = ActiveRecord::Tasks::DatabaseTasks.method(:with_temporary_pool_for_each)
+
+    singleton.define_method(:with_temporary_pool_for_each) { |env:, &block| block.call(pool_without_pending) }
+    assert_nil ActiveRecord::Migration.check_all_pending!
+
+    singleton.define_method(:with_temporary_pool_for_each) { |env:, &block| block.call(pool_with_pending) }
+    error = assert_raises(ActiveRecord::PendingMigrationError) { ActiveRecord::Migration.check_all_pending! }
+    assert_match "pending_migration", error.message
+  ensure
+    singleton.define_method(:with_temporary_pool_for_each, original) if original
+  end
+
+  def test_migration_load_schema_if_pending_loads_schema_then_rechecks
+    migration_singleton = ActiveRecord::Migration.singleton_class
+    original_db_configs = ActiveRecord::Migration.method(:db_configs_in_current_env)
+    original_schema_needs_update = ActiveRecord::Migration.method(:schema_needs_update?)
+    original_load_schema = ActiveRecord::Migration.method(:load_schema!)
+    original_check_pending = ActiveRecord::Migration.method(:check_pending_migrations)
+    pending_sequences = [[["before_load"]], [["after_load"]]]
+    loaded = false
+    checked = []
+    db_config = Object.new
+    pool = Object.new
+    pool.define_singleton_method(:migration_context) do
+      pending = pending_sequences.shift || []
+      Struct.new(:open).new(Struct.new(:pending_migrations).new(pending))
+    end
+    pending_singleton = ActiveRecord::PendingMigrationConnection.singleton_class
+    original_with_temporary_pool = ActiveRecord::PendingMigrationConnection.method(:with_temporary_pool)
+
+    migration_singleton.define_method(:db_configs_in_current_env) { [db_config] }
+    migration_singleton.define_method(:schema_needs_update?) { |config, current_pool| config == db_config && current_pool == pool }
+    migration_singleton.define_method(:load_schema!) { loaded = true }
+    migration_singleton.define_method(:check_pending_migrations) { |migrations| checked << migrations }
+    pending_singleton.define_method(:with_temporary_pool) { |config, &block| block.call(pool) }
+
+    ActiveRecord::Migration.load_schema_if_pending!
+
+    assert loaded
+    assert_equal [["after_load"]], checked.last
+  ensure
+    migration_singleton.define_method(:db_configs_in_current_env, original_db_configs) if original_db_configs
+    migration_singleton.define_method(:schema_needs_update?, original_schema_needs_update) if original_schema_needs_update
+    migration_singleton.define_method(:load_schema!, original_load_schema) if original_load_schema
+    migration_singleton.define_method(:check_pending_migrations, original_check_pending) if original_check_pending
+    pending_singleton.define_method(:with_temporary_pool, original_with_temporary_pool) if original_with_temporary_pool
+  end
+
+  def test_migration_load_schema_if_pending_checks_without_loading_when_schema_is_current
+    migration_singleton = ActiveRecord::Migration.singleton_class
+    original_db_configs = ActiveRecord::Migration.method(:db_configs_in_current_env)
+    original_schema_needs_update = ActiveRecord::Migration.method(:schema_needs_update?)
+    original_load_schema = ActiveRecord::Migration.method(:load_schema!)
+    original_check_pending = ActiveRecord::Migration.method(:check_pending_migrations)
+    loaded = false
+    checked = []
+    db_config = Object.new
+    pool = Struct.new(:migration_context).new(Struct.new(:open).new(Struct.new(:pending_migrations).new([])))
+    pending_singleton = ActiveRecord::PendingMigrationConnection.singleton_class
+    original_with_temporary_pool = ActiveRecord::PendingMigrationConnection.method(:with_temporary_pool)
+
+    migration_singleton.define_method(:db_configs_in_current_env) { [db_config] }
+    migration_singleton.define_method(:schema_needs_update?) { |*| false }
+    migration_singleton.define_method(:load_schema!) { loaded = true }
+    migration_singleton.define_method(:check_pending_migrations) { |migrations| checked << migrations }
+    pending_singleton.define_method(:with_temporary_pool) { |config, &block| block.call(pool) }
+
+    ActiveRecord::Migration.load_schema_if_pending!
+
+    assert_not loaded
+    assert_equal [[]], checked
+  ensure
+    migration_singleton.define_method(:db_configs_in_current_env, original_db_configs) if original_db_configs
+    migration_singleton.define_method(:schema_needs_update?, original_schema_needs_update) if original_schema_needs_update
+    migration_singleton.define_method(:load_schema!, original_load_schema) if original_load_schema
+    migration_singleton.define_method(:check_pending_migrations, original_check_pending) if original_check_pending
+    pending_singleton.define_method(:with_temporary_pool, original_with_temporary_pool) if original_with_temporary_pool
+  end
+
+  def test_migration_maintain_test_schema_respects_configuration
+    migration_singleton = ActiveRecord::Migration.singleton_class
+    original_load_schema = ActiveRecord::Migration.method(:load_schema_if_pending!)
+    original_maintain = ActiveRecord.maintain_test_schema
+    calls = []
+    migration_singleton.define_method(:load_schema_if_pending!) { calls << :load }
+
+    ActiveRecord.maintain_test_schema = false
+    ActiveRecord::Migration.maintain_test_schema!
+    ActiveRecord.maintain_test_schema = true
+    ActiveRecord::Migration.maintain_test_schema!
+
+    assert_equal [:load], calls
+  ensure
+    ActiveRecord.maintain_test_schema = original_maintain
+    migration_singleton.define_method(:load_schema_if_pending!, original_load_schema) if original_load_schema
+  end
+
+  def test_migration_check_pending_migrations_raises_for_explicit_pending_list
+    assert_nil ActiveRecord::Migration.check_pending_migrations([])
+
+    error = assert_raises(ActiveRecord::PendingMigrationError) do
+      ActiveRecord::Migration.check_pending_migrations([Struct.new(:filename).new("explicit_pending_migration")])
+    end
+    assert_match "explicit_pending_migration", error.message
+  end
+
+  def test_migration_check_pending_middleware_rechecks_after_first_call
+    watcher_instances = []
+    watcher_class = Class.new do
+      attr_reader :events, :paths
+
+      define_method(:initialize) do |files, paths, &block|
+        @events = []
+        @paths = paths
+        @block = block
+        watcher_instances << self
+      end
+
+      def execute
+        @events << :execute
+        @block.call
+      end
+
+      def execute_if_updated
+        @events << :execute_if_updated
+      end
+    end
+    app_calls = []
+    app = Proc.new { |env| app_calls << env; "response" }
+    middleware = ActiveRecord::Migration::CheckPending.new(app, file_watcher: watcher_class)
+
+    assert_equal "response", middleware.call("REQUEST_METHOD" => "GET")
+    assert_equal "response", middleware.call("REQUEST_METHOD" => "GET")
+
+    assert_equal [{ "REQUEST_METHOD" => "GET" }, { "REQUEST_METHOD" => "GET" }], app_calls
+    assert_equal [:execute, :execute_if_updated], watcher_instances.first.events
+    assert watcher_instances.first.paths.values.all? { |patterns| patterns == ["rb"] }
+  end
+
   def test_migrator_versions
     migrations_path = MIGRATIONS_ROOT + "/valid"
     migrator = ActiveRecord::MigrationContext.new(migrations_path, @schema_migration, @internal_metadata)
