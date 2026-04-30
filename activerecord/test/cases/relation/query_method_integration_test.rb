@@ -252,5 +252,46 @@ module ActiveRecord
       assert_equal Post.where(author_id: author.id).count, relation.count
       assert_match(/LEFT OUTER JOIN/i, relation.to_sql)
     end
+
+    test "order reorder and reverse order replace and invert ordering" do
+      source = Post.order(:title)
+      source_sql = source.to_sql
+      reordered = source.reorder(id: :asc)
+      reversed = reordered.reverse_order
+
+      assert_equal Post.order(id: :asc).ids, reordered.ids
+      assert_equal Post.order(id: :desc).ids, reversed.ids
+      assert_equal source_sql, source.to_sql
+    end
+
+    test "select reselect and unscope select restore projection" do
+      source = Post.select(:id, :title).order(:id)
+      reselected = source.reselect(:id)
+      restored = reselected.unscope(:select)
+
+      assert_raises(ActiveModel::MissingAttributeError) { reselected.first.title }
+      assert_equal Post.order(:id).first.title, restored.first.title
+      assert_match(/SELECT "posts"\.\*/i, restored.to_sql)
+    end
+
+    test "group regroup and unscope group replace and remove grouping" do
+      source = Post.group(:author_id)
+      regrouped = source.regroup(:type)
+      ungrouped = regrouped.unscope(:group)
+
+      assert_equal Post.group(:type).count, regrouped.count
+      assert_equal Post.count, ungrouped.count
+      assert_no_match(/GROUP BY/i, ungrouped.to_sql)
+    end
+
+    test "only and except restrict retained relation clauses" do
+      source = Post.where(author_id: authors(:david).id).order(:id).limit(1)
+      where_only = source.only(:where)
+      without_where = source.except(:where)
+
+      assert_equal Post.where(author_id: authors(:david).id).order(:id).ids, where_only.order(:id).ids
+      assert_nil where_only.limit_value
+      assert_equal Post.order(:id).limit(1).ids, without_where.ids
+    end
   end
 end
