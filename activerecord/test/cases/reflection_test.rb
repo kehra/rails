@@ -60,6 +60,22 @@ class ReflectionTest < ActiveRecord::TestCase
     assert_equal 19, Topic.columns.length
   end
 
+  def test_column_defaults_are_frozen_deep_dup_defaults
+    defaults = Topic.column_defaults
+
+    assert_predicate defaults, :frozen?
+    assert_equal true, defaults["approved"]
+    assert_equal 0, defaults["replies_count"]
+    assert_nil defaults["author_name"]
+  end
+
+  def test_class_column_for_attribute_returns_null_column_for_missing_attribute
+    column = Topic.column_for_attribute(:attribute_that_doesnt_exist)
+
+    assert_instance_of ActiveRecord::ConnectionAdapters::NullColumn, column
+    assert_equal "attribute_that_doesnt_exist", column.name
+  end
+
   def test_columns_are_returned_in_the_order_they_were_declared
     column_names = Topic.columns.map(&:name)
     assert_equal %w(id title author_name author_email_address written_on bonus_time last_read content important binary_content approved replies_count unique_replies_count parent_id parent_title type group created_at updated_at), column_names
