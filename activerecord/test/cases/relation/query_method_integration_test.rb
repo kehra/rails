@@ -1285,6 +1285,66 @@ module ActiveRecord
       assert_equal [:author], relation.includes_values
     end
 
+    test "spawn methods except only and merge reshape relation values" do
+      thinking_title = posts(:thinking).title
+      base = Post.where(author_id: authors(:david).id).order(:title).limit(2)
+      except_order = base.except(:order)
+      only_where = base.only(:where)
+      merged_relation = base.merge(Post.where(title: posts(:welcome).title).reorder(id: :desc))
+      merged_hash = base.merge(create_with: { body: "spawn merge body" })
+      merged_proc = base.merge(-> { where(title: thinking_title) })
+      array_intersection = base.merge([posts(:welcome), posts(:misc_by_mary)]).map(&:id)
+
+      assert_no_match(/ORDER BY/i, except_order.to_sql)
+      assert_no_match(/ORDER BY/i, only_where.to_sql)
+      assert_nil only_where.limit_value
+      assert_equal [posts(:welcome).id], merged_relation.ids
+      assert_match(/ORDER BY "posts"\."id" DESC/i, merged_relation.to_sql)
+      assert_equal "spawn merge body", merged_hash.scope_for_create["body"]
+      assert_equal [posts(:thinking).id], merged_proc.ids
+      assert_equal [posts(:welcome).id], array_intersection
+      assert_raises(ArgumentError) { base.merge(nil) }
+      assert_raises(ArgumentError) { base.merge!(Object.new) }
+      base.scoping { assert_kind_of ActiveRecord::Relation, base.spawn }
+    end
+
+    test "where clause public contract combines filters and extracts equality values" do
+      author_clause = Post.where(author_id: authors(:david).id).where_clause
+      title_clause = Post.where(title: posts(:welcome).title).where_clause
+      combined = author_clause + title_clause
+      removed = combined - title_clause
+      unioned = author_clause | title_clause
+      merged = combined.merge(Post.where(author_id: authors(:mary).id).where_clause)
+
+      assert_equal({ "author_id" => authors(:david).id, "title" => posts(:welcome).title }, combined.to_h)
+      assert_equal({ "author_id" => authors(:david).id }, removed.to_h)
+      assert_equal combined, unioned
+      assert_equal({ "title" => posts(:welcome).title, "author_id" => authors(:mary).id }, merged.to_h)
+      assert_equal combined, Post.where(author_id: authors(:david).id, title: posts(:welcome).title).where_clause
+      assert_equal combined.hash, Post.where(author_id: authors(:david).id, title: posts(:welcome).title).where_clause.hash
+    end
+
+    test "where clause public contract handles or invert ast empty and contradictions" do
+      author_clause = Post.where(author_id: authors(:david).id).where_clause
+      title_clause = Post.where(title: posts(:welcome).title).where_clause
+      common = Post.where(type: "Post").where_clause
+      left = common + author_clause
+      right = common + title_clause
+      ored = left.or(right)
+      inverted = title_clause.invert
+      contradiction = Post.where(id: []).where_clause
+      empty = ActiveRecord::Relation::WhereClause.empty
+
+      assert_match(/ OR /i, ored.ast.to_sql)
+      assert_equal({ "type" => "Post" }, ored.to_h)
+      assert_match(/!=|NOT/i, inverted.ast.to_sql)
+      assert_predicate contradiction, :contradiction?
+      assert_predicate empty, :empty?
+      assert_same empty, ActiveRecord::Relation::WhereClause.empty
+      assert_equal [], empty.extract_attributes
+      assert_raises(ArgumentError) { ActiveRecord::Relation::WhereClause.new([nil]).invert }
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
