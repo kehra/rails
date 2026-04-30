@@ -18,6 +18,109 @@ class SchemaDumperTest < ActiveRecord::TestCase
     @@standard_dump ||= dump_all_table_schema
   end
 
+  def test_abstract_schema_dumper_column_spec_contract
+    connection = ActiveRecord::Base.lease_connection
+    dumper = ActiveRecord::ConnectionAdapters::SchemaDumper.create(connection, {})
+    type = Struct.new(:type_cast_result, keyword_init: true) do
+      def deserialize(value) = value
+      def type_cast_for_schema(_value) = type_cast_result
+    end
+    column_class = Struct.new(
+      :type, :limit, :precision, :scale, :default, :default_function, :null, :collation, :comment, :cast_type,
+      :bigint_value, :virtual_value, :has_default_value,
+      keyword_init: true
+    ) do
+      def bigint? = bigint_value
+      def virtual? = virtual_value
+      def has_default? = has_default_value
+    end
+
+    column = column_class.new(
+      type: :string,
+      limit: 42,
+      precision: 2,
+      scale: 1,
+      default: "hello",
+      null: false,
+      collation: "binary",
+      comment: "greeting",
+      cast_type: type.new(type_cast_result: %q("hello")),
+      bigint_value: false,
+      virtual_value: false,
+      has_default_value: true
+    )
+
+    schema_type, options = dumper.send(:column_spec, column)
+    assert_equal :string, schema_type
+    assert_equal "42", options[:limit]
+    assert_equal "2", options[:precision]
+    assert_equal "1", options[:scale]
+    assert_equal %q("hello"), options[:default]
+    assert_equal "false", options[:null]
+    assert_equal %q("binary"), options[:collation]
+    assert_equal %q("greeting"), options[:comment]
+
+    bigint_column = column_class.new(type: :integer, null: true, cast_type: type.new(type_cast_result: nil), bigint_value: true, virtual_value: false, has_default_value: false)
+    assert_equal [:bigint, {}], dumper.send(:column_spec, bigint_column)
+    assert_equal({}, dumper.send(:column_spec_for_primary_key, bigint_column))
+
+    virtual_connection = Object.new
+    virtual_connection.define_singleton_method(:supports_virtual_columns?) { true }
+    virtual_connection.define_singleton_method(:native_database_types) { connection.native_database_types }
+    virtual_dumper = ActiveRecord::ConnectionAdapters::SchemaDumper.create(virtual_connection, {})
+    virtual_column = column_class.new(type: :string, null: true, cast_type: type.new(type_cast_result: nil), bigint_value: false, virtual_value: true, has_default_value: false)
+    assert_equal :virtual, virtual_dumper.send(:column_spec, virtual_column).first
+  end
+
+  def test_abstract_schema_dumper_primary_key_and_default_edge_cases
+    connection = ActiveRecord::Base.lease_connection
+    dumper = ActiveRecord::ConnectionAdapters::SchemaDumper.create(connection, {})
+    type = Struct.new(:deserialized, :schema_value, keyword_init: true) do
+      def deserialize(_value) = deserialized
+      def type_cast_for_schema(_value) = schema_value
+    end
+    column_class = Struct.new(
+      :type, :limit, :precision, :scale, :default, :default_function, :null, :collation, :comment, :cast_type,
+      :bigint_value, :virtual_value, :has_default_value,
+      keyword_init: true
+    ) do
+      def bigint? = bigint_value
+      def virtual? = virtual_value
+      def has_default? = has_default_value
+    end
+
+    integer_pk = column_class.new(type: :integer, default: nil, null: false, cast_type: type.new(deserialized: nil, schema_value: nil), bigint_value: false, virtual_value: false, has_default_value: true)
+    pk_spec = dumper.send(:column_spec_for_primary_key, integer_pk)
+    assert_equal ":integer", pk_spec[:id]
+    assert_nil pk_spec[:default]
+
+    explicit_dumper = ActiveRecord::ConnectionAdapters::SchemaDumper.create(connection, {})
+    explicit_dumper.define_singleton_method(:explicit_primary_key_default?) { |_column| true }
+    assert_equal "nil", explicit_dumper.send(:column_spec_for_primary_key, integer_pk)[:default]
+
+    datetime_nil_precision = column_class.new(type: :datetime, precision: nil, null: true, cast_type: type.new(deserialized: nil, schema_value: nil), bigint_value: false, virtual_value: false, has_default_value: false)
+    datetime_default_precision = column_class.new(type: :datetime, precision: ActiveRecord::ConnectionAdapters::SchemaDumper::DEFAULT_DATETIME_PRECISION, null: true, cast_type: type.new(deserialized: nil, schema_value: nil), bigint_value: false, virtual_value: false, has_default_value: false)
+    datetime_custom_precision = column_class.new(type: :datetime, precision: 3, null: true, cast_type: type.new(deserialized: nil, schema_value: nil), bigint_value: false, virtual_value: false, has_default_value: false)
+    decimal_precision = column_class.new(type: :decimal, precision: 8, null: true, cast_type: type.new(deserialized: nil, schema_value: nil), bigint_value: false, virtual_value: false, has_default_value: false)
+
+    assert_equal "nil", dumper.send(:schema_precision, datetime_nil_precision)
+    assert_nil dumper.send(:schema_precision, datetime_default_precision)
+    assert_equal "3", dumper.send(:schema_precision, datetime_custom_precision)
+    assert_equal "8", dumper.send(:schema_precision, decimal_precision)
+
+    expression_column = column_class.new(type: :datetime, default: "CURRENT_TIMESTAMP", default_function: "CURRENT_TIMESTAMP", null: true, cast_type: type.new(deserialized: nil, schema_value: nil), bigint_value: false, virtual_value: false, has_default_value: true)
+    assert_equal '-> { "CURRENT_TIMESTAMP" }', dumper.send(:schema_default, expression_column)
+    assert_equal '-> { "CURRENT_TIMESTAMP" }', dumper.send(:schema_expression, expression_column)
+
+    no_default_column = column_class.new(type: :string, null: true, cast_type: type.new(deserialized: nil, schema_value: nil), bigint_value: false, virtual_value: false, has_default_value: false)
+    assert_nil dumper.send(:schema_default, no_default_column)
+    assert_nil dumper.send(:schema_expression, no_default_column)
+
+    default_limit = connection.native_database_types[:string][:limit]
+    same_limit_column = column_class.new(type: :string, limit: default_limit, null: true, cast_type: type.new(deserialized: nil, schema_value: nil), bigint_value: false, virtual_value: false, has_default_value: false)
+    assert_nil dumper.send(:schema_limit, same_limit_column)
+  end
+
   def test_dump_schema_versions_with_empty_versions
     @schema_migration.delete_all_versions
     schema_info = ActiveRecord::Base.lease_connection.dump_schema_versions
