@@ -161,6 +161,39 @@ module ActiveRecord
         assert_equal [connection], yielded
       end
 
+      def test_schema_cache_schema_version_and_dup_contracts
+        cache = ActiveRecord::ConnectionAdapters::SchemaCache.new
+        assert_nil cache.schema_version
+
+        versioned_pool = Struct.new(:version) do
+          def with_connection
+            yield Struct.new(:schema_version).new(version)
+          end
+        end.new(123)
+
+        assert_equal 123, cache.version(versioned_pool)
+        assert_equal 123, cache.schema_version
+
+        cache.add(@pool, "courses")
+        duplicated = cache.dup
+        cache.clear_data_source_cache!(@pool, "courses")
+
+        assert duplicated.cached?("courses")
+        assert duplicated.columns_hash?(@pool, "courses")
+        assert_equal 123, duplicated.schema_version
+
+        missing_pool = Struct.new(:connection) do
+          def with_connection
+            yield connection
+          end
+        end.new(Struct.new(:data_sources) do
+          def data_source_exists?(_name) = false
+        end.new([]))
+        missing_cache = ActiveRecord::ConnectionAdapters::SchemaCache.new
+        assert_nil missing_cache.add(missing_pool, "missing_courses")
+        assert_equal 1, missing_cache.size
+      end
+
       def test_cache_path_can_be_in_directory
         cache = new_bound_reflection
         tmp_dir = Dir.mktmpdir
