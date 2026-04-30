@@ -52,6 +52,43 @@ module ActiveRecord
       end
     end
 
+    def test_database_limit_public_defaults
+      limits = Class.new do
+        include ActiveRecord::ConnectionAdapters::DatabaseLimits
+      end.new
+
+      assert_equal 64, limits.max_identifier_length
+      assert_equal limits.max_identifier_length, limits.table_name_length
+      assert_equal limits.max_identifier_length, limits.table_alias_length
+      assert_equal limits.max_identifier_length, limits.index_name_length
+      assert_equal 65535, limits.send(:bind_params_length)
+
+      assert_operator @connection.table_name_length, :>, 0
+      assert_operator @connection.table_alias_length, :>, 0
+      assert_operator @connection.index_name_length, :>, 0
+      assert_operator @connection.send(:bind_params_length), :>, 0
+    end
+
+    def test_savepoint_public_methods_issue_transaction_commands
+      commands = []
+      transaction = Struct.new(:savepoint_name).new("active_record_test_savepoint")
+
+      @connection.stub(:current_transaction, transaction) do
+        @connection.stub(:query_command, ->(sql, name) { commands << [sql, name] }) do
+          assert_equal "active_record_test_savepoint", @connection.current_savepoint_name
+          @connection.create_savepoint
+          @connection.exec_rollback_to_savepoint("custom_savepoint")
+          @connection.release_savepoint
+        end
+      end
+
+      assert_equal [
+        ["SAVEPOINT active_record_test_savepoint", "TRANSACTION"],
+        ["ROLLBACK TO SAVEPOINT custom_savepoint", "TRANSACTION"],
+        ["RELEASE SAVEPOINT active_record_test_savepoint", "TRANSACTION"],
+      ], commands
+    end
+
     def test_invalid_column
       assert_not @connection.valid_type?(:foobar)
       assert_not @connection.class.valid_type?(:foobar)
