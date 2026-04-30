@@ -1851,3 +1851,134 @@ class ConcurrentTransactionTest < ActiveRecord::TestCase
     assert topic2.persisted?
   end
 end
+
+class TransactionImplementationTest < ActiveRecord::TestCase
+  class FakeTransactionConnection
+    attr_accessor :restart_supported, :active
+    attr_reader :calls
+
+    def initialize
+      @calls = []
+      @restart_supported = true
+      @active = true
+    end
+
+    def begin_db_transaction = @calls << :begin_db_transaction
+    def begin_isolated_db_transaction(level) = @calls << [:begin_isolated_db_transaction, level]
+    def begin_deferred_transaction(level) = @calls << [:begin_deferred_transaction, level]
+    def commit_db_transaction = @calls << :commit_db_transaction
+    def rollback_db_transaction = @calls << :rollback_db_transaction
+    def restart_db_transaction = @calls << :restart_db_transaction
+    def reset_isolation_level = @calls << :reset_isolation_level
+    def supports_restart_db_transaction? = restart_supported
+    def active? = active
+  end
+
+  ParentTransaction = Struct.new(:state, :calls, :parent_isolation, keyword_init: true) do
+    def initialize(**)
+      super
+      self.state ||= ActiveRecord::ConnectionAdapters::TransactionState.new
+      self.calls ||= []
+    end
+
+    def materialize! = calls << :materialize
+    def materialized? = true
+    def restart = calls << :restart
+    def isolation = parent_isolation
+
+    def isolation=(value)
+      self.parent_isolation = value
+    end
+  end
+
+  def test_real_transaction_materialize_commit_restart_and_rollback_contracts
+    connection = FakeTransactionConnection.new
+    transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(connection)
+    transaction.materialize!
+    assert_equal [:begin_db_transaction], connection.calls
+    assert_predicate transaction, :materialized?
+    transaction.commit
+    assert_equal [:begin_db_transaction, :commit_db_transaction], connection.calls
+    assert_predicate transaction.state, :fully_committed?
+
+    isolated_connection = FakeTransactionConnection.new
+    isolated_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(isolated_connection, isolation: :serializable)
+    isolated_transaction.materialize!
+    isolated_transaction.commit
+    assert_equal [[:begin_isolated_db_transaction, :serializable], :commit_db_transaction, :reset_isolation_level], isolated_connection.calls
+
+    deferred_connection = FakeTransactionConnection.new
+    deferred_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(deferred_connection, isolation: :read_committed, joinable: false)
+    deferred_transaction.materialize!
+    assert_equal [[:begin_deferred_transaction, :read_committed]], deferred_connection.calls
+
+    restart_connection = FakeTransactionConnection.new
+    restart_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(restart_connection)
+    restart_transaction.materialize!
+    restart_transaction.restart
+    assert_equal [:begin_db_transaction, :restart_db_transaction], restart_connection.calls
+
+    fallback_connection = FakeTransactionConnection.new
+    fallback_connection.restart_supported = false
+    fallback_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(fallback_connection)
+    fallback_transaction.materialize!
+    fallback_transaction.restart
+    assert_equal [:begin_db_transaction, :rollback_db_transaction, :begin_db_transaction], fallback_connection.calls
+
+    unmaterialized_restart_connection = FakeTransactionConnection.new
+    unmaterialized_restart_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(unmaterialized_restart_connection)
+    assert_nil unmaterialized_restart_transaction.restart
+    assert_empty unmaterialized_restart_connection.calls
+
+    rollback_connection = FakeTransactionConnection.new
+    rollback_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(rollback_connection, isolation: :repeatable_read)
+    rollback_transaction.materialize!
+    rollback_transaction.rollback
+    assert_equal [[:begin_isolated_db_transaction, :repeatable_read], :rollback_db_transaction, :reset_isolation_level], rollback_connection.calls
+    assert_predicate rollback_transaction.state, :fully_rolledback?
+
+    invalidated_connection = FakeTransactionConnection.new
+    invalidated_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(invalidated_connection)
+    invalidated_transaction.materialize!
+    invalidated_transaction.invalidate!
+    invalidated_transaction.rollback
+    assert_equal [:begin_db_transaction], invalidated_connection.calls
+
+    unmaterialized_rollback_connection = FakeTransactionConnection.new
+    unmaterialized_rollback_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(unmaterialized_rollback_connection)
+    unmaterialized_rollback_transaction.rollback
+    assert_empty unmaterialized_rollback_connection.calls
+    assert_predicate unmaterialized_rollback_transaction.state, :fully_rolledback?
+
+    unmaterialized_commit_connection = FakeTransactionConnection.new
+    unmaterialized_commit_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(unmaterialized_commit_connection)
+    unmaterialized_commit_transaction.commit
+    assert_empty unmaterialized_commit_connection.calls
+    assert_predicate unmaterialized_commit_transaction.state, :fully_committed?
+  end
+
+  def test_restart_parent_transaction_delegates_and_state_contracts
+    connection = FakeTransactionConnection.new
+    parent = ParentTransaction.new(parent_isolation: :read_committed)
+    transaction = ActiveRecord::ConnectionAdapters::RestartParentTransaction.new(connection, parent)
+
+    transaction.materialize!
+    transaction.restart
+    assert_equal [:materialize, :restart], parent.calls
+    assert_predicate transaction, :materialized?
+    assert_equal :read_committed, transaction.isolation
+    assert_equal false, transaction.full_rollback?
+
+    transaction.rollback
+    assert_predicate transaction.state, :rolledback?
+    assert_equal [:materialize, :restart, :restart], parent.calls
+
+    committed = ActiveRecord::ConnectionAdapters::RestartParentTransaction.new(connection, parent)
+    committed.commit
+    assert_predicate committed.state, :committed?
+
+    assert_raises(ActiveRecord::TransactionIsolationError) do
+      ActiveRecord::ConnectionAdapters::RestartParentTransaction.new(connection, parent, isolation: :serializable)
+    end
+  end
+end
