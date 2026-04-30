@@ -63,6 +63,169 @@ module ActiveRecord
         connection.drop_table(:test) if connection.table_exists?(:test)
       end
 
+      def test_schema_definition_value_objects_and_table_definition_contracts
+        index = ActiveRecord::ConnectionAdapters::IndexDefinition.new(
+          "posts", "idx_posts_on_title", true, ["title"],
+          lengths: { "title" => 10 }, orders: { "title" => :desc }, opclasses: { "title" => :text_ops },
+          include: ["id"], nulls_not_distinct: true, valid: false
+        )
+        assert_not_predicate index, :valid?
+        assert_equal({ length: 10, order: :desc, opclass: :text_ops }, index.column_options)
+        assert index.defined_for?(["title"], name: "idx_posts_on_title", unique: true, valid: false, include: ["id"], nulls_not_distinct: true)
+        assert index.defined_for?(nil, column: ["title"])
+        assert_not index.defined_for?(["body"])
+
+        column = ActiveRecord::ConnectionAdapters::ColumnDefinition.new("title", :string, { limit: 10, primary_key: false })
+        assert_not_predicate column, :primary_key?
+        column.limit = 20
+        column.precision = 2
+        column.scale = 1
+        column.default = "hello"
+        column.null = false
+        column.collation = "binary"
+        column.comment = "title comment"
+        column.if_exists = true
+        column.if_not_exists = true
+        assert_equal [20, 2, 1, "hello", false, "binary", "title comment", true, true],
+          [column.limit, column.precision, column.scale, column.default, column.null, column.collation, column.comment, column.if_exists, column.if_not_exists]
+        assert_equal :datetime, column.aliased_types("timestamp", :fallback)
+        assert_equal :fallback, column.aliased_types("string", :fallback)
+
+        foreign_key = ActiveRecord::ConnectionAdapters::ForeignKeyDefinition.new("posts", "authors", name: "fk_posts_authors", column: [:author_id], primary_key: [:id], on_delete: :cascade, on_update: :restrict, validate: false, deferrable: true)
+        assert_equal "fk_posts_authors", foreign_key.name
+        assert_equal [:author_id], foreign_key.column
+        assert_equal [:id], foreign_key.primary_key
+        assert_equal :cascade, foreign_key.on_delete
+        assert_equal :restrict, foreign_key.on_update
+        assert foreign_key.deferrable
+        assert foreign_key.custom_primary_key?
+        assert_not foreign_key.validate?
+        assert foreign_key.defined_for?(to_table: "authors", validate: false, column: :author_id)
+        assert_not foreign_key.defined_for?(to_table: "comments")
+        assert_includes [true, false], foreign_key.export_name_on_schema_dump?
+        assert_nil ActiveRecord::ConnectionAdapters::ForeignKeyDefinition.new("posts", "authors", {}).export_name_on_schema_dump?
+
+        check = ActiveRecord::ConnectionAdapters::CheckConstraintDefinition.new("posts", "price > 0", name: "chk_posts_price", validate: false)
+        assert_equal "chk_posts_price", check.name
+        assert_not check.validate?
+        assert check.defined_for?(name: "chk_posts_price", expression: "price > 0", validate: false)
+        assert_not check.defined_for?(name: "different")
+        optioned_check = ActiveRecord::ConnectionAdapters::CheckConstraintDefinition.new("posts", "price > 0", name: "chk_posts_price", validate: false, deferrable: true)
+        assert_not optioned_check.defined_for?(name: "chk_posts_price", expression: "price > 0", validate: false, deferrable: false)
+        assert_includes [true, false], check.export_name_on_schema_dump?
+        assert_nil ActiveRecord::ConnectionAdapters::CheckConstraintDefinition.new("posts", "price > 0", {}).export_name_on_schema_dump?
+
+        fake_connection = Class.new do
+          attr_reader :foreign_key_calls, :check_constraint_calls
+          def initialize
+            @foreign_key_calls = []
+            @check_constraint_calls = []
+          end
+          def valid_column_definition_options = ActiveRecord::ConnectionAdapters::ColumnDefinition::OPTION_NAMES + [:index, :_uses_legacy_reference_index_name, :_skip_validate_options]
+          def supports_datetime_with_precision? = true
+          def foreign_key_options(from, to, options)
+            @foreign_key_calls << [from, to, options]
+            options.reverse_merge(name: "fk_#{from}_#{to}", column: "#{to.to_s.singularize}_id", primary_key: "id")
+          end
+          def check_constraint_options(table, expression, options)
+            @check_constraint_calls << [table, expression, options]
+            options.reverse_merge(name: "chk_#{table}")
+          end
+        end.new
+
+        table = ActiveRecord::ConnectionAdapters::TableDefinition.new(fake_connection, "schema_definition_posts")
+        table.set_primary_key("schema_definition_posts", { type: :bigint, default: nil }, nil)
+        assert table["id"].primary_key?
+        assert_equal :bigint, table["id"].type
+        table.column :title, :string, index: { name: "idx_schema_definition_posts_on_title" }
+        table.column :body, nil
+        table.virtual :search_vector
+        table.timestamps
+        precision_table = ActiveRecord::ConnectionAdapters::TableDefinition.new(fake_connection, "schema_definition_precision_posts")
+        precision_table.timestamps precision: 3
+        assert_equal 3, precision_table["created_at"].precision
+        table.references :author, polymorphic: { default: "Author" }, index: true, if_not_exists: true
+        table.foreign_key :authors, column: :author_id
+        table.check_constraint "length(title) > 0"
+        assert_equal ["id", "title", "body", "search_vector", "created_at", "updated_at", "author_type", "author_id"], table.columns.map(&:name)
+        assert_equal "title", table["title"].name
+        assert_equal 2, table.indexes.size
+        assert_equal 1, table.foreign_keys.size
+        assert_equal 1, table.check_constraints.size
+        table.remove_column :search_vector
+        assert_nil table["search_vector"]
+
+        duplicate_error = assert_raises(ArgumentError) { table.column :title, :string }
+        assert_match(/already defined column/, duplicate_error.message)
+        pk_error = assert_raises(ArgumentError) { table.primary_key :id }
+        assert_match(/redefine the primary key/, pk_error.message)
+
+        composite = ActiveRecord::ConnectionAdapters::TableDefinition.new(fake_connection, "schema_definition_composites")
+        composite.set_primary_key("schema_definition_composites", true, ["tenant_id", "id"])
+        assert_equal ["tenant_id", "id"], composite.primary_keys.name
+
+        assert_raises(ArgumentError) { ActiveRecord::ConnectionAdapters::ReferenceDefinition.new(:imageable, polymorphic: true, foreign_key: true) }
+      end
+
+      def test_schema_definition_reference_and_table_command_contracts
+        recorder = Class.new do
+          attr_reader :calls
+          def initialize = @calls = []
+          def method_missing(name, *args, **options)
+            @calls << [name, args, options]
+            name.to_s.end_with?("?") ? true : :ok
+          end
+          def respond_to_missing?(*); true; end
+        end.new
+
+        reference = ActiveRecord::ConnectionAdapters::ReferenceDefinition.new(:author, index: { unique: true }, foreign_key: { to_table: :people }, type: :integer, if_exists: true)
+        reference.add(:posts, recorder)
+        ActiveRecord::ConnectionAdapters::ReferenceDefinition.new(:category, index: false, foreign_key: false).add(:posts, recorder)
+        ActiveRecord::ConnectionAdapters::ReferenceDefinition.new(:legacy, polymorphic: true, index: true, _uses_legacy_reference_index_name: true).add(:posts, recorder)
+        old_pluralize_table_names = ActiveRecord::Base.pluralize_table_names
+        ActiveRecord::Base.pluralize_table_names = false
+        ActiveRecord::ConnectionAdapters::ReferenceDefinition.new(:person, index: false, foreign_key: true).add(:posts, recorder)
+        ActiveRecord::Base.pluralize_table_names = old_pluralize_table_names
+        assert_includes recorder.calls, [:add_column, [:posts, "author_id", :integer], { if_exists: true }]
+        assert_includes recorder.calls, [:add_index, [:posts, ["author_id"]], { unique: true, if_exists: true }]
+        assert_includes recorder.calls, [:add_foreign_key, [:posts, :people], { to_table: :people, column: "author_id", if_exists: true }]
+
+        table = ActiveRecord::ConnectionAdapters::Table.new(:posts, recorder)
+        table.column(:title, :string, index: { unique: true })
+        table.column(:subtitle, :string, index: true)
+        table.column(:summary, :string)
+        assert table.column_exists?(:title, :string)
+        table.index(:title)
+        assert table.index_exists?(:title)
+        table.rename_index(:old_idx, :new_idx)
+        table.timestamps(null: false)
+        table.change(:title, :text)
+        table.change_default(:title, from: nil, to: "hello")
+        table.change_null(:title, false, "")
+        table.remove(:old_title, :legacy_title)
+        table.remove_index(:title)
+        table.remove_timestamps
+        table.rename(:title, :headline)
+        table.references(:editor, foreign_key: true)
+        table.remove_references(:editor, polymorphic: true)
+        table.foreign_key(:authors)
+        table.remove_foreign_key(:authors)
+        assert table.foreign_key_exists?(:authors)
+        table.check_constraint("price > 0", name: "chk_price")
+        table.remove_check_constraint(name: "chk_price")
+        assert table.check_constraint_exists?(name: "chk_price")
+
+        assert_includes recorder.calls, [:add_column, [:posts, :title, :string], {}]
+        assert_includes recorder.calls, [:add_index, [:posts, :title], { unique: true }]
+        assert_includes recorder.calls, [:add_timestamps, [:posts], { null: false }]
+        assert_includes recorder.calls, [:rename_column, [:posts, :title, :headline], {}]
+
+        if_exists_error = assert_raises(ArgumentError) { table.column(:body, :text, if_exists: true) }
+        assert_match(/Option if_exists will be ignored/, if_exists_error.message)
+        if_not_exists_error = assert_raises(ArgumentError) { table.index(:body, if_not_exists: true) }
+        assert_match(/Option if_not_exists will be ignored/, if_not_exists_error.message)
+      end
+
       if current_adapter?(:Mysql2Adapter, :TrilogyAdapter)
         def test_build_create_index_definition_for_existing_index
           connection.create_table(:test) do |t|
