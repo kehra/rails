@@ -752,6 +752,90 @@ module ActiveRecord
       assert_empty Post.where(id: post.id)
     end
 
+    test "relation eager loading detects includes that require joins" do
+      preload_relation = Post.includes(:author).where(author_id: authors(:david).id)
+      eager_relation = Post.includes(:author).references(:author).where("authors.id = ?", authors(:david).id)
+
+      assert_not_predicate preload_relation, :eager_loading?
+      assert_predicate eager_relation, :eager_loading?
+      assert_match(/LEFT OUTER JOIN/i, eager_relation.to_sql)
+    end
+
+    test "relation empty respects none unloaded and loaded states" do
+      existing = Post.where(author_id: authors(:david).id)
+      missing = Post.where(id: -1)
+
+      assert_not_predicate existing, :empty?
+      assert_predicate missing, :empty?
+      assert_predicate Post.none, :empty?
+      assert_predicate missing.load, :empty?
+    end
+
+    test "relation encode with serializes loaded records as a sequence" do
+      relation = Post.where(author_id: authors(:david).id).order(:id)
+      coder = Class.new do
+        attr_reader :tag, :records
+
+        def represent_seq(tag, records)
+          @tag = tag
+          @records = records
+        end
+      end.new
+
+      relation.encode_with(coder)
+
+      assert_nil coder.tag
+      assert_equal relation.to_a, coder.records
+    end
+
+    test "relation explain returns a proxy that explains executed SQL" do
+      explanation = Post.where(author_id: authors(:david).id).order(:id).explain.inspect
+
+      assert_match(/EXPLAIN/i, explanation)
+      assert_match(/SELECT/i, explanation)
+      assert_match(/posts/i, explanation)
+    end
+
+    test "relation find or create variants and initialize keep scoped defaults" do
+      relation = Post.where(author_id: authors(:david).id, type: "Post")
+      found = relation.find_or_create_by(title: posts(:welcome).title)
+      created = relation.find_or_create_by!(title: "find or create bang") { |post| post.body = "bang body" }
+      initialized = relation.find_or_initialize_by(title: "find or initialize") { |post| post.body = "init body" }
+
+      assert_equal posts(:welcome).id, found.id
+      assert_predicate created, :persisted?
+      assert_equal authors(:david).id, created.author_id
+      assert_not_predicate initialized, :persisted?
+      assert_equal authors(:david).id, initialized.author_id
+      assert_equal "init body", initialized.body
+    end
+
+    test "relation initialize and initialize copy set independent relation state" do
+      relation = ActiveRecord::Relation.new(Post)
+      source = Post.where(author_id: authors(:david).id)
+      copied = source.dup
+      narrowed = copied.where(title: posts(:welcome).title)
+
+      assert_equal Post, relation.model
+      assert_not_predicate relation, :loaded?
+      assert_equal source.to_sql, copied.to_sql
+      assert_not_equal source.to_sql, narrowed.to_sql
+    end
+
+    test "relation insert variants return SQLite result rows" do
+      relation = Post.create_with(type: "Post", author_id: authors(:david).id, body: "bulk body")
+      one = relation.insert({ title: "relation insert" }, returning: %w[id title])
+      one_bang = relation.insert!({ title: "relation insert bang" }, returning: %w[id title])
+      many = relation.insert_all([{ title: "relation insert all" }], returning: %w[id title])
+      many_bang = relation.insert_all!([{ title: "relation insert all bang" }], returning: %w[id title])
+
+      assert_equal ["relation insert"], one.rows.map(&:last)
+      assert_equal ["relation insert bang"], one_bang.rows.map(&:last)
+      assert_equal ["relation insert all"], many.rows.map(&:last)
+      assert_equal ["relation insert all bang"], many_bang.rows.map(&:last)
+      assert Post.where(title: ["relation insert", "relation insert bang", "relation insert all", "relation insert all bang"], author_id: authors(:david).id).exists?
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
