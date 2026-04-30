@@ -382,6 +382,89 @@ module ActiveRecord
       assert_match(/ORDER BY/i, relation.to_sql)
     end
 
+    test "default scope with named scope and merge keeps composition order predicates" do
+      author = authors(:david)
+      post = posts(:welcome)
+      klass = relation_test_post_class do
+        default_scope { where(author_id: author.id) }
+        scope :with_title, ->(title) { where(title: title) }
+      end
+
+      relation = klass.with_title(post.title).merge(klass.where(type: post.type))
+
+      assert_equal [post.id], relation.ids
+      assert_equal [author.id], relation.pluck(:author_id).uniq
+    end
+
+    test "default scope with association scope and merge keeps parent and association predicates" do
+      author = authors(:david)
+      post = posts(:welcome)
+      klass = relation_test_post_class do
+        belongs_to :author, -> { where(id: author.id) }, class_name: "Author", foreign_key: :author_id, inverse_of: false
+        default_scope { where(type: "Post") }
+      end
+
+      relation = klass.joins(:author).merge(Author.where(name: author.name)).where(title: post.title)
+
+      assert_equal [post.id], relation.ids
+      assert_match(/JOIN/i, relation.to_sql)
+      assert_match(/"posts"\."type" = 'Post'/, relation.to_sql)
+    end
+
+    test "default scope with unscoped block and nested relation reuse does not leak outside" do
+      author = authors(:david)
+      post = posts(:welcome)
+      klass = relation_test_post_class do
+        default_scope { where(author_id: author.id) }
+      end
+      scoped = klass.where(title: post.title)
+
+      inside_count = klass.unscoped { klass.where(title: post.title).count }
+      reused_ids = klass.unscoped { scoped.ids }
+
+      assert_equal Post.where(title: post.title).count, inside_count
+      assert_equal [post.id], reused_ids
+      assert_equal Post.where(author_id: author.id).order(:id).ids, klass.order(:id).ids
+    end
+
+    test "default scope with none and or does not revive empty relation incorrectly" do
+      author = authors(:david)
+      post = posts(:welcome)
+      klass = relation_test_post_class do
+        default_scope { where(author_id: author.id) }
+      end
+
+      relation = klass.none.or(klass.where(id: post.id))
+
+      assert_equal [post.id], relation.ids
+      assert_empty klass.none.to_a
+      assert_match(/"posts"\."author_id" = #{author.id}/, relation.to_sql)
+    end
+
+    test "default scope with readonly and update all keeps default mutation conditions" do
+      author = authors(:david)
+      klass = relation_test_post_class do
+        default_scope { where(author_id: author.id).readonly }
+      end
+      body = "updated through default scoped update_all"
+
+      assert_equal Post.where(author_id: author.id).count, klass.update_all(body: body)
+      assert_equal [body], Post.where(author_id: author.id).distinct.pluck(:body)
+      assert_empty Post.where.not(author_id: author.id).where(body: body)
+    end
+
+    test "default scope with strict loading and includes keeps association policy" do
+      author = authors(:david)
+      klass = relation_test_post_class do
+        belongs_to :author, class_name: "Author", foreign_key: :author_id, inverse_of: false
+        default_scope { strict_loading.includes(:author) }
+      end
+      records = klass.where(author_id: author.id).order(:id).to_a
+
+      assert records.all?(&:strict_loading?)
+      assert_no_queries { records.each(&:author) }
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
