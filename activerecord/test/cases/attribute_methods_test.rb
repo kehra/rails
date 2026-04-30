@@ -234,6 +234,14 @@ class AttributeMethodsTest < ActiveRecord::TestCase
     assert_not_respond_to topic, :nothingness
   end
 
+  test "respond_to? before attributes are initialized" do
+    topic = Topic.allocate
+
+    assert_respond_to topic, :title
+    assert_respond_to topic, :to_s
+    assert_not_respond_to topic, :nothingness
+  end
+
   test "respond_to? with a custom primary key" do
     keyboard = Keyboard.create
     assert_not_nil keyboard.key_number
