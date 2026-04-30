@@ -1870,6 +1870,9 @@ class TransactionImplementationTest < ActiveRecord::TestCase
     def rollback_db_transaction = @calls << :rollback_db_transaction
     def restart_db_transaction = @calls << :restart_db_transaction
     def reset_isolation_level = @calls << :reset_isolation_level
+    def create_savepoint(name) = @calls << [:create_savepoint, name]
+    def rollback_to_savepoint(name) = @calls << [:rollback_to_savepoint, name]
+    def release_savepoint(name) = @calls << [:release_savepoint, name]
     def supports_restart_db_transaction? = restart_supported
     def active? = active
   end
@@ -1979,6 +1982,60 @@ class TransactionImplementationTest < ActiveRecord::TestCase
 
     assert_raises(ActiveRecord::TransactionIsolationError) do
       ActiveRecord::ConnectionAdapters::RestartParentTransaction.new(connection, parent, isolation: :serializable)
+    end
+  end
+
+  def test_savepoint_transaction_contracts
+    connection = FakeTransactionConnection.new
+    parent = ParentTransaction.new(parent_isolation: :read_committed)
+    transaction = ActiveRecord::ConnectionAdapters::SavepointTransaction.new(connection, "active_record_1", parent)
+
+    assert_equal :read_committed, transaction.isolation
+    transaction.isolation = :serializable
+    assert_equal :serializable, parent.parent_isolation
+    assert_equal false, transaction.full_rollback?
+
+    transaction.materialize!
+    assert_equal [[:create_savepoint, "active_record_1"]], connection.calls
+    assert_predicate transaction, :materialized?
+
+    transaction.restart
+    assert_equal [[:create_savepoint, "active_record_1"], [:rollback_to_savepoint, "active_record_1"]], connection.calls
+
+    transaction.commit
+    assert_equal [[:create_savepoint, "active_record_1"], [:rollback_to_savepoint, "active_record_1"], [:release_savepoint, "active_record_1"]], connection.calls
+    assert_predicate transaction.state, :committed?
+
+    rollback_connection = FakeTransactionConnection.new
+    rollback_transaction = ActiveRecord::ConnectionAdapters::SavepointTransaction.new(rollback_connection, "active_record_2", parent)
+    rollback_transaction.materialize!
+    rollback_transaction.rollback
+    assert_equal [[:create_savepoint, "active_record_2"], [:rollback_to_savepoint, "active_record_2"]], rollback_connection.calls
+    assert_predicate rollback_transaction.state, :rolledback?
+
+    inactive_connection = FakeTransactionConnection.new
+    inactive_connection.active = false
+    inactive_transaction = ActiveRecord::ConnectionAdapters::SavepointTransaction.new(inactive_connection, "active_record_3", parent)
+    inactive_transaction.materialize!
+    inactive_transaction.rollback
+    assert_equal [[:create_savepoint, "active_record_3"]], inactive_connection.calls
+
+    invalidated_connection = FakeTransactionConnection.new
+    invalidated_transaction = ActiveRecord::ConnectionAdapters::SavepointTransaction.new(invalidated_connection, "active_record_4", parent)
+    invalidated_transaction.materialize!
+    invalidated_transaction.invalidate!
+    invalidated_transaction.rollback
+    assert_equal [[:create_savepoint, "active_record_4"]], invalidated_connection.calls
+
+    unmaterialized_connection = FakeTransactionConnection.new
+    unmaterialized_transaction = ActiveRecord::ConnectionAdapters::SavepointTransaction.new(unmaterialized_connection, "active_record_5", parent)
+    assert_nil unmaterialized_transaction.restart
+    unmaterialized_transaction.rollback
+    unmaterialized_transaction.commit
+    assert_empty unmaterialized_connection.calls
+
+    assert_raises(ActiveRecord::TransactionIsolationError) do
+      ActiveRecord::ConnectionAdapters::SavepointTransaction.new(connection, "active_record_6", parent, isolation: :serializable)
     end
   end
 end
