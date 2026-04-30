@@ -226,6 +226,121 @@ module ActiveRecord
         assert_match(/Option if_not_exists will be ignored/, if_not_exists_error.message)
       end
 
+      def test_schema_statements_abstract_defaults_and_helper_contracts
+        connection_class = Class.new do
+          include ActiveRecord::ConnectionAdapters::SchemaStatements
+
+          attr_reader :executed_sql, :schema_cache
+
+          def initialize
+            @executed_sql = []
+            @schema_cache = Class.new do
+              attr_reader :cleared
+              def initialize = @cleared = []
+              def clear_data_source_cache!(name) = @cleared << name
+            end.new
+          end
+
+          def execute(sql)
+            @executed_sql << sql
+            sql
+          end
+
+          def query_values(sql)
+            case sql
+            when /BASE TABLE/ then ["posts"]
+            when /VIEW/ then ["post_views"]
+            else ["posts", "post_views"]
+            end
+          end
+
+          def quote_table_name(name) = %Q("#{name}")
+          def quote_column_name(name) = %Q("#{name}")
+          def quote(value) = value.inspect
+          def type_cast(value) = value
+          def lookup_cast_type_from_column(_column) = ActiveModel::Type::Value.new
+          def table_alias_length = 10
+          def primary_keys(_table_name) = ["id"]
+          def column_definitions(_table_name) = []
+          def new_column_from_field(*) = nil
+          def supports_indexes_in_create? = false
+          def supports_comments? = false
+          def supports_comments_in_create? = false
+          def supports_datetime_with_precision? = true
+          def supports_index_sort_order? = true
+          def supports_foreign_keys? = false
+          def foreign_keys_enabled? = true
+          def supports_check_constraints? = false
+          def supports_exclusion_constraints? = false
+          def supports_unique_constraints? = false
+          def supports_index_include? = false
+          def supports_partial_index? = false
+          def supports_nulls_not_distinct? = false
+          def index_name_length = 64
+          def allowed_index_name_length = 64
+          def table_name_length = 64
+          def options_include_default?(options) = options.key?(:default)
+          def type_to_sql(type, **options) = [type.to_s, options[:limit]].compact.join("(").then { |sql| options[:limit] ? "#{sql})" : sql }
+          def data_source_sql(name = nil, type: nil) = ["DATA SOURCES", name, type].compact.join(" ")
+          def schema_creation = ActiveRecord::ConnectionAdapters::SchemaCreation.new(self)
+          def column_exists?(table_name, column_name, *_args, **_options)
+            table_name.to_s == "posts" && column_name.to_s == "existing"
+          end
+          def indexes(_table_name)
+            [ActiveRecord::ConnectionAdapters::IndexDefinition.new("posts", "index_posts_on_title", false, ["title"])]
+          end
+        end
+
+        connection = connection_class.new
+        assert_equal({}, connection.native_database_types)
+        assert_nil connection.table_options(:posts)
+        assert_nil connection.table_comment(:posts)
+        assert_equal "very_long_", connection.table_alias_for("very.long.table")
+        assert_equal ["posts", "post_views"], connection.data_sources
+        assert connection.data_source_exists?(:posts)
+        assert_equal ["posts"], connection.tables
+        assert connection.table_exists?(:posts)
+        assert_equal ["post_views"], connection.views
+        assert connection.view_exists?(:post_views)
+        assert connection.index_exists?(:posts, :title)
+        assert_equal "id", connection.primary_key(:posts)
+
+        create_sql = connection.create_table(:schema_statement_posts, if_not_exists: true) { |t| t.string :title, index: true }
+        assert_match(/CREATE TABLE IF NOT EXISTS/, create_sql)
+        assert_includes connection.schema_cache.cleared, "schema_statement_posts"
+        assert_includes connection.executed_sql.last, "CREATE INDEX IF NOT EXISTS"
+
+        forced_sql = connection.create_table(:forced_schema_statement_posts, force: true) { |t| t.string :title }
+        assert_match(/CREATE TABLE/, forced_sql)
+        assert connection.executed_sql.any? { |sql| sql.include?(%Q(DROP TABLE IF EXISTS "forced_schema_statement_posts")) }
+        force_error = assert_raises(ArgumentError) { connection.create_table(:bad_options, force: true, if_not_exists: true) }
+        assert_match(/cannot be used simultaneously/, force_error.message)
+
+        join_definition = connection.build_create_join_table_definition(:music_artists, :music_records)
+        assert_equal :music_artists_records, join_definition.name
+        connection.create_join_table(:authors, :posts)
+        assert connection.executed_sql.any? { |sql| sql.include?("authors_posts") }
+        connection.drop_join_table(:authors, :posts)
+        assert connection.executed_sql.any? { |sql| sql.include?(%Q(DROP TABLE "authors_posts")) }
+
+        add_definition = connection.build_add_column_definition(:posts, :created_at, :datetime)
+        assert_equal 6, add_definition.adds.first.column.precision
+        assert_nil connection.build_add_column_definition(:posts, :existing, :string, if_not_exists: true)
+        connection.add_column(:posts, :body, :text)
+        connection.add_columns(:posts, :summary, :subtitle, type: :string)
+        connection.remove_column(:posts, :legacy)
+        connection.remove_columns(:posts, :legacy_one, :legacy_two)
+        empty_remove_error = assert_raises(ArgumentError) { connection.remove_columns(:posts) }
+        assert_match(/at least one column/, empty_remove_error.message)
+        assert_nil connection.remove_column(:posts, :missing, if_exists: true)
+
+        assert_raises(NotImplementedError) { connection.change_column(:posts, :title, :text) }
+        assert_raises(NotImplementedError) { connection.change_column_default(:posts, :title, "hello") }
+        assert_raises(NotImplementedError) { connection.build_change_column_default_definition(:posts, :title, "hello") }
+        assert_raises(NotImplementedError) { connection.change_column_null(:posts, :title, false) }
+        assert_raises(NotImplementedError) { connection.rename_column(:posts, :title, :headline) }
+      end
+
       if current_adapter?(:Mysql2Adapter, :TrilogyAdapter)
         def test_build_create_index_definition_for_existing_index
           connection.create_table(:test) do |t|
