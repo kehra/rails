@@ -1345,6 +1345,41 @@ module ActiveRecord
       assert_raises(ArgumentError) { ActiveRecord::Relation::WhereClause.new([nil]).invert }
     end
 
+    test "where clause public contract covers branch edge cases" do
+      table = Post.arel_table
+      common = Post.where(type: "Post").where_clause
+      author_clause = Post.where(author_id: authors(:david).id).where_clause
+      title_clause = Post.where(title: posts(:welcome).title).where_clause
+      array_clause = Post.where(id: [posts(:welcome).id, posts(:thinking).id]).where_clause
+      string_clause = ActiveRecord::Relation::WhereClause.new(["posts.id = 1"])
+      invalid_attribute_clause = ActiveRecord::Relation::WhereClause.new([table[:id].eq(Author.arel_table[:id])])
+      grouped_or_clause = ActiveRecord::Relation::WhereClause.new([
+        Arel::Nodes::Grouping.new(Arel::Nodes::Or.new([table[:id].eq(posts(:welcome).id), table[:id].eq(posts(:thinking).id)]))
+      ])
+      grouped_right_clause = ActiveRecord::Relation::WhereClause.new([Arel::Nodes::Grouping.new(table[:title].eq(posts(:welcome).title))])
+      sql_predication = Arel.sql("LOWER(posts.title)")
+      sql_predication_clause = ActiveRecord::Relation::WhereClause.new([sql_predication.eq(posts(:welcome).title.downcase)])
+      literal_value_clause = ActiveRecord::Relation::WhereClause.new([table[:id].eq(Arel.sql(posts(:welcome).id.to_s))])
+
+      assert_equal common, common.or(common + author_clause)
+      assert_equal common, (common + author_clause).or(common)
+      assert_match(/ OR /i, grouped_or_clause.or(title_clause).ast.to_sql)
+      assert_match(/ OR /i, author_clause.or(grouped_right_clause).ast.to_sql)
+      assert_match(/NOT/i, (author_clause + title_clause).invert.ast.to_sql)
+      assert_match(/NOT/i, string_clause.invert.ast.to_sql)
+      assert_equal({ "id" => [posts(:welcome).id, posts(:thinking).id] }, array_clause.to_h)
+      assert_equal({ "id" => nil }, literal_value_clause.to_h)
+      assert_empty author_clause.to_h("comments")
+      assert_equal({ "author_id" => authors(:david).id }, author_clause.to_h("posts", equality_only: true))
+      assert_equal({ "id" => 1 }, ActiveRecord::Relation::WhereClause.new([Arel::Nodes::And.new([table[:id].eq(1), table[:title].matches("Welcome%")])]).to_h(equality_only: true))
+      assert_equal [table[:id]], invalid_attribute_clause.extract_attributes
+      assert_equal({}, ActiveRecord::Relation::WhereClause.new([Arel.sql("posts.id = 1")]).send(:referenced_columns))
+      assert_equal [sql_predication], sql_predication_clause.extract_attributes
+      assert_equal [], ActiveRecord::Relation::WhereClause.new([""]).ast.children
+      assert_empty sql_predication_clause.except(sql_predication).to_h
+      assert_empty (author_clause + title_clause).except(table[:author_id]).to_h.slice("author_id")
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
