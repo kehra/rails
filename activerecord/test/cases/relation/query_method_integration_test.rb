@@ -506,6 +506,72 @@ module ActiveRecord
       ActiveRecord::Base.logger = previous_logger
     end
 
+    test "with from and joins keep CTE and from subquery aliases" do
+      author = authors(:david)
+      cte = Post.where(author_id: author.id)
+      relation = Post.with(posts_by_author: cte)
+        .from("posts_by_author AS posts")
+        .joins(:author)
+        .where("authors.id = ?", author.id)
+        .order(:id)
+
+      assert_equal Post.where(author_id: author.id).order(:id).ids, relation.ids
+      assert_match(/WITH/i, relation.to_sql)
+      assert_match(/posts_by_author AS posts/i, relation.to_sql)
+      assert_match(/JOIN/i, relation.to_sql)
+    end
+
+    test "with recursive with where and order keeps recursive CTE and predicates" do
+      relation = Post.with_recursive(post_ids: Post.where(id: posts(:welcome).id).select(:id))
+        .joins("JOIN post_ids ON post_ids.id = posts.id")
+        .where(author_id: authors(:david).id)
+        .order(:id)
+
+      assert_equal [posts(:welcome).id], relation.ids
+      assert_match(/WITH RECURSIVE/i, relation.to_sql)
+      assert_match(/ORDER BY/i, relation.to_sql)
+    end
+
+    test "from select and where handle table alias and selected attributes" do
+      relation = Post.from("posts AS aliased_posts")
+        .select("aliased_posts.id, aliased_posts.title")
+        .where("aliased_posts.author_id = ?", authors(:david).id)
+        .order("aliased_posts.id ASC")
+      record = relation.first
+
+      assert_equal posts(:welcome).id, record.id
+      assert_equal posts(:welcome).title, record.title
+      assert_raises(ActiveModel::MissingAttributeError) { record.body }
+      assert_match(/aliased_posts/, relation.to_sql)
+    end
+
+    test "lock joins and where keep lock intent after relation composition" do
+      author = authors(:david)
+      relation = Post.lock.joins(:author).where("authors.id = ?", author.id).order(:id)
+
+      assert_equal Post.where(author_id: author.id).order(:id).ids, relation.ids
+      assert relation.lock_value
+      assert_match(/JOIN/i, relation.to_sql)
+    end
+
+    test "readonly strict loading and includes keep loading policy through associations" do
+      author = authors(:david)
+      records = Post.readonly.strict_loading.includes(:author).where(author_id: author.id).order(:id).to_a
+
+      assert records.all?(&:readonly?)
+      assert records.all?(&:strict_loading?)
+      assert_no_queries { records.each(&:author) }
+    end
+
+    test "annotate optimizer hints and where keep SQL comments with predicates" do
+      relation = Post.optimizer_hints("SeqScan(posts)").annotate("query method integration").where(author_id: authors(:david).id)
+
+      assert_equal Post.where(author_id: authors(:david).id).order(:id).ids, relation.order(:id).ids
+      assert_match(/SeqScan\(posts\)/, relation.to_sql)
+      assert_match(/query method integration/, relation.to_sql)
+      assert_match(/WHERE/i, relation.to_sql)
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
