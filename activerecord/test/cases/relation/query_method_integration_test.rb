@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "pp"
 require "cases/helper"
 require "models/author"
 require "models/comment"
@@ -834,6 +835,68 @@ module ActiveRecord
       assert_equal ["relation insert all"], many.rows.map(&:last)
       assert_equal ["relation insert all bang"], many_bang.rows.map(&:last)
       assert Post.where(title: ["relation insert", "relation insert bang", "relation insert all", "relation insert all bang"], author_id: authors(:david).id).exists?
+    end
+
+    test "relation inspect and pretty print summarize limited records" do
+      relation = Post.where(author_id: authors(:david).id).order(:id).limit(1)
+      inspected = relation.inspect
+      output = +""
+      pp = PP.new(output)
+
+      relation.pretty_print(pp)
+      pp.flush
+
+      assert_match(/ActiveRecord::Relation/, inspected)
+      assert_match(/Welcome to the weblog/, inspected)
+      assert_match(/Welcome to the weblog/, output)
+    end
+
+    test "relation joined includes values reports overlapping joins and includes" do
+      relation = Post.includes(:author, :comments).joins(:author)
+
+      assert_equal [:author], relation.joined_includes_values
+      assert_predicate relation, :eager_loading?
+    end
+
+    test "relation load load async scheduled reload and reset manage loaded state" do
+      relation = Post.where(author_id: authors(:david).id).order(:id)
+
+      assert_same relation, relation.load
+      assert_predicate relation, :loaded?
+      first_ids = relation.records.map(&:id)
+      assert_same relation, relation.reset
+      assert_not_predicate relation, :loaded?
+      assert_not_predicate relation, :scheduled?
+      assert_same relation, relation.load_async
+      assert_predicate relation, :loaded?
+      assert_not_predicate relation, :scheduled?
+      assert_equal first_ids, relation.reload.records.map(&:id)
+    end
+
+    test "relation one many and none predicates handle none loaded and block forms" do
+      one_relation = Post.where(id: posts(:welcome).id)
+      many_relation = Post.where(author_id: authors(:david).id)
+      none_relation = Post.none
+
+      assert_predicate one_relation, :one?
+      assert_not_predicate one_relation, :many?
+      assert_predicate many_relation, :many?
+      assert many_relation.one? { |post| post.id == posts(:welcome).id }
+      assert_not_predicate none_relation, :one?
+      assert_predicate none_relation, :none?
+      assert many_relation.none? { |post| post.author_id == -1 }
+    end
+
+    test "relation new readonly and scope for create preserve scope defaults" do
+      relation = Post.where(author_id: authors(:david).id, type: "Post").create_with(body: "scope body").readonly
+      record = relation.new(title: "relation new")
+      scope = relation.scope_for_create
+
+      assert_not_predicate record, :persisted?
+      assert_equal authors(:david).id, record.author_id
+      assert_equal "scope body", record.body
+      assert_predicate relation, :readonly?
+      assert_equal({ "author_id" => authors(:david).id, "type" => "Post", "body" => "scope body" }, scope)
     end
 
     private
