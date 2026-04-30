@@ -28,6 +28,12 @@ class SQLite3VirtualTableTest < ActiveRecord::SQLite3TestCase
     assert_not_includes output, 'create_virtual_table "searchables"'
   end
 
+  def test_schema_dumper_primary_key_autoincrement_is_false_without_current_table
+    dumper = ActiveRecord::ConnectionAdapters::SQLite3::SchemaDumper.create(@connection, {})
+
+    assert_not dumper.send(:primary_key_has_autoincrement?)
+  end
+
   def test_schema_load
     original, $stdout = $stdout, StringIO.new
 
