@@ -143,6 +143,153 @@ module ActiveRecord
       assert_equal Arel.sql("DEFAULT"), statements.send(:default_insert_value, nil)
     end
 
+    def test_query_cache_store_contract
+      version = Concurrent::AtomicFixnum.new
+      store = ActiveRecord::ConnectionAdapters::QueryCache::Store.new(version, 2)
+
+      assert_not store.enabled?
+      assert store.dirties?
+      assert_predicate store, :empty?
+      assert_equal 0, store.size
+      assert_equal "uncached", store.compute_if_absent("a") { "uncached" }
+      assert_nil store["a"]
+
+      store.enabled = true
+      assert_equal "first", store.compute_if_absent("a") { "first" }
+      assert_equal "first", store.compute_if_absent("a") { flunk("cached entry should be reused") }
+      assert_equal "first", store["a"]
+      store.compute_if_absent("b") { "second" }
+      store.compute_if_absent("c") { "third" }
+      assert_nil store["a"]
+      assert_equal 2, store.size
+
+      version.increment
+      assert_predicate store, :empty?
+      assert_same store, store.clear
+
+      registry = ActiveRecord::ConnectionAdapters::QueryCache::QueryCacheRegistry.new
+      context = Object.new
+      first_cache = registry.compute_if_absent(context) { :first_cache }
+      assert_equal :first_cache, first_cache
+      assert_equal :first_cache, registry.compute_if_absent(context) { flunk("registered cache should be reused") }
+      clearable_map = Class.new do
+        def synchronize
+          yield
+        end
+
+        def clear
+          @cleared = true
+        end
+
+        def cleared? = @cleared
+      end.new
+      registry.instance_variable_set(:@map, clearable_map)
+      registry.clear
+      assert clearable_map.cleared?
+
+      pool_config = Struct.new(:query_cache)
+      pool_class = Class.new do
+        include ActiveRecord::ConnectionAdapters::QueryCache::ConnectionPoolConfiguration
+        attr_reader :db_config
+
+        define_method(:initialize) do |query_cache|
+          @db_config = pool_config.new(query_cache)
+          super()
+        end
+      end
+
+      assert_nil pool_class.new(false).instance_variable_get(:@query_cache_max_size)
+      assert_nil pool_class.new(0).instance_variable_get(:@query_cache_max_size)
+      assert_nil pool_class.new("custom").instance_variable_get(:@query_cache_max_size)
+      assert_equal 7, pool_class.new(7).instance_variable_get(:@query_cache_max_size)
+      assert_equal ActiveRecord::ConnectionAdapters::QueryCache::DEFAULT_SIZE, pool_class.new(nil).instance_variable_get(:@query_cache_max_size)
+
+      nil_db_config_pool_class = Class.new do
+        include ActiveRecord::ConnectionAdapters::QueryCache::ConnectionPoolConfiguration
+        def db_config = nil
+      end
+      assert_equal ActiveRecord::ConnectionAdapters::QueryCache::DEFAULT_SIZE, nil_db_config_pool_class.new.instance_variable_get(:@query_cache_max_size)
+    end
+
+    def test_query_cache_connection_and_pool_contract
+      pool = @connection.pool
+      original_cache = @connection.query_cache
+
+      assert_not @connection.query_cache_enabled
+      @connection.cache do
+        assert @connection.query_cache_enabled
+        assert pool.query_cache_enabled
+        assert pool.dirties_query_cache
+      end
+      assert_not @connection.query_cache_enabled
+
+      @connection.uncached(dirties: false) do
+        assert_not @connection.query_cache_enabled
+        assert_not pool.dirties_query_cache
+      end
+      assert pool.dirties_query_cache
+
+      @connection.enable_query_cache!
+      assert @connection.query_cache_enabled
+      @connection.disable_query_cache!
+      assert_not @connection.query_cache_enabled
+
+      @connection.query_cache = nil
+      assert_nil @connection.query_cache
+      assert_nil @connection.query_cache_enabled
+      @connection.query_cache = original_cache
+      assert_same original_cache, @connection.query_cache
+
+      @connection.instance_variable_set(:@pinned, true)
+      @connection.instance_variable_set(:@owner, Object.new)
+      assert_same pool.query_cache, @connection.query_cache
+    ensure
+      @connection.instance_variable_set(:@pinned, false)
+      @connection.query_cache = original_cache if defined?(original_cache)
+      @connection.disable_query_cache!
+    end
+
+    def test_query_cache_caches_selects_and_reports_cached_notifications
+      cached_notifications = []
+      subscriber = lambda do |_name, _started, _finished, _id, payload|
+        cached_notifications << payload if payload[:cached]
+      end
+
+      @connection.clear_query_cache
+      @connection.cache do
+        ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+          first = @connection.select_all("SELECT 1 AS value", "Query Cache Test")
+          looked_up = @connection.send(:lookup_sql_cache, "SELECT 1 AS value", "Query Cache Test", [])
+          missed_with_binds = @connection.send(:lookup_sql_cache, "SELECT 1 AS value", "Query Cache Test", [:bind])
+          bound_result = @connection.send(:cache_sql, "SELECT 2 AS value", "Query Cache Test", [:bind]) do
+            ActiveRecord::Result.new(["value"], [[2]])
+          end
+          bound_lookup = @connection.send(:lookup_sql_cache, "SELECT 2 AS value", "Query Cache Test", [:bind])
+          second = @connection.select_all("SELECT 1 AS value", "Query Cache Test")
+          future = @connection.select_all("SELECT 1 AS value", "Query Cache Test", async: true)
+
+          assert_equal first.rows, looked_up.rows
+          assert_nil missed_with_binds
+          assert_equal [[2]], bound_result.rows
+          assert_equal [[2]], bound_lookup.rows
+          assert_equal first.rows, second.rows
+          assert_equal first.rows, future.result.rows
+        end
+      end
+
+      assert_operator cached_notifications.length, :>=, 1
+      payload = cached_notifications.first
+      assert_equal "SELECT 1 AS value", payload[:sql]
+      assert_equal "Query Cache Test", payload[:name]
+      assert_equal 1, payload[:row_count]
+      assert_equal [], payload[:binds]
+      assert_equal [], payload[:type_casted_binds].call
+      assert_same @connection, payload[:connection]
+    ensure
+      @connection.clear_query_cache
+      @connection.disable_query_cache!
+    end
+
     def test_invalid_column
       assert_not @connection.valid_type?(:foobar)
       assert_not @connection.class.valid_type?(:foobar)
