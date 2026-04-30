@@ -99,6 +99,60 @@ class MigrationTest < ActiveRecord::TestCase
     assert_equal true, migrator.needs_migration?
   end
 
+  def test_migration_context_initializes_with_default_schema_and_internal_metadata
+    migrator = ActiveRecord::MigrationContext.new("db/migrate")
+
+    assert_equal "db/migrate", migrator.migrations_paths
+    assert_instance_of ActiveRecord::SchemaMigration, migrator.schema_migration
+    assert_instance_of ActiveRecord::InternalMetadata, migrator.internal_metadata
+  end
+
+  def test_migration_context_initializes_with_explicit_schema_and_internal_metadata
+    schema_migration = Object.new
+    internal_metadata = Object.new
+    migrator = ActiveRecord::MigrationContext.new(["db/migrate", "engines/blog/db/migrate"], schema_migration, internal_metadata)
+
+    assert_equal ["db/migrate", "engines/blog/db/migrate"], migrator.migrations_paths
+    assert_same schema_migration, migrator.schema_migration
+    assert_same internal_metadata, migrator.internal_metadata
+  end
+
+  def test_migration_context_migrate_dispatches_by_target_version
+    migration_context_class = Class.new(ActiveRecord::MigrationContext) do
+      attr_accessor :current_version
+      attr_reader :calls
+
+      def initialize(current_version)
+        @current_version = current_version
+        @calls = []
+      end
+
+      def up(target_version = nil, &block)
+        @calls << [:up, target_version, block&.call(:up)]
+      end
+
+      def down(target_version = nil, &block)
+        @calls << [:down, target_version, block&.call(:down)]
+      end
+    end
+
+    migrator = migration_context_class.new(7)
+    migrator.migrate { |direction| "block:#{direction}" }
+    assert_equal [[:up, nil, "block:up"]], migrator.calls
+
+    migrator = migration_context_class.new(0)
+    assert_equal [], migrator.migrate(0)
+    assert_empty migrator.calls
+
+    migrator = migration_context_class.new(7)
+    migrator.migrate(3) { |direction| "block:#{direction}" }
+    assert_equal [[:down, 3, "block:down"]], migrator.calls
+
+    migrator = migration_context_class.new(3)
+    migrator.migrate(7) { |direction| "block:#{direction}" }
+    assert_equal [[:up, 7, "block:up"]], migrator.calls
+  end
+
   def test_migration_version_matches_component_version
     assert_equal ActiveRecord::VERSION::STRING.to_f, ActiveRecord::Migration.current_version
   end
