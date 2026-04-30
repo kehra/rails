@@ -341,6 +341,122 @@ module ActiveRecord
         assert_raises(NotImplementedError) { connection.rename_column(:posts, :title, :headline) }
       end
 
+      def test_schema_statements_index_reference_constraint_and_migration_contracts
+        connection_class = Class.new do
+          include ActiveRecord::ConnectionAdapters::SchemaStatements
+
+          attr_reader :executed_sql, :removed_columns, :pool
+
+          def initialize
+            @executed_sql = []
+            @removed_columns = []
+            schema_migration = Struct.new(:table_name) do
+              def versions = ["20240101010101", "20240202020202"]
+            end.new("schema_migrations")
+            migration_context = Struct.new(:all_versions, :migration_versions) do
+              def get_all_versions = all_versions
+              def migrations = migration_versions.map { |version| Struct.new(:version).new(version) }
+            end.new([20240101010101], [20230101010101, 20240101010101])
+            @pool = Struct.new(:schema_migration, :migration_context).new(schema_migration, migration_context)
+          end
+
+          def execute(sql)
+            @executed_sql << sql
+            sql
+          end
+
+          def quote(value) = value.inspect
+          def quote_table_name(name) = %Q("#{name}")
+          def quote_column_name(name) = %Q("#{name}")
+          def options_include_default?(options) = options.key?(:default)
+          def type_to_sql(type, **options) = [type.to_s, options[:limit]].compact.join("(").then { |sql| options[:limit] ? "#{sql})" : sql }
+          def supports_index_sort_order? = true
+          def supports_foreign_keys? = true
+          def foreign_keys_enabled? = true
+          def supports_check_constraints? = true
+          def supports_indexes_in_create? = false
+          def supports_datetime_with_precision? = true
+          def supports_partial_index? = true
+          def supports_index_include? = false
+          def supports_nulls_not_distinct? = false
+          def supports_exclusion_constraints? = false
+          def supports_unique_constraints? = false
+          def index_name_length = 64
+          def allowed_index_name_length = 64
+          def table_name_length = 64
+          def schema_creation = ActiveRecord::ConnectionAdapters::SchemaCreation.new(self)
+          def data_source_sql(name = nil, type: nil) = ["DATA SOURCES", name, type].compact.join(" ")
+          def query_values(_sql) = []
+          def columns(_table_name) = []
+          def indexes(_table_name)
+            [
+              ActiveRecord::ConnectionAdapters::IndexDefinition.new("posts", "index_posts_on_title", false, ["title"]),
+              ActiveRecord::ConnectionAdapters::IndexDefinition.new("posts", "custom_posts_idx", true, ["author_id"])
+            ]
+          end
+          def foreign_keys(_table_name)
+            [
+              ActiveRecord::ConnectionAdapters::ForeignKeyDefinition.new("posts", "authors", name: "fk_posts_authors", column: "author_id", primary_key: "id"),
+              ActiveRecord::ConnectionAdapters::ForeignKeyDefinition.new("posts", "authors", name: "fk_posts_editor", column: "editor_id", primary_key: "id")
+            ]
+          end
+          def check_constraints(_table_name)
+            [ActiveRecord::ConnectionAdapters::CheckConstraintDefinition.new("posts", "price > 0", name: "chk_posts_price")]
+          end
+          def remove_column(table_name, column_name, **options)
+            @removed_columns << [table_name, column_name, options]
+          end
+        end
+
+        connection = connection_class.new
+        connection.add_index(:posts, :title, name: "idx_posts_title", unique: true, where: "title IS NOT NULL")
+        assert connection.executed_sql.last.include?("CREATE UNIQUE INDEX")
+        connection.remove_index(:posts, :title)
+        assert connection.executed_sql.last.include?("DROP INDEX")
+        assert_nil connection.remove_index(:posts, :missing, if_exists: true)
+        connection.rename_index(:posts, :index_posts_on_title, :renamed_posts_title)
+        assert connection.executed_sql.any? { |sql| sql.include?("renamed_posts_title") }
+        assert connection.index_name_exists?(:posts, :custom_posts_idx)
+        assert_equal "index_posts_on_title", connection.index_name(:posts, column: :title, _uses_legacy_index_name: true)
+        assert_equal :named_idx, connection.index_name(:posts, name: :named_idx)
+        assert_raises(ArgumentError) { connection.index_name(:posts, {}) }
+
+        connection.add_reference(:posts, :editor, index: { name: "idx_posts_editor" }, foreign_key: { to_table: :authors })
+        assert connection.executed_sql.any? { |sql| sql.include?("idx_posts_editor") }
+        connection.remove_reference(:posts, :editor, foreign_key: { to_table: :authors }, polymorphic: true, if_exists: true)
+        assert connection.executed_sql.any? { |sql| sql.include?("DROP CONSTRAINT") && sql.include?("fk_posts_editor") }
+        assert_includes connection.removed_columns, [:posts, "editor_id", { if_exists: true }]
+        assert_includes connection.removed_columns, [:posts, "editor_type", { if_exists: true }]
+
+        connection.add_foreign_key(:posts, :authors, if_not_exists: true)
+        assert connection.executed_sql.none? { |sql| sql.include?("ADD CONSTRAINT") && sql.include?("fk_posts_authors") }
+        assert connection.foreign_key_exists?(:posts, :authors)
+        assert_equal "post_id", connection.foreign_key_column_for(:posts, :id)
+        assert_raises(ArgumentError) { connection.foreign_key_options(:orders, :carts, primary_key: [:shop_id, :user_id], column: [:cart_shop_id]) }
+
+        connection.remove_foreign_key(:posts, :authors)
+        assert connection.executed_sql.any? { |sql| sql.include?("DROP CONSTRAINT") && sql.include?("fk_posts_authors") }
+        assert_nil connection.remove_foreign_key(:posts, :missing, if_exists: true)
+
+        connection.add_check_constraint(:posts, "price > 0", if_not_exists: true)
+        assert connection.executed_sql.none? { |sql| sql.include?("ADD CONSTRAINT") && sql.include?("chk_posts_price") }
+        assert connection.check_constraint_exists?(:posts, name: "chk_posts_price")
+        assert_raises(ArgumentError) { connection.check_constraint_exists?(:posts) }
+        connection.remove_check_constraint(:posts, name: "chk_posts_price")
+        assert connection.executed_sql.any? { |sql| sql.include?("DROP CONSTRAINT") && sql.include?("chk_posts_price") }
+        assert_nil connection.remove_check_constraint(:posts, name: "missing", if_exists: true)
+        connection.remove_constraint(:posts, :generic_constraint)
+        assert connection.executed_sql.last.include?("generic_constraint")
+
+        assert_match(/INSERT INTO/, connection.dump_schema_versions)
+        connection.assume_migrated_upto_version(20240202020202)
+        assert connection.executed_sql.any? { |sql| sql.include?("20240202020202") }
+
+        duplicate_connection = connection_class.new
+        duplicate_connection.pool.migration_context.migration_versions.replace([20230101010101, 20230101010101])
+        assert_raises(RuntimeError) { duplicate_connection.assume_migrated_upto_version(20240202020202) }
+      end
+
       if current_adapter?(:Mysql2Adapter, :TrilogyAdapter)
         def test_build_create_index_definition_for_existing_index
           connection.create_table(:test) do |t|
