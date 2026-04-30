@@ -137,6 +137,57 @@ class MigrationTest < ActiveRecord::TestCase
     Object.const_set(:Rails, rails_was) if rails_was_defined && !Object.const_defined?(:Rails)
   end
 
+  def test_migration_suppress_messages_restores_verbose
+    migration = ActiveRecord::Migration::Current.new
+    migration.verbose = true
+
+    yielded_verbose = nil
+    migration.suppress_messages do
+      yielded_verbose = migration.verbose
+    end
+
+    assert_equal false, yielded_verbose
+    assert_equal true, migration.verbose
+  end
+
+  def test_migration_exec_migration_reverts_change_when_migrating_down
+    connection = Object.new
+    reverted = false
+    connection.define_singleton_method(:respond_to?) do |method_name, include_private = false|
+      method_name == :revert || super(method_name, include_private)
+    end
+    connection.define_singleton_method(:revert) do |&block|
+      reverted = true
+      block.call
+    end
+
+    migration_class = Class.new(ActiveRecord::Migration::Current) do
+      attr_reader :changed
+
+      def change
+        @changed = true
+      end
+    end
+    migration = migration_class.new
+
+    migration.exec_migration(connection, :down)
+
+    assert reverted
+    assert_predicate migration, :changed
+  end
+
+  def test_migration_migrate_ignores_missing_and_runs_custom_direction
+    called = false
+    migration_class = Class.new(ActiveRecord::Migration::Current) do
+      define_method(:sideways) { called = true }
+    end
+    migration = migration_class.new("CustomDirection", 123)
+
+    assert_nil migration.migrate(:missing)
+    assert_nothing_raised { migration.migrate(:sideways) }
+    assert called
+  end
+
   def test_migrator_versions
     migrations_path = MIGRATIONS_ROOT + "/valid"
     migrator = ActiveRecord::MigrationContext.new(migrations_path, @schema_migration, @internal_metadata)
