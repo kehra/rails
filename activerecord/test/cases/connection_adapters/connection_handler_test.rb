@@ -319,6 +319,76 @@ module ActiveRecord
         assert_same replacement_pool, @handler.retrieve_connection_pool(@connection_name)
       end
 
+      def test_connection_pool_public_lifecycle_methods
+        assert_not_predicate @pool, :activated?
+        @pool.activate
+        assert_predicate @pool, :activated?
+
+        leased = @pool.lease_connection
+        assert_same leased, @pool.active_connection?
+        assert_includes @pool.connections, leased
+        assert_equal @pool.connected?, @pool.connections.any?(&:connected?)
+        assert @pool.release_connection
+        assert_not @pool.release_connection
+
+        checked_out = @pool.checkout
+        assert_includes @pool.connections, checked_out
+        assert_nil @pool.active_connection?
+        @pool.checkin(checked_out)
+
+        @pool.pool_transaction_isolation_level = :read_committed
+        assert_equal :read_committed, @pool.pool_transaction_isolation_level
+        @pool.pool_transaction_isolation_level = nil
+      end
+
+      def test_connection_pool_public_maintenance_methods
+        @pool.activate
+        connection = @pool.lease_connection
+        @pool.release_connection
+
+        assert_includes @pool.connections, connection
+        @pool.prepopulate
+        @pool.preconnect
+        @pool.keep_alive(0)
+        @pool.retire_old_connections(0)
+        @pool.reap
+        @pool.recycle!
+        @pool.flush(0)
+        assert_not_includes @pool.connections, connection
+
+        replacement = @pool.lease_connection
+        @pool.release_connection
+        @pool.clear_reloadable_connections
+        assert @pool.connections
+        @pool.clear_reloadable_connections!
+        assert @pool.connections
+
+        @pool.disconnect
+        assert_not_predicate @pool, :activated?
+        assert_empty @pool.connections
+
+        @pool.activate
+        @pool.lease_connection
+        @pool.release_connection
+        @pool.flush!
+        assert_not_predicate @pool, :activated?
+
+        @pool.activate
+        @pool.lease_connection
+        @pool.release_connection
+        @pool.disconnect!
+        assert_empty @pool.connections
+      end
+
+      def test_connection_pool_remove_detaches_checked_out_connection
+        conn = @pool.checkout
+        assert_includes @pool.connections, conn
+        @pool.remove(conn)
+        assert_not_includes @pool.connections, conn
+      ensure
+        conn&.disconnect!
+      end
+
       def test_a_class_using_custom_pool_and_switching_back_to_primary
         klass2 = Class.new(Base) { def self.name; "klass2"; end }
 
