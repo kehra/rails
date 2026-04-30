@@ -752,6 +752,13 @@ class AttributeMethodsTest < ActiveRecord::TestCase
     end
   end
 
+  test "dangerous_class_method? detects restricted and Active Record class methods" do
+    assert Topic.dangerous_class_method?(:new)
+    assert Topic.dangerous_class_method?(:connection)
+    assert_not Topic.dangerous_class_method?(:object_id)
+    assert_not Topic.dangerous_class_method?(:not_a_class_method)
+  end
+
   test "converted values are returned after assignment" do
     developer = Developer.new(name: 1337, salary: "50000")
 
