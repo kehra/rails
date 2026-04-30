@@ -194,6 +194,81 @@ module ActiveRecord
         assert_equal 1, missing_cache.size
       end
 
+      def test_schema_reflection_public_methods_delegate_to_cache
+        pool = Object.new
+        calls = []
+        cache = Class.new do
+          define_method(:initialize) { |calls| @calls = calls }
+          define_method(:add) { |pool, name| @calls << [:add, pool, name]; :added }
+          define_method(:data_source_exists?) { |pool, name| @calls << [:data_source_exists?, pool, name]; :exists }
+          define_method(:data_sources) { |pool, name| @calls << [:data_sources, pool, name]; :sources }
+          define_method(:primary_keys) { |pool, name| @calls << [:primary_keys, pool, name]; :primary_keys }
+          define_method(:columns) { |pool, name| @calls << [:columns, pool, name]; :columns }
+          define_method(:columns_hash) { |pool, name| @calls << [:columns_hash, pool, name]; :columns_hash }
+          define_method(:columns_hash?) { |pool, name| @calls << [:columns_hash?, pool, name]; :columns_hash? }
+          define_method(:indexes) { |pool, name| @calls << [:indexes, pool, name]; :indexes }
+          define_method(:version) { |pool| @calls << [:version, pool]; :version }
+          define_method(:size) { @calls << [:size]; :size }
+          define_method(:clear_data_source_cache!) { |pool, name| @calls << [:clear_data_source_cache!, pool, name]; :cleared_data_source }
+        end.new(calls)
+        reflection = SchemaReflection.new(nil, cache)
+
+        assert_equal :added, reflection.add(pool, :posts)
+        assert_equal :exists, reflection.data_source_exists?(pool, :posts)
+        assert_equal :exists, reflection.data_sources(pool, :posts)
+        assert_equal :primary_keys, reflection.primary_keys(pool, :posts)
+        assert_equal :columns, reflection.columns(pool, :posts)
+        assert_equal :columns_hash, reflection.columns_hash(pool, :posts)
+        assert_equal :columns_hash?, reflection.columns_hash?(pool, :posts)
+        assert_equal :indexes, reflection.indexes(pool, :posts)
+        assert_equal :version, reflection.version(pool)
+        assert_equal :size, reflection.size(pool)
+        assert_equal :cleared_data_source, reflection.clear_data_source_cache!(pool, :posts)
+
+        assert_equal [
+          [:add, pool, :posts],
+          [:data_source_exists?, pool, :posts],
+          [:data_source_exists?, pool, :posts],
+          [:primary_keys, pool, :posts],
+          [:columns, pool, :posts],
+          [:columns_hash, pool, :posts],
+          [:columns_hash?, pool, :posts],
+          [:indexes, pool, :posts],
+          [:version, pool],
+          [:size],
+          [:clear_data_source_cache!, pool, :posts],
+        ], calls
+      end
+
+      def test_schema_reflection_handles_missing_and_expired_cache_dumps
+        Tempfile.create(["schema-cache-empty", ".yml"]) do |file|
+          reflection = SchemaReflection.new(file.path)
+
+          SchemaCache.stub(:_load_from, nil) do
+            SchemaReflection.with(check_schema_cache_dump_version: false) do
+              assert_nil reflection.cached?("courses")
+            end
+          end
+        end
+
+        Tempfile.create(["schema-cache-expired", ".yml"]) do |file|
+          stale_cache = Class.new do
+            def version(_connection) = 1
+            def schema_version = 1
+          end.new
+          pool = Struct.new(:connection) do
+            def with_connection
+              yield connection
+            end
+          end.new(Struct.new(:schema_version).new(2))
+          reflection = SchemaReflection.new(file.path)
+
+          SchemaCache.stub(:_load_from, stale_cache) do
+            assert_match(/Ignoring .* because it has expired/, capture(:stderr) { reflection.load!(pool) })
+          end
+        end
+      end
+
       def test_cache_path_can_be_in_directory
         cache = new_bound_reflection
         tmp_dir = Dir.mktmpdir
