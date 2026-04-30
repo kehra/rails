@@ -1380,14 +1380,78 @@ module ActiveRecord
       assert_empty (author_clause + title_clause).except(table[:author_id]).to_h.slice("author_id")
     end
 
+    test "default scoping public APIs report and remove default scopes" do
+      author_id = authors(:david).id
+      klass = relation_test_post_class do
+        default_scope -> { where(author_id: author_id).order(:id) }
+      end
+      unscoped_ids = klass.unscoped.order(:id).ids
+
+      assert klass.default_scopes?
+      assert_not klass.default_scopes?(all_queries: true)
+      assert_equal Post.where(author_id: author_id).order(:id).ids, klass.all.ids
+      assert_equal Post.order(:id).ids, unscoped_ids
+      assert_equal klass.order(:id).ids, klass.unscoped { klass.where(author_id: author_id).order(:id).ids }
+    end
+
+    test "default scoped applies all queries flag and returns fallback relation" do
+      author_id = authors(:david).id
+      klass = relation_test_post_class do
+        default_scope -> { where(author_id: author_id) }, all_queries: true
+      end
+      plain = relation_test_post_class
+
+      assert klass.default_scopes?(all_queries: true)
+      assert_equal Post.where(author_id: author_id).order(:id).ids, klass.default_scoped.order(:id).ids
+      assert_equal klass.default_scoped(all_queries: true).where_clause.to_h["author_id"], author_id
+      assert_same plain, plain.default_scoped.model
+      assert_equal Post.order(:id).ids, plain.default_scoped.order(:id).ids
+    end
+
+    test "named scoping public APIs compose all default scoped and scope definitions" do
+      author_id = authors(:david).id
+      callable_scope = Object.new
+      callable_scope.define_singleton_method(:call) { |title| Class.new(ActiveRecord::Base).tap { |k| k.table_name = "posts" }.where(title: title) }
+      klass = relation_test_post_class do
+        default_scope -> { where(author_id: author_id) }
+        scope :with_title, ->(title) { where(title: title) }
+        scope :with_callable_title, callable_scope
+        scope :callable_with_extension, callable_scope do
+          def title_list
+            pluck(:title)
+          end
+        end
+        scope :fallback_scope, -> { nil }
+        scope :ordered_with_extension, -> { order(:id) } do
+          def title_list
+            pluck(:title)
+          end
+        end
+      end
+
+      assert_equal Post.where(author_id: author_id).order(:id).ids, klass.all.order(:id).ids
+      assert_equal Post.order(:id).ids, relation_test_post_class.all.order(:id).ids
+      assert_equal [posts(:welcome).id], klass.with_title(posts(:welcome).title).ids
+      assert_equal [posts(:welcome).id], klass.with_callable_title(posts(:welcome).title).ids
+      assert_equal [posts(:welcome).title], klass.callable_with_extension(posts(:welcome).title).title_list
+      assert_equal klass.all.ids.sort, klass.fallback_scope.ids.sort
+      assert_equal klass.ordered_with_extension.pluck(:title), klass.ordered_with_extension.title_list
+      assert_equal klass.where(id: posts(:welcome).id).ids, klass.where(id: posts(:welcome).id).scoping { klass.all.ids }
+      assert_equal klass.all.ids.sort, Post.where(id: posts(:welcome).id).scoping { klass.all.ids.sort }
+      assert_equal klass.all.ids.sort, klass.unscoped.where(id: posts(:welcome).id).scoping { klass.default_scoped.ids.sort }
+      assert_raises(ArgumentError) { klass.scope(:bad_scope, Object.new) }
+      assert_raises(ArgumentError) { klass.scope(:new, -> { all }) }
+      assert_raises(ArgumentError) { klass.scope(:records, -> { all }) }
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
-        self.class.const_set("RelationTestPost#{object_id.abs}", klass)
+        self.class.const_set("RelationTestPost#{object_id.abs}#{rand(1_000_000)}", klass)
         klass.class_eval do
           self.table_name = "posts"
           self.inheritance_column = :_type_disabled
-          class_eval(&block)
+          class_eval(&block) if block
         end
         klass
       end
