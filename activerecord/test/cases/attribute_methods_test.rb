@@ -1388,6 +1388,18 @@ class AttributeMethodsTest < ActiveRecord::TestCase
     alias_attribute :subject, :title
   end
 
+  test "#alias_attribute generates methods after aliases were mass generated" do
+    model = Class.new(ActiveRecord::Base) do
+      self.table_name = "topics"
+    end
+
+    model.define_attribute_methods
+    model.alias_attribute :headline, :title
+
+    record = model.new(title: "alias after generation")
+    assert_equal "alias after generation", record.headline
+  end
+
   test "#alias_attribute override methods defined in parent models" do
     parent_model = Class.new(ActiveRecord::Base) do
       self.abstract_class = true
