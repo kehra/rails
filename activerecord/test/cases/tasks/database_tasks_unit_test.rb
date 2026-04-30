@@ -452,6 +452,533 @@ module ActiveRecord
         end
       end
 
+      def test_prepare_all_initializes_migrates_dumps_and_loads_seed
+        config = db_config(name: "primary", seeds_value: true)
+        calls = []
+        @tasks.stub(:env, "test") do
+          @tasks.stub(:each_current_configuration, ->(_env, &block) { block.call(config) }) do
+            @tasks.stub(:initialize_database, ->(db_config) { calls << [:initialize, db_config.name]; true }) do
+              @tasks.stub(:each_current_environment, ->(_env, &block) { block.call("test") }) do
+                @tasks.stub(:db_configs_with_versions, ->(_environment) { { 2 => [config] } }) do
+                  @tasks.stub(:with_temporary_pool, ->(db_config, clobber: false, &block) { calls << [:pool, db_config.name, clobber]; block&.call(OpenStruct.new(db_config: db_config)) }) do
+                    @tasks.stub(:migrate, ->(version) { calls << [:migrate, version] }) do
+                      @tasks.stub(:dump_schema, ->(db_config) { calls << [:dump_schema, db_config.name] }) do
+                        @tasks.stub(:load_seed, -> { calls << [:load_seed] }) do
+                          ActiveRecord.stub(:dump_schema_after_migration, true) do
+                            @tasks.prepare_all
+                          end
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+
+        assert_includes calls, [:initialize, "primary"]
+        assert_includes calls, [:migrate, 2]
+        assert_includes calls, [:dump_schema, "primary"]
+        assert_includes calls, [:load_seed]
+      end
+
+      def test_prepare_all_skips_schema_dump_and_seed_when_not_needed
+        config = db_config(seeds_value: false)
+        calls = []
+        @tasks.stub(:env, "test") do
+          @tasks.stub(:each_current_configuration, ->(_env, &block) { block.call(config) }) do
+            @tasks.stub(:initialize_database, false) do
+              @tasks.stub(:each_current_environment, ->(_env, &block) { block.call("test") }) do
+                @tasks.stub(:db_configs_with_versions, {}) do
+                  @tasks.stub(:dump_schema, ->(*) { calls << :dump_schema }) do
+                    @tasks.stub(:load_seed, -> { calls << :load_seed }) do
+                      ActiveRecord.stub(:dump_schema_after_migration, false) do
+                        @tasks.prepare_all
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+        assert_empty calls
+      end
+
+      def test_migrate_all_uses_single_primary_fast_path_or_grouped_multi_db_path
+        primary = db_config(name: "primary")
+        secondary = db_config(name: "animals")
+        configurations = Object.new
+        configurations.define_singleton_method(:configs_for) { |env_name:| [primary] }
+        calls = []
+
+        ActiveRecord::Base.stub(:configurations, configurations) do
+          @tasks.stub(:env, "test") do
+            @tasks.stub(:initialize_database, ->(db_config) { calls << [:initialize, db_config.name] }) do
+              @tasks.stub(:migrate, ->(skip_initialize:) { calls << [:migrate, skip_initialize] }) do
+                @tasks.migrate_all
+              end
+            end
+          end
+        end
+        assert_includes calls, [:migrate, true]
+
+        configurations.define_singleton_method(:configs_for) { |env_name:| [primary, secondary] }
+        calls.clear
+        ActiveRecord::Base.stub(:configurations, configurations) do
+          @tasks.stub(:env, "test") do
+            @tasks.stub(:initialize_database, ->(db_config) { calls << [:initialize, db_config.name] }) do
+              @tasks.stub(:db_configs_with_versions, { 7 => [secondary] }) do
+                @tasks.stub(:with_temporary_connection, ->(db_config, clobber: false, &block) { calls << [:temporary, db_config.name]; block.call(Object.new) }) do
+                  @tasks.stub(:migrate, ->(version, skip_initialize:) { calls << [:migrate, version, skip_initialize] }) do
+                    @tasks.migrate_all
+                  end
+                end
+              end
+            end
+          end
+        end
+        assert_includes calls, [:temporary, "animals"]
+        assert_includes calls, [:migrate, 7, true]
+      end
+
+      def test_load_schema_handles_ruby_sql_unknown_format_and_metadata
+        config = db_config(env_name: "test", schema_format: :ruby)
+        file = Tempfile.new("schema")
+        file.write("$database_tasks_unit_loaded = true")
+        file.close
+        metadata = Minitest::Mock.new
+        metadata.expect(:create_table_and_set_flags, nil, ["test", OpenSSL::Digest::SHA1.hexdigest(File.read(file.path))])
+        pool = OpenStruct.new(internal_metadata: metadata)
+
+        @tasks.stub(:migration_connection_pool, pool) do
+          @tasks.load_schema(config, :ruby, file.path)
+        end
+        assert $database_tasks_unit_loaded
+        metadata.verify
+
+        called = []
+        metadata = Object.new
+        metadata.define_singleton_method(:create_table_and_set_flags) { |_env, _sha| }
+        @tasks.stub(:migration_connection_pool, OpenStruct.new(internal_metadata: metadata)) do
+          @tasks.stub(:structure_load, ->(db_config, path) { called << [db_config, path] }) do
+            @tasks.load_schema(config, :sql, file.path)
+          end
+        end
+        assert_equal [[config, file.path]], called
+
+        assert_raises(ArgumentError) do
+          @tasks.load_schema(config, :xml, file.path)
+        end
+      ensure
+        file.unlink if file
+        $database_tasks_unit_loaded = nil
+      end
+
+      def test_schema_up_to_date_short_circuits_or_uses_given_pool
+        config = db_config(schema_dump_value: nil)
+        @tasks.stub(:resolve_configuration, config) do
+          assert @tasks.schema_up_to_date?(config)
+        end
+
+        file = Tempfile.new("schema")
+        file.write("abc")
+        file.close
+        config = db_config(schema_dump_value: file.path)
+        pool = Object.new
+        checked = []
+        @tasks.stub(:resolve_configuration, config) do
+          @tasks.stub(:check_schema_sha1, ->(given_pool, given_file) { checked << [given_pool, given_file]; true }) do
+            assert @tasks.schema_up_to_date?(config, nil, file.path, pool: pool)
+          end
+        end
+        assert_equal [[pool, file.path]], checked
+      ensure
+        file.unlink if file
+      end
+
+      def test_reconstruct_from_schema_empties_purges_or_creates_then_loads
+        config = db_config(schema_format: :ruby)
+        file = Tempfile.new("schema")
+        file.close
+        calls = []
+
+        @tasks.stub(:with_temporary_pool, ->(db_config, clobber:, &block) { calls << [:pool, clobber]; block.call(Object.new) }) do
+          @tasks.stub(:schema_up_to_date?, true) do
+            @tasks.stub(:empty_all_tables, ->(db_config) { calls << [:empty, db_config.database] }) do
+              @tasks.reconstruct_from_schema(config, file.path)
+            end
+          end
+        end
+        assert_includes calls, [:empty, "unit_db"]
+
+        calls.clear
+        @tasks.stub(:with_temporary_pool, ->(db_config, clobber:, &block) { block.call(Object.new) }) do
+          @tasks.stub(:schema_up_to_date?, false) do
+            @tasks.stub(:purge, ->(db_config) { calls << [:purge, db_config.database] }) do
+              @tasks.stub(:load_schema, ->(db_config, format, path) { calls << [:load, format, path] }) do
+                @tasks.reconstruct_from_schema(config, file.path)
+              end
+            end
+          end
+        end
+        assert_includes calls, [:purge, "unit_db"]
+        assert_includes calls, [:load, :ruby, file.path]
+
+        calls.clear
+        @tasks.stub(:with_temporary_pool, ->(db_config, clobber:, &block) { block.call(Object.new.tap { |o| o.define_singleton_method(:raise_no_database) { raise ActiveRecord::NoDatabaseError.new } }) }) do
+          @tasks.stub(:schema_up_to_date?, ->(*) { raise ActiveRecord::NoDatabaseError.new }) do
+          @tasks.stub(:create, ->(db_config) { calls << [:create, db_config.database] }) do
+            @tasks.stub(:load_schema, ->(db_config, format, path) { calls << [:load, format, path] }) do
+              @tasks.reconstruct_from_schema(config, file.path)
+            end
+          end
+          end
+        end
+        assert_includes calls, [:create, "unit_db"]
+      ensure
+        file.unlink if file
+      end
+
+      def test_dump_all_skips_duplicate_schema_paths
+        one = db_config(name: "primary", schema_dump_value: "same.rb")
+        two = db_config(name: "animals", schema_dump_value: "same.rb")
+        configurations = Object.new
+        configurations.define_singleton_method(:configs_for) { |env_name:| [one, two] }
+        calls = []
+
+        ActiveRecord::Base.stub(:configurations, configurations) do
+          @tasks.stub(:env, "test") do
+            @tasks.stub(:schema_dump_path, ->(db_config, format = db_config.schema_format) { "db/#{db_config.schema_dump(format)}" }) do
+              @tasks.stub(:dump_schema, ->(db_config, format = db_config.schema_format) { calls << [db_config.name, format] }) do
+                @tasks.dump_all
+              end
+            end
+          end
+        end
+        assert_equal [["primary", :ruby]], calls
+      end
+
+      def test_dump_schema_writes_ruby_and_sql_formats
+        config = db_config(schema_format: :ruby)
+        dir = Dir.mktmpdir
+        ruby_file = File.join(dir, "schema.rb")
+        sql_file = File.join(dir, "structure.sql")
+        @tasks.db_dir = dir
+        pool = OpenStruct.new(schema_migration: OpenStruct.new(table_exists?: false))
+        calls = []
+
+        @tasks.stub(:schema_dump_path, ruby_file) do
+          @tasks.stub(:with_temporary_pool, ->(db_config, &block) { block.call(pool) }) do
+            ActiveRecord::SchemaDumper.stub(:dump, ->(_pool, file) { file.write("schema") }) do
+              @tasks.dump_schema(config, :ruby)
+            end
+          end
+        end
+        assert_equal "schema", File.read(ruby_file)
+
+        pool = Object.new
+        pool.define_singleton_method(:schema_migration) { OpenStruct.new(table_exists?: true) }
+        pool.define_singleton_method(:with_connection) { |&block| block.call(OpenStruct.new(dump_schema_versions: "versions")) }
+        @tasks.stub(:schema_dump_path, sql_file) do
+          @tasks.stub(:with_temporary_pool, ->(db_config, &block) { block.call(pool) }) do
+            @tasks.stub(:structure_dump, ->(db_config, path) { calls << [:structure_dump, path]; File.write(path, "sql\n") }) do
+              @tasks.dump_schema(config, :sql)
+            end
+          end
+        end
+        assert_includes calls, [:structure_dump, sql_file]
+        assert_includes File.read(sql_file), "versions"
+      ensure
+        FileUtils.rm_rf(dir) if dir
+      end
+
+      def test_empty_truncate_and_load_schema_current_use_temporary_connections
+        config = db_config(schema_format: :sql)
+        conn = Object.new
+        conn.define_singleton_method(:tables) { ["users", "posts"] }
+        calls = []
+        conn.define_singleton_method(:empty_all_tables) { calls << :empty }
+        conn.define_singleton_method(:truncate_tables) { |*tables| calls << [:truncate, tables] }
+
+        @tasks.stub(:with_temporary_connection, ->(db_config, clobber: false, &block) { block.call(conn) }) do
+          @tasks.send(:empty_all_tables, config)
+          @tasks.send(:truncate_tables, config)
+          @tasks.stub(:each_current_configuration, ->(_environment, &block) { block.call(config) }) do
+            @tasks.stub(:load_schema, ->(db_config, format, file) { calls << [:load_schema, format, file] }) do
+              @tasks.load_schema_current(nil, "structure.sql", "test")
+            end
+          end
+        end
+
+        assert_includes calls, :empty
+        assert_includes calls, [:truncate, ["users", "posts"]]
+        assert_includes calls, [:load_schema, :sql, "structure.sql"]
+      end
+
+      def test_schema_up_to_date_uses_temporary_pool_when_pool_not_given
+        file = Tempfile.new("schema")
+        file.write("abc")
+        file.close
+        config = db_config(schema_dump_value: file.path)
+        pool = Object.new
+        calls = []
+
+        @tasks.stub(:resolve_configuration, config) do
+          @tasks.stub(:with_temporary_pool, ->(db_config, &block) { calls << [:pool, db_config.database]; block.call(pool) }) do
+            @tasks.stub(:check_schema_sha1, ->(given_pool, given_file) { calls << [:check, given_pool, given_file]; true }) do
+              assert @tasks.schema_up_to_date?(config)
+            end
+          end
+        end
+
+        assert_includes calls, [:pool, "unit_db"]
+        assert_includes calls, [:check, pool, file.path]
+      ensure
+        file.unlink if file
+      end
+
+      def test_with_temporary_pool_for_each_and_connection_helpers
+        one = db_config(name: "primary")
+        two = db_config(name: "animals")
+        configurations = Object.new
+        configurations.define_singleton_method(:configs_for) do |env_name:, name: nil|
+          name ? one : [one, two]
+        end
+        calls = []
+
+        ActiveRecord::Base.stub(:configurations, configurations) do
+          @tasks.stub(:with_temporary_pool, ->(db_config, clobber: false, &block) { calls << [db_config.name, clobber]; block.call(OpenStruct.new(with_connection: "pool")) }) do
+            @tasks.with_temporary_pool_for_each(env: "test", name: "primary", clobber: true) { |_pool| calls << :named }
+            @tasks.with_temporary_pool_for_each(env: "test") { |_pool| calls << :each }
+          end
+        end
+
+        assert_includes calls, ["primary", true]
+        assert_includes calls, ["animals", false]
+        assert_includes calls, :named
+        assert_includes calls, :each
+
+        pool = Object.new
+        pool.define_singleton_method(:with_connection) { |&block| block.call(:connection) }
+        @tasks.stub(:with_temporary_pool, ->(db_config, clobber: false, &block) { block.call(pool) }) do
+          assert_equal :connection, @tasks.with_temporary_connection(one, clobber: true) { |conn| conn }
+        end
+      end
+
+      def test_initialize_database_creates_missing_database_and_loads_existing_schema
+        config = db_config
+        file = Tempfile.new("schema")
+        file.close
+        attempts = 0
+        schema_migration = Object.new
+        schema_migration.define_singleton_method(:table_exists?) do
+          attempts += 1
+          raise ActiveRecord::NoDatabaseError.new if attempts == 1
+          false
+        end
+        pool = Object.new
+        calls = []
+        pool.define_singleton_method(:schema_migration) { schema_migration }
+
+        @tasks.stub(:with_temporary_pool, ->(db_config, &block) { block.call(pool) }) do
+          @tasks.stub(:migration_connection_pool, pool) do
+            @tasks.stub(:create, ->(db_config) { calls << [:create, db_config.database] }) do
+              @tasks.stub(:schema_dump_path, file.path) do
+                @tasks.stub(:load_schema, ->(db_config) { calls << [:load_schema, db_config.database] }) do
+                  assert @tasks.send(:initialize_database, config)
+                end
+              end
+            end
+          end
+        end
+
+        assert_includes calls, [:create, "unit_db"]
+        assert_includes calls, [:load_schema, "unit_db"]
+
+        schema_migration.define_singleton_method(:table_exists?) { true }
+        @tasks.stub(:with_temporary_pool, ->(db_config, &block) { block.call(pool) }) do
+          @tasks.stub(:migration_connection_pool, pool) do
+            assert_not @tasks.send(:initialize_database, config)
+          end
+        end
+      ensure
+        file.unlink if file
+      end
+
+      def test_remaining_database_tasks_edge_branches
+        config = db_config
+
+        @tasks.structure_load_flags = { unit: ["--load"] }
+        assert_equal ["--load"], @tasks.send(:structure_load_flags_for, "unit")
+
+        adapter = Object.new
+        def adapter.create = raise ActiveRecord::DatabaseAlreadyExists.new("exists")
+        ENV["VERBOSE"] = "false"
+        @tasks.stub(:resolve_configuration, config) do
+          @tasks.stub(:database_adapter_for, adapter) { @tasks.create(config) }
+        end
+        assert_equal "", $stderr.string
+        ENV.delete("VERBOSE")
+
+        names = []
+        single_database = { "test" => { "primary" => { "adapter" => "sqlite3", "database" => "one" } } }
+        Rails.singleton_class.define_method(:env) { "test" } unless Rails.respond_to?(:env)
+        Rails.stub(:env, "test") do
+          assert_nil @tasks.for_each(single_database) { |name| names << name }
+        end
+        assert_empty names
+
+        file = Tempfile.new("schema")
+        file.close
+        @tasks.stub(:schema_dump_path, nil) do
+          assert_nil @tasks.load_schema(config, :ruby, nil)
+        end
+
+        calls = []
+        @tasks.stub(:schema_dump_path, nil) do
+          @tasks.stub(:with_temporary_pool, ->(db_config, clobber:, &block) { block.call(Object.new) }) do
+            @tasks.stub(:schema_up_to_date?, true) do
+              @tasks.stub(:empty_all_tables, ->(*) { }) do
+                @tasks.reconstruct_from_schema(config, nil)
+              end
+            end
+          end
+        end
+        @tasks.stub(:schema_dump_path, "schema.rb") do
+          @tasks.dump_schema(db_config(schema_dump_value: false), :ruby)
+        end
+        assert_empty calls
+
+        schema_migration = OpenStruct.new(table_exists?: false)
+        pool = OpenStruct.new(schema_migration: schema_migration)
+        @tasks.stub(:with_temporary_pool, ->(db_config, &block) { block.call(pool) }) do
+          @tasks.stub(:migration_connection_pool, pool) do
+            @tasks.stub(:schema_dump_path, nil) do
+              assert @tasks.send(:initialize_database, config)
+            end
+          end
+        end
+      ensure
+        ENV.delete("VERBOSE")
+        file.unlink if defined?(file) && file
+      end
+
+      def test_migrate_reports_empty_scoped_runs
+        context = Object.new
+        context.define_singleton_method(:migrate) { |_target, &_block| [] }
+        pool = OpenStruct.new(db_config: db_config, migration_context: context, schema_cache: OpenStruct.new(clear!: nil))
+        messages = []
+        ENV["SCOPE"] = "animals"
+        ActiveRecord::Migration.singleton_class.define_method(:write) { |message| messages << message } unless ActiveRecord::Migration.respond_to?(:write)
+        @tasks.stub(:migration_connection_pool, pool) do
+          @tasks.stub(:initialize_database, nil) do
+            ActiveRecord::Migration.stub(:write, ->(message) { messages << message }) do
+              @tasks.migrate(nil, skip_initialize: true)
+            end
+          end
+        end
+        assert_equal ["No migrations ran. (using animals scope)"], messages
+      ensure
+        ENV.delete("SCOPE")
+      end
+
+      def test_each_current_configuration_skips_non_matching_name
+        configs = [db_config(name: "primary"), db_config(name: "animals")]
+        yielded = []
+        @tasks.stub(:each_current_environment, ->(_environment, &block) { block.call("test") }) do
+          @tasks.stub(:configs_for, configs) do
+            @tasks.send(:each_current_configuration, "test", "animals") { |db_config| yielded << db_config.name }
+          end
+        end
+        assert_equal ["animals"], yielded
+      end
+
+      def test_database_tasks_without_rails_constant_return_empty_defaults
+        rails = Object.send(:remove_const, :Rails)
+        assert_equal({}, @tasks.setup_initial_database_yaml)
+        assert_equal({}, @tasks.for_each({}) { flunk("should not yield") })
+      ensure
+        Object.const_set(:Rails, rails) if rails && !Object.const_defined?(:Rails)
+      end
+
+      def test_dump_schema_nil_unknown_format_and_sql_without_versions
+        config = db_config(schema_dump_value: nil)
+        @tasks.stub(:schema_dump_path, nil) do
+          assert_nil @tasks.dump_schema(config, :ruby)
+          assert_nil @tasks.dump_schema(db_config(schema_dump_value: "schema.rb"), :ruby)
+        end
+
+        dir = Dir.mktmpdir
+        @tasks.db_dir = dir
+        file = File.join(dir, "structure.sql")
+        pool = Object.new
+        pool.define_singleton_method(:schema_migration) { OpenStruct.new(table_exists?: false) }
+        @tasks.stub(:schema_dump_path, file) do
+          @tasks.stub(:with_temporary_pool, ->(_db_config, &block) { block.call(pool) }) do
+            @tasks.stub(:structure_dump, ->(_db_config, path) { File.write(path, "sql\n") }) do
+              @tasks.dump_schema(db_config(schema_dump_value: "structure.sql"), :sql)
+            end
+          end
+        end
+        assert_equal "sql\n", File.read(file)
+
+        @tasks.stub(:schema_dump_path, file) do
+          @tasks.stub(:with_temporary_pool, ->(_db_config, &block) { block.call(pool) }) do
+            assert_nil @tasks.dump_schema(db_config(schema_dump_value: "schema.xml"), :xml)
+          end
+        end
+        assert_nil @tasks.dump_schema(db_config(schema_dump_value: false), :xml)
+      ensure
+        FileUtils.rm_rf(dir) if dir
+      end
+
+      def test_check_schema_file_message_with_rails_root
+        Rails.define_singleton_method(:root) { "/rails-root" } unless Rails.respond_to?(:root)
+        error = assert_raises(RuntimeError) do
+          Kernel.stub(:abort, ->(message) { raise message }) do
+            @tasks.check_schema_file("/tmp/missing-database-tasks-unit-schema")
+          end
+        end
+        assert_includes error.message, "/rails-root/config/application.rb"
+      end
+
+      def test_check_schema_file_message_without_rails_root
+        had_root = Rails.respond_to?(:root)
+        root_method = Rails.method(:root) if had_root
+        Rails.singleton_class.remove_method(:root) if had_root
+        error = assert_raises(RuntimeError) do
+          Kernel.stub(:abort, ->(message) { raise message }) do
+            @tasks.check_schema_file("/tmp/missing-database-tasks-unit-schema")
+          end
+        end
+        assert_includes error.message, "doesn't exist yet"
+      ensure
+        if had_root && !Rails.respond_to?(:root)
+          Rails.define_singleton_method(:root) { root_method.call }
+        end
+      end
+
+      def test_verbose_false_suppresses_create_and_drop_messages
+        config = db_config
+        adapter = Object.new
+        def adapter.create; end
+        def adapter.drop; end
+        ENV["VERBOSE"] = "false"
+
+        @tasks.stub(:resolve_configuration, config) do
+          @tasks.stub(:database_adapter_for, adapter) do
+            @tasks.create(config)
+            @tasks.drop(config)
+          end
+        end
+
+        assert_equal "", $stdout.string
+      ensure
+        ENV.delete("VERBOSE")
+      end
+
       def test_each_local_configuration_yields_only_local_databases
         local = db_config(database: "local", host: "localhost")
         remote = db_config(database: "remote", host: "db.example.com")
