@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "cases/helper"
+require "active_record/connection_adapters/abstract_mysql_adapter"
 require "support/connection_helper"
 require "models/book"
 require "models/post"
@@ -569,6 +570,84 @@ module ActiveRecord
         end
         assert_equal "SELECT 2", error.sql
       end
+    end
+
+    def test_abstract_mysql_adapter_basic_public_contracts
+      adapter_class = Class.new(ActiveRecord::ConnectionAdapters::AbstractMysqlAdapter) do
+        attr_reader :executed_sql
+
+        def initialize(*)
+          super
+          @executed_sql = []
+        end
+
+        def execute(sql)
+          @executed_sql << sql
+          sql
+        end
+
+        def query_value(sql, *)
+          case sql
+          when "SELECT database()" then "app_test"
+          when "SELECT @@character_set_database" then "utf8mb4"
+          when "SELECT @@collation_database" then "utf8mb4_unicode_ci"
+          else
+            raise ActiveRecord::StatementInvalid.new("unknown variable")
+          end
+        end
+
+        def row_format_dynamic_by_default? = @dynamic_row_format
+        def dynamic_row_format=(value)
+          @dynamic_row_format = value
+        end
+        def error_number(_exception) = nil
+        def active? = true
+      end
+
+      adapter_class.const_set(:ADAPTER_NAME, "TestMysql")
+      adapter = adapter_class.new({ prepared_statements: false })
+
+      assert_equal "app_test", adapter.current_database
+      assert_equal "utf8mb4", adapter.charset
+      assert_equal "utf8mb4_unicode_ci", adapter.collation
+      assert_nil adapter.show_variable("missing_variable")
+
+      case_sensitive_column = Struct.new(:case_sensitive?).new(true)
+      case_insensitive_column = Struct.new(:case_sensitive?).new(false)
+      assert adapter.send(:can_perform_case_insensitive_comparison_for?, case_sensitive_column)
+      refute adapter.send(:can_perform_case_insensitive_comparison_for?, case_insensitive_column)
+
+      assert_equal({
+        default: "ALGORITHM = DEFAULT",
+        copy: "ALGORITHM = COPY",
+        inplace: "ALGORITHM = INPLACE",
+        instant: "ALGORITHM = INSTANT",
+      }, adapter.index_algorithms)
+      assert_equal({
+        default: "LOCK = DEFAULT",
+        none: "LOCK = NONE",
+        shared: "LOCK = SHARED",
+        exclusive: "LOCK = EXCLUSIVE",
+      }, adapter.lock_options)
+      assert_equal "LOCK = SHARED", adapter.lock_clause(:shared)
+      assert_nil adapter.lock_clause(nil)
+      assert_raises(ArgumentError) { adapter.lock_clause(:invalid) }
+
+      adapter.create_database("animals", collation: "utf8mb4_bin")
+      adapter.create_database("plants", charset: "utf8mb4")
+      adapter.dynamic_row_format = true
+      adapter.create_database("minerals")
+      assert_raises(RuntimeError) { adapter_class.new({ prepared_statements: false }).create_database("unsupported") }
+      adapter.drop_database("old_animals")
+      adapter.drop_table(:cats)
+      adapter.drop_table(:cats, :dogs, if_exists: true, temporary: true, force: :cascade)
+
+      assert_includes adapter.executed_sql, "CREATE DATABASE `animals` DEFAULT COLLATE `utf8mb4_bin`"
+      assert_includes adapter.executed_sql, "CREATE DATABASE `plants` DEFAULT CHARACTER SET `utf8mb4`"
+      assert_includes adapter.executed_sql, "CREATE DATABASE `minerals` DEFAULT CHARACTER SET `utf8mb4`"
+      assert_includes adapter.executed_sql, "DROP DATABASE IF EXISTS `old_animals`"
+      assert_includes adapter.executed_sql, "DROP TABLE `cats`"
+      assert_includes adapter.executed_sql, "DROP TEMPORARY TABLE IF EXISTS `cats`, `dogs` CASCADE"
     end
 
     def test_savepoint_public_methods_issue_transaction_commands
