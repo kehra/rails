@@ -179,5 +179,33 @@ module ActiveRecord
       assert_match(/LEFT OUTER JOIN/i, relation.to_sql)
       assert_match(/ORDER BY/i, relation.to_sql)
     end
+
+    test "preload with where and order keeps parent query separate from joins" do
+      author = authors(:david)
+      relation = Post.preload(:author).where(author_id: author.id).order(:id)
+
+      assert_equal Post.where(author_id: author.id).order(:id).to_a, relation.to_a
+      assert_no_match(/JOIN/i, relation.to_sql)
+      assert_no_queries { relation.load.each(&:author) }
+    end
+
+    test "eager load with select and distinct handles joined row duplication and projection" do
+      relation = Post.eager_load(:comments).select("posts.id").distinct.order("posts.id ASC")
+      records = relation.to_a
+
+      assert_equal Post.order(:id).ids, records.map(&:id)
+      assert_raises(ActiveModel::MissingAttributeError) { records.first.title }
+      assert_match(/LEFT OUTER JOIN/i, relation.to_sql)
+      assert_match(/DISTINCT/i, relation.to_sql)
+    end
+
+    test "joins includes and preload on the same association keep join and preload behavior isolated" do
+      author = authors(:david)
+      relation = Post.joins(:author).includes(:author).preload(:author).where("authors.id = ?", author.id).order(:id)
+
+      assert_equal Post.where(author_id: author.id).order(:id).to_a, relation.to_a
+      assert_match(/JOIN/i, relation.to_sql)
+      assert_no_queries { relation.load.each(&:author) }
+    end
   end
 end
