@@ -44,6 +44,14 @@ module ActiveRecord
         assert_equal "lol", @quoter.quote_table_name("foo")
       end
 
+      def test_column_name_matchers_accept_safe_column_lists
+        assert_match @quoter.class.column_name_matcher, "posts.title, COUNT(id) total"
+        assert_no_match @quoter.class.column_name_matcher, "posts.title; DELETE FROM posts"
+
+        assert_match @quoter.class.column_name_with_order_matcher, "posts.title DESC NULLS LAST, LOWER(name) ASC"
+        assert_no_match @quoter.class.column_name_with_order_matcher, "posts.title DESC; DELETE FROM posts"
+      end
+
       def test_quote_string
         assert_equal "''", @quoter.quote_string("'")
         assert_equal "\\\\", @quoter.quote_string("\\")
@@ -187,6 +195,58 @@ module ActiveRecord
 
       def test_quote_string_no_column
         assert_equal "'lo\\\\l'", @quoter.quote('lo\l')
+      end
+
+      def test_quote_binary_and_time_value
+        binary = ActiveModel::Type::Binary::Data.new("bin'\\ary")
+        assert_equal "'bin''\\\\ary'", @quoter.quote(binary)
+        assert_equal "bin'\\ary", @quoter.type_cast(binary)
+        assert_nil @quoter.type_cast(nil)
+        assert_equal 1, @quoter.type_cast(1)
+        assert_equal "plain", @quoter.type_cast("plain")
+        assert_equal "1.23", @quoter.type_cast(BigDecimal("1.23"))
+
+        time_value = ActiveRecord::Type::Time::Value.new(Time.utc(2024, 5, 6, 7, 8, 9, 123456))
+        assert_equal "'07:08:09.123456'", @quoter.quote(time_value)
+        assert_equal "07:08:09.123456", @quoter.type_cast(time_value)
+      end
+
+      def test_quote_default_expression_proc_and_serialized_value
+        column = Struct.new(:cast_type).new(ActiveModel::Type::Integer.new)
+
+        assert_equal "CURRENT_TIMESTAMP", @quoter.quote_default_expression(-> { "CURRENT_TIMESTAMP" }, column)
+        assert_equal "42", @quoter.quote_default_expression("42", column)
+      end
+
+      def test_quote_table_name_for_assignment_and_boolean_unquoted_values
+        @quoter.class.extend(Module.new {
+          def quote_column_name(string)
+            %Q("#{string}")
+          end
+        })
+
+        assert_equal '"posts.title"', @quoter.quote_table_name_for_assignment("posts", "title")
+        assert_equal true, @quoter.unquoted_true
+        assert_equal false, @quoter.unquoted_false
+        assert_equal true, @quoter.cast_bound_value(true)
+      end
+
+      def test_sanitize_as_sql_comment_removes_wrappers_and_splits_internal_tokens
+        assert_equal "hint", @quoter.sanitize_as_sql_comment(" /*+ hint */ ")
+        assert_equal "a * / b / * c", @quoter.sanitize_as_sql_comment("a */ b /* c")
+      end
+
+      def test_type_casted_binds_and_lookup_cast_type
+        type = ActiveModel::Type::Integer.new
+        attribute = ActiveModel::Attribute.with_cast_value("id", 7, type)
+        assert_equal [7, "name"], @quoter.send(:type_casted_binds, [attribute, :name])
+        assert_nil @quoter.send(:type_casted_binds, nil)
+
+        type_map = Minitest::Mock.new
+        type_map.expect(:lookup, :integer_type, ["integer"])
+        @quoter.define_singleton_method(:type_map) { type_map }
+        assert_equal :integer_type, @quoter.send(:lookup_cast_type, "integer")
+        type_map.verify
       end
 
       def test_quote_duration
