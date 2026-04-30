@@ -389,6 +389,77 @@ module ActiveRecord
         conn&.disconnect!
       end
 
+      def test_connection_pool_schema_cache_stat_with_connection_and_executor_hook
+        cache = @pool.schema_cache
+        assert_same cache, @pool.schema_cache
+
+        @pool.schema_reflection = @pool.schema_reflection
+        assert_not_same cache, @pool.schema_cache
+
+        stat = @pool.stat
+        assert_equal @pool.size, stat[:size]
+        assert_equal @pool.checkout_timeout, stat[:checkout_timeout]
+        assert_equal @pool.connections.size, stat[:connections]
+
+        yielded = nil
+        @pool.with_connection do |connection|
+          yielded = connection
+          assert_same connection, @pool.active_connection?
+        end
+        assert yielded
+        assert_nil @pool.active_connection?
+
+        leased = @pool.lease_connection
+        @pool.with_connection do |connection|
+          assert_same leased, connection
+        end
+        assert_same leased, @pool.active_connection?
+        @pool.release_connection
+
+        executor = Class.new do
+          class << self
+            attr_reader :hook
+            def register_hook(hook)
+              @hook = hook
+            end
+          end
+        end
+        ActiveRecord::ConnectionAdapters::ConnectionPool.install_executor_hooks(executor)
+        assert_equal ActiveRecord::ConnectionAdapters::ConnectionPool::ExecutorHooks, executor.hook
+      end
+
+      def test_connection_pool_queue_public_contract
+        queue = ActiveRecord::ConnectionAdapters::ConnectionPool::Queue.new
+        assert_equal 0, queue.size
+        assert_equal 0, queue.num_waiting
+        assert_not queue.any_waiting?
+        assert_nil queue.poll
+
+        queue.add(:front)
+        queue.add_back(:back)
+        assert_equal 2, queue.size
+        assert_equal :front, queue.poll
+        assert_equal :back, queue.delete(:back)
+        assert_equal 0, queue.size
+
+        queue.add(:first)
+        queue.add(:second)
+        assert_equal :second, queue.poll
+        queue.clear
+        assert_equal 0, queue.size
+        assert_raises(ActiveRecord::ConnectionTimeoutError) { queue.poll(0.001) }
+      end
+
+      def test_connection_pool_reaper_run_registers_only_positive_frequencies
+        reaper = ActiveRecord::ConnectionAdapters::ConnectionPool::Reaper.new(@pool, nil)
+        assert_same @pool, reaper.pool
+        assert_nil reaper.frequency
+        assert_nil reaper.run
+
+        zero_reaper = ActiveRecord::ConnectionAdapters::ConnectionPool::Reaper.new(@pool, 0)
+        assert_nil zero_reaper.run
+      end
+
       def test_a_class_using_custom_pool_and_switching_back_to_primary
         klass2 = Class.new(Base) { def self.name; "klass2"; end }
 
