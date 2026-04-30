@@ -69,6 +69,114 @@ module ActiveRecord
       assert_operator @connection.send(:bind_params_length), :>, 0
     end
 
+    def test_abstract_adapter_public_default_contracts
+      adapter_class = Class.new(ActiveRecord::ConnectionAdapters::AbstractAdapter) do
+        def arel_visitor = Arel::Visitors::ToSql.new(self)
+        def build_statement_pool = nil
+        def columns(_table_name) = [Struct.new(:name).new("title")]
+        def connect! = true
+      end
+
+      adapter_class.const_set(:ADAPTER_NAME, "TestAbstract")
+      adapter = adapter_class.new({ prepared_statements: false, advisory_locks: true, default_timezone: "utc" })
+
+      assert_equal 5, adapter_class.type_cast_config_to_integer(5)
+      assert_equal 42, adapter_class.type_cast_config_to_integer("42")
+      assert_equal "not_int", adapter_class.type_cast_config_to_integer("not_int")
+      assert_equal false, adapter_class.type_cast_config_to_boolean("false")
+      assert_equal true, adapter_class.type_cast_config_to_boolean(true)
+      assert_equal :utc, adapter_class.validate_default_timezone("utc")
+      assert_equal :local, adapter_class.validate_default_timezone("local")
+      assert_nil adapter_class.validate_default_timezone(nil)
+      assert_raises(ArgumentError) { adapter_class.validate_default_timezone("tokyo") }
+
+      adapter_class.migration_strategy = :custom_strategy
+      assert_equal :custom_strategy, adapter_class.migration_strategy
+      assert_equal :custom_strategy, adapter.migration_strategy
+
+      assert_equal "TestAbstract", adapter.adapter_name
+      assert_equal false, adapter.supports_ddl_transactions?
+      assert_equal false, adapter.supports_bulk_alter?
+      assert_equal false, adapter.supports_savepoints?
+      assert_equal false, adapter.savepoint_errors_invalidate_transactions?
+      assert_equal false, adapter.supports_restart_db_transaction?
+      assert_equal false, adapter.supports_advisory_locks?
+      assert_equal false, adapter.prefetch_primary_key?(:posts)
+      assert_equal false, adapter.supports_partitioned_indexes?
+      assert_equal false, adapter.supports_index_sort_order?
+      assert_equal false, adapter.supports_partial_index?
+      assert_equal false, adapter.supports_index_include?
+      assert_equal false, adapter.supports_expression_index?
+      assert_equal false, adapter.supports_explain?
+      assert_equal false, adapter.supports_transaction_isolation?
+      assert_equal false, adapter.supports_extensions?
+      assert_equal false, adapter.supports_indexes_in_create?
+      assert_equal false, adapter.supports_foreign_keys?
+      assert_equal false, adapter.supports_validate_constraints?
+      assert_equal false, adapter.supports_deferrable_constraints?
+      assert_equal false, adapter.supports_check_constraints?
+      assert_equal false, adapter.supports_exclusion_constraints?
+      assert_equal false, adapter.supports_unique_constraints?
+      assert_equal false, adapter.supports_views?
+      assert_equal false, adapter.supports_materialized_views?
+      assert_equal false, adapter.supports_datetime_with_precision?
+      assert_equal false, adapter.supports_json?
+      assert_equal false, adapter.supports_comments?
+      assert_equal false, adapter.supports_comments_in_create?
+      assert_equal false, adapter.supports_virtual_columns?
+      assert_equal false, adapter.supports_foreign_tables?
+      assert_equal false, adapter.supports_optimizer_hints?
+      assert_equal false, adapter.supports_common_table_expressions?
+      assert_equal false, adapter.supports_lazy_transactions?
+      assert_equal false, adapter.supports_insert_returning?
+      assert_equal false, adapter.supports_insert_on_duplicate_skip?
+      assert_equal false, adapter.supports_insert_on_duplicate_update?
+      assert_equal false, adapter.supports_insert_conflict_target?
+      assert_equal true, adapter.supports_concurrent_connections?
+      assert_equal false, adapter.supports_nulls_not_distinct?
+      assert_equal false, adapter.supports_disabling_indexes?
+      assert_equal false, adapter.advisory_locks_enabled?
+      assert_equal [], adapter.extensions
+      assert_equal({}, adapter.index_algorithms)
+      assert_equal true, adapter.disable_referential_integrity { true }
+      assert_nil adapter.check_all_foreign_keys_valid!
+      assert_nil adapter.active?
+      assert_nil adapter.discard!
+      assert_equal false, adapter.requires_reloading?
+      assert_equal false, adapter.verified?
+      assert_kind_of ActiveRecord::Result, adapter.send(:build_result, columns: ["id"], rows: [[1]])
+
+      populated_column = Struct.new(:auto_populated?).new(true)
+      plain_column = Struct.new(:auto_populated?).new(false)
+      assert_equal true, adapter.return_value_after_insert?(populated_column)
+      assert_equal false, adapter.return_value_after_insert?(plain_column)
+
+      adapter.disable_extension("uuid-ossp")
+      adapter.enable_extension("uuid-ossp")
+      adapter.create_enum("mood", ["ok"])
+      adapter.drop_enum("mood")
+      adapter.rename_enum("old", "new")
+      adapter.add_enum_value("mood", "great")
+      adapter.rename_enum_value("mood", "ok", "fine")
+      adapter.create_virtual_table(:searches)
+      adapter.drop_virtual_table(:searches)
+      assert_nil adapter.get_advisory_lock(1)
+      assert_nil adapter.release_advisory_lock(1)
+
+      assert_equal "INSERT INTO posts (id) VALUES (1)", adapter.build_insert_sql(Struct.new(:skip_duplicates?, :update_duplicates?, :into, :values_list).new(false, false, "INTO posts", "(id) VALUES (1)"))
+      assert_raises(NotImplementedError) { adapter.build_insert_sql(Struct.new(:skip_duplicates?, :update_duplicates?, :into, :values_list).new(true, false, "INTO posts", "(id) VALUES (1)")) }
+      assert_nil adapter.get_database_version
+      assert_nil adapter.check_version
+
+      adapter.pool = Struct.new(:migration_context) { def server_version(_connection) = "1.2.3" }.new(Struct.new(:current_version).new(0))
+      assert_equal 0, adapter.schema_version
+      assert_equal "1.2.3", adapter.database_version
+      assert_equal true, adapter.database_exists?
+      assert_equal false, Class.new(adapter_class) { def connect! = raise ActiveRecord::NoDatabaseError }.database_exists?({})
+    ensure
+      adapter_class.migration_strategy = nil if defined?(adapter_class) && adapter_class.respond_to?(:migration_strategy=)
+    end
+
     def test_savepoint_public_methods_issue_transaction_commands
       commands = []
       transaction = Struct.new(:savepoint_name).new("active_record_test_savepoint")
