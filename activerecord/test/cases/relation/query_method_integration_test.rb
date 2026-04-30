@@ -1100,6 +1100,63 @@ module ActiveRecord
       assert_raises(ActiveRecord::SoleRecordExceeded) { many_relation.sole }
     end
 
+    test "relation from clause public contract keeps value name equality and emptiness" do
+      empty = ActiveRecord::Relation::FromClause.empty
+      clause = ActiveRecord::Relation::FromClause.new("posts AS aliased_posts", "aliased_posts")
+      same = ActiveRecord::Relation::FromClause.new("posts AS aliased_posts", "aliased_posts")
+      different = ActiveRecord::Relation::FromClause.new("posts", nil)
+
+      assert_predicate empty, :empty?
+      assert_not_predicate clause, :empty?
+      assert_equal clause, same
+      assert_not_equal clause, different
+      assert_same clause, clause.merge(different)
+      assert_equal "aliased_posts", clause.name
+      assert_equal "posts AS aliased_posts", clause.value
+    end
+
+    test "relation merger public contract combines hash and relation values" do
+      base = Post.where(author_id: authors(:david).id)
+      merged_hash = base.merge(order: [:id], limit: 2, create_with: { body: "merged body" })
+      merged_relation = base.merge(Post.where(title: posts(:welcome).title).reorder(id: :desc).includes(:author))
+
+      assert_equal Post.where(author_id: authors(:david).id).order(:id).limit(2).ids, merged_hash.ids
+      assert_equal "merged body", merged_hash.scope_for_create["body"]
+      assert_equal [posts(:welcome).id], merged_relation.ids
+      assert_equal [:author], merged_relation.includes_values
+      assert_match(/ORDER BY "posts"\."id" DESC/i, merged_relation.to_sql)
+    end
+
+    test "predicate builder handles arrays ranges relations associations and polymorphic values" do
+      author = authors(:david)
+      post = posts(:welcome)
+      relation = Post.where(id: [post.id, nil, (posts(:thinking).id..posts(:thinking).id)]).order(:id)
+      subquery = Post.where(id: Post.where(author_id: author.id))
+      association = Post.where(author: author)
+      polymorphic = Tagging.where(taggable: [post, posts(:thinking), nil]).order(:id)
+
+      assert_equal [post.id, posts(:thinking).id], relation.ids
+      assert_equal Post.where(author_id: author.id).order(:id).ids, subquery.order(:id).ids
+      assert_equal Post.where(author_id: author.id).order(:id).ids, association.order(:id).ids
+      assert_equal Tagging.where(taggable_type: "Post", taggable_id: [post.id, posts(:thinking).id]).or(Tagging.where(taggable_id: nil)).order(:id).ids, polymorphic.ids
+    end
+
+    test "query attribute compares database values and detects nil infinite and unboundable values" do
+      integer_type = Post.type_for_attribute("id")
+      attr = ActiveRecord::Relation::QueryAttribute.new("id", "1", integer_type)
+      same = ActiveRecord::Relation::QueryAttribute.new("id", "1", integer_type)
+      nil_attr = ActiveRecord::Relation::QueryAttribute.new("id", nil, integer_type)
+      infinite_attr = ActiveRecord::Relation::QueryAttribute.new("id", Float::INFINITY, integer_type)
+
+      assert_equal 1, attr.value_for_database
+      assert_equal attr, same
+      assert_equal attr.hash, same.hash
+      assert_predicate nil_attr, :nil?
+      assert_predicate infinite_attr, :infinite?
+      assert_nil attr.unboundable?
+      assert_equal 2, attr.with_cast_value(2).value_for_database
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
