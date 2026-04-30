@@ -3,12 +3,13 @@
 require "cases/helper"
 require "models/author"
 require "models/comment"
+require "models/developer"
 require "models/post"
 require "models/tagging"
 
 module ActiveRecord
   class QueryMethodIntegrationTest < ActiveRecord::TestCase
-    fixtures :authors, :posts, :comments, :taggings
+    fixtures :authors, :posts, :comments, :developers, :taggings
 
     test "where chains with order and limit accumulate without mutating the source relation" do
       author = authors(:david)
@@ -570,6 +571,64 @@ module ActiveRecord
       assert_match(/SeqScan\(posts\)/, relation.to_sql)
       assert_match(/query method integration/, relation.to_sql)
       assert_match(/WHERE/i, relation.to_sql)
+    end
+
+    test "where update all limits mutation to scope and keeps relation reusable" do
+      relation = Developer.where(name: "Jamis")
+      relation_sql = relation.to_sql
+
+      assert_equal Developer.where(name: "Jamis").count, relation.update_all(salary: 12345)
+      assert_equal [12345], relation.distinct.pluck(:salary)
+      assert_equal relation_sql, relation.to_sql
+      assert_empty Developer.where.not(name: "Jamis").where(salary: 12345)
+    end
+
+    test "where delete all keeps join and default scope conditions" do
+      author = authors(:david)
+      klass = relation_test_post_class do
+        belongs_to :author, class_name: "Author", foreign_key: :author_id, inverse_of: false
+        default_scope { where(type: "Post") }
+      end
+      relation = klass.joins(:author).where("authors.id = ?", author.id).where(title: posts(:welcome).title)
+
+      assert_equal 1, relation.delete_all
+      assert_empty Post.where(id: posts(:welcome).id)
+      assert Post.where(id: posts(:thinking).id).exists?
+    end
+
+    test "where touch all with order keeps scoped timestamp updates" do
+      relation = Developer.where(name: "Jamis").order(:salary)
+      before = Time.utc(2000, 1, 1)
+      Developer.update_all(updated_at: before)
+
+      assert_equal Developer.where(name: "Jamis").count, relation.touch_all(:updated_at)
+      assert_operator Developer.where(name: "Jamis").minimum(:updated_at), :>, before
+      assert_equal [before], Developer.where.not(name: "Jamis").distinct.pluck(:updated_at)
+      assert_match(/ORDER BY/i, relation.to_sql)
+    end
+
+    test "insert all returning keeps SQLite result shape independent of select" do
+      rows = [
+        { title: "bulk insert returning one", body: "body", type: "Post", author_id: authors(:david).id },
+        { title: "bulk insert returning two", body: "body", type: "Post", author_id: authors(:david).id },
+      ]
+
+      result = Post.select(:id).insert_all(rows, returning: %w[id title])
+
+      assert_equal %w[id title], result.columns
+      assert_equal rows.map { |row| row[:title] }, result.rows.map(&:last)
+    end
+
+    test "upsert all with unique by handles conflict rows from scoped source data" do
+      post = posts(:welcome)
+      rows = Post.where(id: post.id).map do |record|
+        { id: record.id, title: "upserted #{record.id}", body: record.body, type: record.type, author_id: record.author_id }
+      end
+
+      result = Post.upsert_all(rows, unique_by: :id, returning: %w[id title])
+
+      assert_equal [[post.id, "upserted #{post.id}"]], result.rows
+      assert_equal "upserted #{post.id}", Post.find(post.id).title
     end
 
     private
