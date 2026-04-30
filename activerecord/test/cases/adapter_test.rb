@@ -290,6 +290,121 @@ module ActiveRecord
       @connection.disable_query_cache!
     end
 
+    def test_schema_creation_builds_create_table_index_and_alter_sql
+      td = @connection.send(:create_table_definition, "schema_creation_posts", temporary: true, if_not_exists: true, options: "WITHOUT ROWID")
+      td.column :title, :string, default: "hello", null: false
+      td.column :rank, :integer, primary_key: true
+      td.primary_keys [:id, :tenant_id]
+      td.foreign_key :authors, column: :author_id, primary_key: :id, name: "fk_schema_creation", on_delete: :cascade, on_update: :nullify
+      td.check_constraint "rank > 0", name: "chk_schema_creation_rank"
+
+      create_sql = @connection.schema_creation.accept(td)
+      assert_includes create_sql, "CREATE TEMPORARY TABLE IF NOT EXISTS"
+      assert_includes create_sql, "schema_creation_posts"
+      assert_includes create_sql, "DEFAULT 'hello' NOT NULL"
+      assert_includes create_sql, "PRIMARY KEY"
+      assert_includes create_sql, "PRIMARY KEY"
+      assert_includes create_sql, "FOREIGN KEY"
+      assert_includes create_sql, "ON DELETE CASCADE"
+      assert_includes create_sql, "ON UPDATE SET NULL"
+      assert_includes create_sql, "CHECK (rank > 0)"
+      assert_includes create_sql, "WITHOUT ROWID"
+
+      index = ActiveRecord::ConnectionAdapters::IndexDefinition.new(
+        "schema_creation_posts", "index_schema_creation_posts_on_title", true, ["title"],
+        orders: { "title" => :desc }, where: "title IS NOT NULL"
+      )
+      index_sql = @connection.schema_creation.accept(
+        ActiveRecord::ConnectionAdapters::CreateIndexDefinition.new(index, "CONCURRENTLY", true, nil)
+      )
+      assert_includes index_sql, "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS"
+      assert_includes index_sql, "index_schema_creation_posts_on_title"
+      assert_includes index_sql, "title"
+      assert_includes index_sql, "WHERE title IS NOT NULL"
+
+      alter = @connection.send(:create_alter_table, "schema_creation_posts")
+      alter.add_column :body, :text, null: false
+      alter.add_foreign_key :authors, column: :author_id, primary_key: :id, name: "fk_schema_creation_alter", on_delete: :restrict
+      alter.drop_foreign_key "fk_schema_creation_old"
+      alter.add_check_constraint "length(body) > 0", name: "chk_schema_creation_body"
+      alter.drop_check_constraint "chk_schema_creation_old"
+      alter.drop_constraint "constraint_schema_creation_old"
+
+      alter_sql = @connection.schema_creation.accept(alter)
+      assert_includes alter_sql, "ALTER TABLE"
+      assert_includes alter_sql, "ADD"
+      assert_includes alter_sql, "ON DELETE RESTRICT"
+      assert_includes alter_sql, "DROP CONSTRAINT"
+    end
+
+    def test_schema_creation_abstract_feature_branches_and_helpers
+      fake_connection = Class.new do
+        def quote_column_name(name) = %Q("#{name}")
+        def quote_table_name(name) = %Q("#{name}")
+        def quote_default_expression(value, _column) = value.inspect
+        def type_to_sql(type, **options) = [type.to_s.upcase, options[:limit]].compact.join("(").then { |sql| options[:limit] ? "#{sql})" : sql }
+        def options_include_default?(options) = options.key?(:default)
+        def supports_indexes_in_create? = true
+        def use_foreign_keys? = false
+        def quoted_columns_for_index(columns, _options) = Array(columns).map { |column| %Q("#{column}") }
+        def supports_partial_index? = true
+        def supports_check_constraints? = true
+        def supports_index_include? = true
+        def supports_exclusion_constraints? = true
+        def supports_unique_constraints? = true
+        def supports_nulls_not_distinct? = true
+        def lookup_cast_type(sql_type) = sql_type
+        def valid_column_definition_options = ActiveRecord::ConnectionAdapters::ColumnDefinition::OPTION_NAMES + [:auto_increment]
+        def supports_datetime_with_precision? = false
+        def foreign_key_options(_from, to, options) = options.reverse_merge(column: "#{to.to_s.singularize}_id", primary_key: "id", name: "fk_#{to}")
+        def check_constraint_options(_table, expression, options) = options.reverse_merge(name: "chk_#{expression.hash.abs}")
+      end.new
+      schema = ActiveRecord::ConnectionAdapters::SchemaCreation.new(fake_connection)
+      schema.define_singleton_method(:index_in_create) do |table_name, column_name, options|
+        "INLINE INDEX #{table_name}(#{Array(column_name).join(',')}) #{options[:name]}"
+      end
+      schema.define_singleton_method(:quoted_include_columns) { |columns| Array(columns).map { |column| %Q("#{column}") }.join(", ") }
+      schema.define_singleton_method(:to_sql) { |sql| super(sql) }
+
+      table_definition = ActiveRecord::ConnectionAdapters::TableDefinition.new(fake_connection, "feature_posts", as: Object.new.tap { |o| def o.to_sql = "SELECT 1 AS id" })
+      table_definition.column :title, :string, index: { name: "inline_title" }
+      table_definition.column :serial, :integer, auto_increment: true, primary_key: true, _skip_validate_options: true
+      table_definition.define_singleton_method(:exclusion_constraints) { [] }
+      table_definition.define_singleton_method(:unique_constraints) { [] }
+
+      create_sql = schema.accept(table_definition)
+      assert_includes create_sql, "INLINE INDEX feature_posts(title) inline_title"
+      assert_includes create_sql, "AS SELECT 1 AS id"
+
+      index = ActiveRecord::ConnectionAdapters::IndexDefinition.new(
+        "feature_posts", "idx_feature_posts", true, "LOWER(title)",
+        type: "FULLTEXT", using: "gin", include: ["id"], nulls_not_distinct: true, where: "title IS NOT NULL"
+      )
+      index_sql = schema.accept(ActiveRecord::ConnectionAdapters::CreateIndexDefinition.new(index, "ALGORITHM", true, nil))
+      assert_includes index_sql, "USING gin"
+      assert_includes index_sql, "INCLUDE (\"id\")"
+      assert_includes index_sql, "NULLS NOT DISTINCT"
+
+      no_feature_connection = Class.new do
+        def quote_column_name(name) = %Q("#{name}")
+        def quote_table_name(name) = %Q("#{name}")
+        def type_to_sql(type, **) = type.to_s.upcase
+        def supports_indexes_in_create? = false
+        def use_foreign_keys? = false
+        def supports_check_constraints? = false
+        def supports_exclusion_constraints? = false
+        def supports_unique_constraints? = false
+      end.new
+      no_feature_table = ActiveRecord::ConnectionAdapters::TableDefinition.new(no_feature_connection, "empty_feature_posts", as: "SELECT 1 AS id")
+      no_feature_sql = ActiveRecord::ConnectionAdapters::SchemaCreation.new(no_feature_connection).accept(no_feature_table)
+      assert_equal 'CREATE TABLE "empty_feature_posts"  AS SELECT 1 AS id', no_feature_sql
+
+      assert_equal "ON UPDATE SET NULL", schema.send(:action_sql, "UPDATE", :nullify)
+      assert_equal "ON UPDATE CASCADE", schema.send(:action_sql, "UPDATE", :cascade)
+      assert_equal "ON UPDATE RESTRICT", schema.send(:action_sql, "UPDATE", :restrict)
+      assert_raises(ArgumentError) { schema.send(:action_sql, "UPDATE", :explode) }
+    end
+
     def test_invalid_column
       assert_not @connection.valid_type?(:foobar)
       assert_not @connection.class.valid_type?(:foobar)
