@@ -321,4 +321,116 @@ class DatabaseConfigurationsTest < ActiveRecord::TestCase
       end
     end
   end
+
+  def test_hash_config_readers_and_mutable_database_copy
+    config = ActiveRecord::DatabaseConfigurations::HashConfig.new(
+      "production", "primary",
+      adapter: :sqlite3,
+      database: "db/production.sqlite3",
+      host: "localhost",
+      socket: "/tmp/sqlite.sock",
+      min_threads: "2",
+      max_threads: "4",
+      query_cache: 42,
+      checkout_timeout: "1.5",
+      reaping_frequency: nil,
+      idle_timeout: 0,
+      keepalive: 0,
+      schema_cache_path: "tmp/schema-cache.yml",
+      migrations_paths: ["db/migrate"],
+      replica: true,
+      database_tasks: false,
+      use_metadata_table: false,
+      seeds: false
+    )
+
+    assert_equal "sqlite3", config.adapter
+    assert_equal "db/production.sqlite3", config.database
+    assert_equal "localhost", config.host
+    assert_equal "/tmp/sqlite.sock", config.socket
+    assert_equal 2, config.min_threads
+    assert_equal 4, config.max_threads
+    assert_equal 16, config.max_queue
+    assert_equal 42, config.query_cache
+    assert_equal 1.5, config.checkout_timeout
+    assert_nil config.reaping_frequency
+    assert_nil config.idle_timeout
+    assert_nil config.keepalive
+    assert_equal "tmp/schema-cache.yml", config.schema_cache_path
+    assert_equal "tmp/schema-cache.yml", config.lazy_schema_cache_path
+    assert_equal ["db/migrate"], config.migrations_paths
+    assert_predicate config, :replica?
+    assert_not_predicate config, :database_tasks?
+    assert_not_predicate config, :use_metadata_table?
+    assert_not_predicate config, :seeds?
+
+    config._database = "db/renamed.sqlite3"
+    assert_equal "db/renamed.sqlite3", config.database
+    assert config.configuration_hash.frozen?
+  end
+
+  def test_hash_config_defaults_and_boundary_values
+    primary = ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "primary", adapter: nil, database: "db/primary.sqlite3")
+    secondary = ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "animals", adapter: "sqlite3", database: "db/animals.sqlite3", pool: -1, max_age: "30")
+    capped = ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "capped", adapter: "sqlite3", database: "db/capped.sqlite3", max_connections: "7")
+    uncapped = ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "uncapped", adapter: "sqlite3", database: "db/uncapped.sqlite3", max_connections: nil)
+
+    assert_nil primary.adapter
+    assert_equal 5, primary.max_connections
+    assert_equal 0, primary.min_connections
+    assert_equal 5, primary.max_threads
+    assert_equal 20, primary.max_queue
+    assert_equal 5.0, primary.checkout_timeout
+    assert_equal 300.0, primary.idle_timeout
+    assert_equal 600.0, primary.keepalive
+    assert_equal Float::INFINITY, primary.max_age
+    assert_equal 20.0, primary.reaping_frequency
+    assert_equal "db/schema_cache.yml", primary.default_schema_cache_path
+    assert_equal "db/schema_cache.yml", primary.lazy_schema_cache_path
+    assert_predicate primary, :database_tasks?
+    assert_predicate primary, :use_metadata_table?
+
+    assert_nil secondary.max_connections
+    assert_equal 5, secondary.max_threads
+    assert_equal 30, secondary.max_age
+    assert_equal "custom/animals_schema_cache.yml", secondary.default_schema_cache_path("custom")
+    assert_equal 7, capped.max_connections
+    assert_nil uncapped.max_connections
+  end
+
+  def test_hash_config_schema_dump_and_schema_format_contracts
+    previous_schema_format = ActiveRecord.schema_format
+    ActiveRecord.schema_format = :ruby
+
+    explicit = ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "animals", adapter: "sqlite3", database: "db/animals.sqlite3", schema_dump: "animals_dump.rb")
+    disabled = ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "animals", adapter: "sqlite3", database: "db/animals.sqlite3", schema_dump: false)
+    primary = ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "primary", adapter: "sqlite3", database: "db/primary.sqlite3")
+    secondary_sql = ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "animals", adapter: "sqlite3", database: "db/animals.sqlite3", schema_format: :sql)
+    invalid = ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "animals", adapter: "sqlite3", database: "db/animals.sqlite3", schema_format: :xml)
+
+    assert_equal "animals_dump.rb", explicit.schema_dump
+    assert_nil disabled.schema_dump
+    assert_equal :ruby, primary.schema_format
+    assert_equal "schema.rb", primary.schema_dump
+    assert_equal :sql, secondary_sql.schema_format
+    assert_equal "animals_structure.sql", secondary_sql.schema_dump
+    assert_nil primary.send(:schema_file_type, :unknown)
+    assert_raises(RuntimeError, match: /Invalid schema format/) { invalid.schema_format }
+  ensure
+    ActiveRecord.schema_format = previous_schema_format
+  end
+
+  def test_hash_config_validation_rejects_ambiguous_pool_settings
+    assert_raises(RuntimeError, match: /Ambiguous configuration: 'pool'/) do
+      ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "primary", adapter: "sqlite3", database: "db/primary.sqlite3", pool: 5, max_connections: 6)
+    end
+
+    assert_nothing_raised do
+      ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "primary", adapter: "sqlite3", database: "db/primary.sqlite3", pool: 5, max_connections: 5)
+    end
+
+    assert_raises(RuntimeError, match: /when setting 'min_connections'/) do
+      ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "primary", adapter: "sqlite3", database: "db/primary.sqlite3", pool: 5, min_connections: 1)
+    end
+  end
 end
