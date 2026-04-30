@@ -2038,4 +2038,75 @@ class TransactionImplementationTest < ActiveRecord::TestCase
       ActiveRecord::ConnectionAdapters::SavepointTransaction.new(connection, "active_record_6", parent, isolation: :serializable)
     end
   end
+
+  def test_transaction_instrumenter_start_finish_and_error_contracts
+    events = []
+    callback = ->(*args) do
+      event = ActiveSupport::Notifications::Event.new(*args)
+      events << [event.name, event.payload.dup]
+    end
+
+    ActiveSupport::Notifications.subscribed(callback, /transaction\.active_record|start_transaction\.active_record/) do
+      instrumenter = ActiveRecord::ConnectionAdapters::TransactionInstrumenter.new(connection: :fake, transaction: :tx)
+      instrumenter.start
+      instrumenter.finish(:commit)
+
+      assert_equal "start_transaction.active_record", events[0][0]
+      assert_equal({ connection: :fake, transaction: :tx }, events[0][1])
+      assert_equal "transaction.active_record", events[1][0]
+      assert_equal({ connection: :fake, transaction: :tx, outcome: :commit }, events[1][1])
+    end
+
+    instrumenter = ActiveRecord::ConnectionAdapters::TransactionInstrumenter.new
+    assert_raises(ActiveRecord::ConnectionAdapters::TransactionInstrumenter::InstrumentationNotStartedError) do
+      instrumenter.finish(:rollback)
+    end
+
+    instrumenter.start
+    assert_raises(ActiveRecord::ConnectionAdapters::TransactionInstrumenter::InstrumentationAlreadyStartedError) do
+      instrumenter.start
+    end
+    instrumenter.finish(:rollback)
+  end
+
+  def test_transaction_state_transitions_and_child_propagation
+    parent = ActiveRecord::ConnectionAdapters::TransactionState.new
+    child = ActiveRecord::ConnectionAdapters::TransactionState.new
+    parent.add_child(child)
+
+    refute parent.finalized?
+    refute parent.completed?
+    refute parent.fully_completed?
+    parent.rollback!
+    assert_predicate parent, :rolledback?
+    assert_predicate parent, :completed?
+    assert_predicate parent, :fully_completed?
+    assert_predicate child, :rolledback?
+
+    parent.nullify!
+    refute parent.finalized?
+    parent.commit!
+    assert_predicate parent, :committed?
+    refute parent.fully_committed?
+    parent.full_commit!
+    assert_predicate parent, :fully_committed?
+
+    full_parent = ActiveRecord::ConnectionAdapters::TransactionState.new
+    full_child = ActiveRecord::ConnectionAdapters::TransactionState.new
+    full_parent.add_child(full_child)
+    full_parent.full_rollback!
+    assert_predicate full_parent, :fully_rolledback?
+    assert_predicate full_child, :rolledback?
+
+    invalid_parent = ActiveRecord::ConnectionAdapters::TransactionState.new
+    invalid_child = ActiveRecord::ConnectionAdapters::TransactionState.new
+    invalid_parent.add_child(invalid_child)
+    invalid_parent.invalidate!
+    assert_predicate invalid_parent, :invalidated?
+    assert_predicate invalid_child, :invalidated?
+
+    precommitted = ActiveRecord::ConnectionAdapters::TransactionState.new(:committed)
+    assert_predicate precommitted, :finalized?
+    assert_predicate precommitted, :committed?
+  end
 end
