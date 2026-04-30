@@ -13,6 +13,41 @@ module ActiveRecord
         self.table_name = :testings
       end
 
+      class FakeCompatibilityConnection
+        attr_reader :adapter_name, :calls
+        attr_accessor :existing_index_names
+
+        def initialize(adapter_name)
+          @adapter_name = adapter_name
+          @calls = []
+          @existing_index_names = []
+        end
+
+        def migration_strategy
+          nil
+        end
+
+        def index_name(table_name, options = {})
+          return "index_#{table_name}_on_#{options[:name]}" if options.is_a?(Hash) && options[:name]
+
+          column_names = Array(options.is_a?(Hash) ? options[:column] : options).join("_and_")
+          "index_#{table_name}_on_#{column_names}"
+        end
+
+        def index_name_exists?(table_name, index_name)
+          existing_index_names.include?(index_name)
+        end
+
+        def method_missing(method, *args, **options, &block)
+          calls << [method, args, options, block]
+          true
+        end
+
+        def respond_to_missing?(method, include_private = false)
+          true
+        end
+      end
+
       def setup
         super
         @connection = ActiveRecord::Base.lease_connection
@@ -34,6 +69,199 @@ module ActiveRecord
         @schema_migration.delete_all_versions rescue nil
       end
 
+      def test_find_known_migration_version
+        assert_equal ActiveRecord::Migration::Compatibility::V7_0, ActiveRecord::Migration::Compatibility.find("7.0")
+      end
+
+      def test_find_unknown_migration_version_lists_known_versions
+        error = assert_raises(ArgumentError) do
+          ActiveRecord::Migration::Compatibility.find("99.9")
+        end
+
+        assert_includes error.message, "Unknown migration version \"99.9\""
+        assert_includes error.message, "\"7.0\""
+      end
+
+      def test_legacy_index_name_accepts_name_option
+        migration = ActiveRecord::Migration[7.0].new
+
+        assert_equal "custom_name", migration.send(:legacy_index_name, :testings, name: "custom_name")
+      end
+
+      def test_legacy_index_name_requires_name_or_column_option
+        migration = ActiveRecord::Migration[7.0].new
+
+        assert_raises(ArgumentError, match: "You must specify the index name") do
+          migration.send(:legacy_index_name, :testings, {})
+        end
+      end
+
+      def test_legacy_index_name_normalizes_expression_column_names
+        migration = ActiveRecord::Migration[7.0].new
+
+        assert_equal "index_testings_on_lower_foo", migration.send(:legacy_index_name, :testings, "lower(foo)")
+      end
+
+      def test_postgresql_compat_datetime_type_only_changes_postgresql_datetime
+        postgresql = Struct.new(:adapter_name).new("PostgreSQL")
+        sqlite = Struct.new(:adapter_name).new("SQLite")
+
+        assert_equal :timestamp, ActiveRecord::Migration::Compatibility::V6_1::PostgreSQLCompat.compatible_timestamp_type(:datetime, postgresql)
+        assert_equal :date, ActiveRecord::Migration::Compatibility::V6_1::PostgreSQLCompat.compatible_timestamp_type(:date, postgresql)
+        assert_equal :datetime, ActiveRecord::Migration::Compatibility::V6_1::PostgreSQLCompat.compatible_timestamp_type(:datetime, sqlite)
+      end
+
+      def test_compatibility_adapter_specific_migration_options_are_forwarded
+        mysql = migration_with_fake_connection(ActiveRecord::Migration[7.0], "Mysql2")
+        mysql.change_column(:testings, :foo, :string)
+        assert_equal :no_collation, mysql.connection.calls.last[2][:collation]
+
+        sqlite = migration_with_fake_connection(ActiveRecord::Migration[7.0], "SQLite")
+        sqlite.change_column(:testings, :foo, :string)
+        assert_not sqlite.connection.calls.last[2].key?(:collation)
+
+        postgresql = migration_with_fake_connection(ActiveRecord::Migration[7.0], "PostgreSQL")
+        postgresql.disable_extension("hstore")
+        assert_equal :cascade, postgresql.connection.calls.last[2][:force]
+
+        sqlite.disable_extension("hstore")
+        assert_not sqlite.connection.calls.last[2].key?(:force)
+
+        postgresql.add_foreign_key(:orders, :users, deferrable: true)
+        assert_equal :immediate, postgresql.connection.calls.last[2][:deferrable]
+
+        sqlite.add_foreign_key(:orders, :users, deferrable: true)
+        assert_equal true, sqlite.connection.calls.last[2][:deferrable]
+      end
+
+      def test_compatibility_v7_add_index_keeps_explicit_name
+        migration = migration_with_fake_connection(ActiveRecord::Migration[7.0], "SQLite")
+
+        migration.add_index(:testings, :foo, name: "custom")
+
+        assert_equal "custom", migration.connection.calls.last[2][:name]
+      end
+
+      def test_compatibility_v7_table_definition_index_keeps_explicit_name
+        table = table_definition_with(ActiveRecord::Migration::Compatibility::V7_0::TableDefinition)
+
+        table.index(:foo, name: "custom")
+
+        assert_equal [:index, :foo, { name: "custom" }], table.calls.last
+      end
+
+      def test_compatibility_v6_add_reference_keeps_non_sqlite_type
+        migration = migration_with_fake_connection(ActiveRecord::Migration[6.0], "PostgreSQL")
+
+        migration.add_reference(:testings, :author)
+
+        assert_not migration.connection.calls.last[2].key?(:type)
+      end
+
+      def test_compatibility_legacy_create_table_adapter_options_are_forwarded
+        mysql = migration_with_fake_connection(ActiveRecord::Migration[5.1], "Mysql2")
+        mysql.create_table(:testings)
+        assert_equal "ENGINE=InnoDB", mysql.connection.calls.last[2][:options]
+
+        postgresql = migration_with_fake_connection(ActiveRecord::Migration[5.0], "PostgreSQL")
+        postgresql.create_table(:uuids, id: :uuid)
+        assert_equal "uuid_generate_v4()", postgresql.connection.calls.last[2][:default]
+
+        postgresql_with_default = migration_with_fake_connection(ActiveRecord::Migration[5.0], "PostgreSQL")
+        postgresql_with_default.create_table(:uuids, id: :uuid, default: "custom_uuid()")
+        assert_equal "custom_uuid()", postgresql_with_default.connection.calls.last[2][:default]
+
+        mysql_bigint = migration_with_fake_connection(ActiveRecord::Migration[5.0], "Mysql2")
+        mysql_bigint.create_table(:bigints, id: :bigint)
+        assert_not mysql_bigint.connection.calls.last[2].key?(:default)
+      end
+
+      def test_compatibility_legacy_postgresql_change_column_splits_option_changes
+        postgresql = migration_with_fake_connection(ActiveRecord::Migration[5.1], "PostgreSQL")
+
+        postgresql.change_column(:testings, :foo, :string, default: "new", null: false, comment: "comment")
+
+        assert_equal [:change_column, [:testings, :foo, :string], { _skip_validate_options: true }, nil], postgresql.connection.calls[0]
+        assert_equal [:change_column_default, [:testings, :foo, "new"], {}, nil], postgresql.connection.calls[1]
+        assert_equal [:change_column_null, [:testings, :foo, false, "new"], {}, nil], postgresql.connection.calls[2]
+        assert_equal [:change_column_comment, [:testings, :foo, "comment"], {}, nil], postgresql.connection.calls[3]
+
+        postgresql_without_optional_changes = migration_with_fake_connection(ActiveRecord::Migration[5.1], "PostgreSQL")
+        postgresql_without_optional_changes.change_column(:testings, :foo, :string)
+        assert_equal 1, postgresql_without_optional_changes.connection.calls.size
+      end
+
+      def test_compatibility_v6_reference_definition_uses_legacy_index_options
+        reference = ActiveRecord::Migration::Compatibility::V6_0::ReferenceDefinition.allocate
+        reference.instance_variable_set(:@index, true)
+
+        assert_equal({}, reference.index_options(:testings))
+      end
+
+      def test_compatibility_legacy_index_exists_uses_present_name_option
+        migration = migration_with_fake_connection(ActiveRecord::Migration[4.2], "SQLite")
+        migration.index_exists?(:testings, :foo, name: :custom_index)
+
+        assert_equal "custom_index", migration.connection.calls.last[2][:name]
+      end
+
+      def test_compatibility_legacy_index_exists_derives_name_without_name_option
+        migration = migration_with_fake_connection(ActiveRecord::Migration[4.2], "SQLite")
+        migration.index_exists?(:testings, :foo)
+
+        assert_equal "index_testings_on_foo", migration.connection.calls.last[2][:name]
+      end
+
+      def test_compatibility_legacy_timestamps_keeps_explicit_null_option
+        migration = migration_with_fake_connection(ActiveRecord::Migration[4.2], "SQLite")
+
+        migration.add_timestamps(:testings, null: false)
+
+        assert_equal false, migration.connection.calls.last[2][:null]
+      end
+
+      def test_compatibility_legacy_table_definition_keeps_non_primary_key_type
+        table = table_definition_with(ActiveRecord::Migration::Compatibility::V5_0::TableDefinition)
+
+        table.primary_key(:id, :uuid)
+
+        assert_equal [:primary_key, :id, :uuid, {}], table.calls.last
+      end
+
+      def test_compatibility_legacy_table_definition_timestamps_keeps_explicit_null_option
+        table = table_definition_with(ActiveRecord::Migration::Compatibility::V4_2::TableDefinition)
+
+        table.timestamps(null: false)
+
+        assert_equal [:timestamps, { null: false }], table.calls.last
+      end
+
+      def test_compatibility_legacy_remove_index_raises_when_name_fallback_is_missing
+        migration = migration_with_fake_connection(ActiveRecord::Migration[4.2], "SQLite")
+
+        error = assert_raises(ArgumentError) do
+          migration.remove_index(:testings, :foo, name: :custom)
+        end
+
+        assert_includes error.message, "Index name 'index_testings_on_foo'"
+      end
+
+      def test_compatibility_legacy_remove_index_falls_back_to_name_without_column
+        migration = migration_with_fake_connection(ActiveRecord::Migration[4.2], "SQLite")
+        migration.connection.existing_index_names = ["index_testings_on_custom"]
+
+        migration.remove_index(:testings, :foo, name: :custom)
+
+        assert_equal "index_testings_on_custom", migration.connection.calls.last[2][:name]
+      end
+
+      def test_compatibility_legacy_command_recorder_comment_inversions_are_self_inverse
+        recorder = ActiveRecord::Migration[5.2].new.send(:command_recorder)
+
+        assert_equal [:change_column_comment, [:testings, :foo, from: "old", to: "new"]], recorder.send(:invert_change_column_comment, [:testings, :foo, from: "old", to: "new"])
+        assert_equal [:change_table_comment, [:testings, from: "old", to: "new"]], recorder.send(:invert_change_table_comment, [:testings, from: "old", to: "new"])
+      end
+
       def test_migration_doesnt_remove_named_index
         connection.add_index :testings, :foo, name: "custom_index_name"
 
@@ -47,6 +275,40 @@ module ActiveRecord
         assert connection.index_exists?(:testings, :foo, name: "custom_index_name")
         assert_raise(StandardError) { ActiveRecord::Migrator.new(:up, [migration], @schema_migration, @internal_metadata).migrate }
         assert connection.index_exists?(:testings, :foo, name: "custom_index_name")
+      end
+
+      def migration_with_fake_connection(migration_class, adapter_name)
+        migration = migration_class.new
+        migration.instance_variable_set(:@connection, FakeCompatibilityConnection.new(adapter_name))
+        migration
+      end
+
+      def table_definition_with(mod)
+        base = Class.new do
+          attr_reader :calls
+
+          def initialize
+            @calls = []
+          end
+
+          def name
+            :testings
+          end
+
+          def index(column_name, **options)
+            calls << [:index, column_name, options]
+          end
+
+          def primary_key(name, type = :primary_key, **options)
+            calls << [:primary_key, name, type, options]
+          end
+
+          def timestamps(**options)
+            calls << [:timestamps, options]
+          end
+        end
+
+        Class.new(base) { include mod }.new
       end
 
       def test_migration_does_remove_unnamed_index
