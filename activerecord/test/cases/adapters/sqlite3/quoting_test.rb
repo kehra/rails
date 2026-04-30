@@ -36,6 +36,14 @@ class SQLite3QuotingTest < ActiveRecord::SQLite3TestCase
     assert_equal expected, @conn.type_cast(binary)
   end
 
+  def test_type_cast_ascii_8bit_string_reencodes_before_quoting
+    binary = +"hello"
+    binary.force_encoding(Encoding::ASCII_8BIT)
+
+    assert_equal "hello", @conn.type_cast(binary)
+    assert_equal Encoding::UTF_8, @conn.type_cast(binary).encoding
+  end
+
   def test_type_cast_true
     assert_equal 1, @conn.type_cast(true)
   end
@@ -54,6 +62,24 @@ class SQLite3QuotingTest < ActiveRecord::SQLite3TestCase
     type = ActiveRecord::Type::String.new
 
     assert_equal "'hello'", @conn.quote(type.serialize(value))
+  end
+
+  def test_quoted_binary_uses_sqlite_hex_literal
+    data = ActiveModel::Type::Binary::Data.new("A\x00\xff".b)
+
+    assert_equal "x'4100ff'", @conn.quoted_binary(data)
+  end
+
+  def test_quote_table_name_for_assignment_ignores_table_name
+    assert_equal '"title"', @conn.quote_table_name_for_assignment("posts", "title")
+  end
+
+  def test_column_name_matchers_allow_sqlite_select_and_order_fragments
+    assert_match @conn.class.column_name_matcher, 'authors.name AS "author_name", COUNT(posts.id) total'
+    assert_no_match @conn.class.column_name_matcher, 'authors.name; DROP TABLE posts'
+
+    assert_match @conn.class.column_name_with_order_matcher, 'authors.name COLLATE NOCASE DESC, COUNT(posts.id) ASC'
+    assert_no_match @conn.class.column_name_with_order_matcher, 'authors.name DESC NULLS LAST'
   end
 
   def test_quoted_time_returns_date_qualified_time
