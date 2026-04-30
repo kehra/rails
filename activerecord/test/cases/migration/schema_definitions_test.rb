@@ -457,6 +457,150 @@ module ActiveRecord
         assert_raises(RuntimeError) { duplicate_connection.assume_migrated_upto_version(20240202020202) }
       end
 
+      def test_schema_statements_miscellaneous_default_contracts
+        connection_class = Class.new do
+          include ActiveRecord::ConnectionAdapters::SchemaStatements
+
+          attr_accessor :select_rows_result
+          attr_reader :executed_sql, :removed_columns, :renamed_indexes
+
+          def initialize
+            @executed_sql = []
+            @removed_columns = []
+            @renamed_indexes = []
+            @select_rows_result = []
+          end
+
+          def execute(sql)
+            @executed_sql << sql
+            sql
+          end
+
+          def quote_table_name(name) = %Q("#{name}")
+          def quote_column_name(name) = %Q("#{name}")
+          def quote(value) = value.inspect
+          def visitor = Struct.new(:connection) { def compile(value) = value.to_s }.new(self)
+          def select_rows(_arel, _name) = select_rows_result
+          def options_include_default?(options) = options.key?(:default)
+          def native_database_types = { datetime: { name: "datetime" }, string: { name: "varchar", limit: 255 }, decimal: { name: "decimal" } }
+          def lookup_cast_type(_sql_type) = ActiveModel::Type::Value.new
+          def supports_bulk_alter? = true
+          def supports_datetime_with_precision? = true
+          def supports_index_sort_order? = true
+          def supports_foreign_keys? = false
+          def foreign_keys_enabled? = true
+          def supports_check_constraints? = false
+          def supports_indexes_in_create? = false
+          def supports_comments? = false
+          def supports_comments_in_create? = false
+          def supports_partial_index? = false
+          def supports_index_include? = false
+          def supports_nulls_not_distinct? = false
+          def supports_exclusion_constraints? = false
+          def supports_unique_constraints? = false
+          def index_name_length = 64
+          def allowed_index_name_length = 64
+          def table_name_length = 64
+          def column_exists?(*, **) = false
+          def remove_columns(table_name, *column_names, **options)
+            @removed_columns << [table_name, column_names, options]
+          end
+          def indexes(table_name)
+            [ActiveRecord::ConnectionAdapters::IndexDefinition.new(table_name.to_s, "index_posts_on_title", false, ["title"])]
+          end
+          def rename_index(table_name, old_name, new_name)
+            @renamed_indexes << [table_name, old_name, new_name]
+          end
+        end
+
+        connection = connection_class.new
+        assert_equal "posts.id", connection.columns_for_distinct("posts.id", ["posts.created_at DESC"])
+        dumper = connection.create_schema_dumper(ignore_tables: [])
+        assert_kind_of ActiveRecord::SchemaDumper, dumper
+        assert_kind_of ActiveRecord::ConnectionAdapters::SchemaCreation, connection.schema_creation
+
+        assert_raises(NotImplementedError) { connection.rename_table(:posts, :articles) }
+        assert_raises(NotImplementedError) { connection.change_table_comment(:posts, "comment") }
+        assert_raises(NotImplementedError) { connection.change_column_comment(:posts, :title, "comment") }
+        assert_raises(NotImplementedError) { connection.enable_index(:posts, :index_posts_on_title) }
+        assert_raises(NotImplementedError) { connection.disable_index(:posts, :index_posts_on_title) }
+
+        connection.add_timestamps(:posts)
+        assert connection.executed_sql.last.include?("ALTER TABLE")
+        assert connection.executed_sql.last.include?("ADD \"created_at\" datetime(6) NOT NULL")
+        connection.remove_timestamps(:posts)
+        assert_equal [:posts, [:updated_at, :created_at], {}], connection.removed_columns.last
+        assert_equal ["DROP COLUMN \"updated_at\"", "DROP COLUMN \"created_at\""], connection.send(:remove_timestamps_for_alter, :posts)
+
+        connection.bulk_change_table(:posts, [
+          [:add_column, [:posts, :summary, :string]],
+          [:remove_column, [:posts, :legacy]],
+          [:add_index, [:posts, :title]]
+        ])
+        assert connection.executed_sql.any? { |sql| sql.include?("ADD \"summary\" varchar(255)") && sql.include?("DROP COLUMN \"legacy\"") }
+        assert connection.executed_sql.any? { |sql| sql.include?("index_posts_on_title") }
+
+        connection.send(:rename_table_indexes, :posts, :articles, _uses_legacy_index_name: true)
+        assert_equal [:articles, "index_posts_on_title", "index_articles_on_title"], connection.renamed_indexes.last
+        assert_equal "RENAME COLUMN \"title\" TO \"headline\"", connection.send(:rename_column_sql, :posts, :title, :headline)
+        assert_match(/ADD "published_at" datetime\(6\)/, connection.send(:add_column_for_alter, :posts, :published_at, :datetime))
+        assert_raises(NotImplementedError) { connection.send(:change_column_default_for_alter, :posts, :status, "draft") }
+        assert_raises(NotImplementedError) { connection.send(:data_source_sql, :posts) }
+        assert_raises(NotImplementedError) { connection.send(:quoted_scope, :posts) }
+
+        relation_class = Class.new do
+          attr_accessor :limit_value, :offset_value
+          attr_reader :where_values, :none_called, :reselected_values, :order_values, :primary_key, :table
+
+          def initialize(primary_key: "id", order_values: [])
+            @primary_key = primary_key
+            @order_values = order_values
+            @table = Hash.new { |_, column| column }
+            @where_values = []
+          end
+
+          def reselect(values)
+            @reselected_values = values
+            self
+          end
+
+          def distinct!
+            self
+          end
+
+          def arel
+            :arel
+          end
+
+          def none!
+            @none_called = true
+          end
+
+          def where!(**conditions)
+            @where_values << conditions
+          end
+        end
+
+        empty_relation = relation_class.new
+        connection.select_rows_result = []
+        assert_same empty_relation, connection.distinct_relation_for_primary_key(empty_relation)
+        assert empty_relation.none_called
+        assert_nil empty_relation.limit_value
+        assert_nil empty_relation.offset_value
+
+        composite_relation = relation_class.new(primary_key: ["shop_id", "user_id"])
+        connection.select_rows_result = [[1, 7], [2, 8]]
+        connection.distinct_relation_for_primary_key(composite_relation)
+        assert_equal [{ "shop_id" => [1, 2], "user_id" => [7, 8] }], composite_relation.where_values
+
+        abstract_connection = Class.new do
+          include ActiveRecord::ConnectionAdapters::SchemaStatements
+        end.new
+        assert_raises(NotImplementedError) { abstract_connection.indexes(:posts) }
+        assert_raises(NotImplementedError) { abstract_connection.foreign_keys(:posts) }
+        assert_raises(NotImplementedError) { abstract_connection.check_constraints(:posts) }
+      end
+
       if current_adapter?(:Mysql2Adapter, :TrilogyAdapter)
         def test_build_create_index_definition_for_existing_index
           connection.create_table(:test) do |t|
