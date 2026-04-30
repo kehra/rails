@@ -89,6 +89,60 @@ module ActiveRecord
       ], commands
     end
 
+    def test_database_statements_public_query_helpers_and_defaults
+      assert_equal "SELECT 1", @connection.to_sql("SELECT 1")
+      assert_equal 1, @connection.select_value("SELECT 1 AS value")
+      assert_equal [1], @connection.select_values("SELECT 1 AS value")
+      assert_equal [1], @connection.select_one("SELECT 1 AS value").values
+      assert_equal [[1]], @connection.select_rows("SELECT 1 AS value")
+      assert_equal 1, @connection.query_value("SELECT 1 AS value")
+      assert_equal [1], @connection.query_values("SELECT 1 AS value")
+      assert_equal [1], @connection.query_one("SELECT 1 AS value").values
+      assert_equal [[1]], @connection.query_rows("SELECT 1 AS value")
+
+      assert_nil @connection.default_sequence_name("topics", "id")
+      assert_equal "DEFAULT VALUES", @connection.empty_insert_statement_value
+      assert_equal "plain", @connection.send(:with_yaml_fallback, "plain")
+      assert_match(/foo:/, @connection.send(:with_yaml_fallback, { foo: "bar" }))
+      assert @connection.high_precision_current_timestamp
+
+      transaction_value = nil
+      @connection.transaction { transaction_value = @connection.select_value("SELECT 1") }
+      assert_equal 1, transaction_value
+      assert_includes [true, false], @connection.transaction_open?
+      assert_nothing_raised { @connection.reset_sequence!("topics", "id") }
+      assert_nothing_raised { @connection.execute_batch(["SELECT 1"], "Database Statements Batch") }
+    end
+
+    def test_database_statements_abstract_contract_defaults
+      transaction = Struct.new(:open?, keyword_init: true)
+      manager = Struct.new(:current_transaction, keyword_init: true)
+      klass = Class.new do
+        include ActiveRecord::ConnectionAdapters::DatabaseStatements
+
+        define_method(:reset_transaction) { |*| @reset_transaction_called = true }
+        def reset_transaction_called? = @reset_transaction_called
+        define_method(:transaction_manager) { manager.new(current_transaction: transaction.new(open?: false)) }
+        def pool = ActiveRecord::Base.connection_pool
+        def execute_intent(intent) = (intent.raw_result = :ok)
+        def affected_rows(raw_result) = 0
+      end
+      statements = klass.new
+
+      assert_predicate statements, :reset_transaction_called?
+      assert_raises(NotImplementedError) { statements.write_query?("SELECT 1") }
+      assert_raises(NotImplementedError) { statements.explain("SELECT 1") }
+      assert_raises(ActiveRecord::TransactionIsolationError) { statements.begin_isolated_db_transaction(:serializable) }
+      assert_nil statements.begin_db_transaction
+      assert_nil statements.commit_db_transaction
+      assert_nil statements.exec_rollback_db_transaction
+      assert_nil statements.exec_restart_db_transaction
+      assert_nil statements.reset_isolation_level
+      assert_equal ["SELECT 1"], statements.execute_batch(["SELECT 1"], "Dummy Batch", materialize_transactions: false)
+      assert_equal Arel.sql("CURRENT_TIMESTAMP", retryable: true), statements.high_precision_current_timestamp
+      assert_equal Arel.sql("DEFAULT"), statements.send(:default_insert_value, nil)
+    end
+
     def test_invalid_column
       assert_not @connection.valid_type?(:foobar)
       assert_not @connection.class.valid_type?(:foobar)
