@@ -433,4 +433,35 @@ class DatabaseConfigurationsTest < ActiveRecord::TestCase
       ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "primary", adapter: "sqlite3", database: "db/primary.sqlite3", pool: 5, min_connections: 1)
     end
   end
+
+  def test_url_config_initializes_from_database_url_and_casts_special_values
+    config = ActiveRecord::DatabaseConfigurations::UrlConfig.new(
+      "production", "primary",
+      "postgres://user:secret@example.com/app?query_cache=12&replica=false&database_tasks=true&schema_dump=false",
+      adapter: "sqlite3", database: "fallback"
+    )
+
+    assert_equal "postgres://user:secret@example.com/app?query_cache=12&replica=false&database_tasks=true&schema_dump=false", config.url
+    assert_equal "postgresql", config.adapter
+    assert_equal "app", config.database
+    assert_equal "example.com", config.host
+    assert_equal "user", config.configuration_hash[:username]
+    assert_equal "secret", config.configuration_hash[:password]
+    assert_equal 12, config.query_cache
+    assert_not_predicate config, :replica?
+    assert_predicate config, :database_tasks?
+    assert_nil config.schema_dump
+    assert config.configuration_hash.frozen?
+  end
+
+  def test_url_config_preserves_non_database_urls_and_boolean_query_cache
+    jdbc_config = ActiveRecord::DatabaseConfigurations::UrlConfig.new("production", "primary", "jdbc:postgresql://example.com/app", adapter: "postgresql", query_cache: "false")
+    http_config = ActiveRecord::DatabaseConfigurations::UrlConfig.new("production", "primary", "https://example.com/database", adapter: "postgresql", replica: "true", database_tasks: "false")
+
+    assert_equal "jdbc:postgresql://example.com/app", jdbc_config.configuration_hash[:url]
+    assert_equal false, jdbc_config.query_cache
+    assert_equal "https://example.com/database", http_config.configuration_hash[:url]
+    assert_predicate http_config, :replica?
+    assert_not_predicate http_config, :database_tasks?
+  end
 end
