@@ -1157,6 +1157,81 @@ module ActiveRecord
       assert_equal 2, attr.with_cast_value(2).value_for_database
     end
 
+    test "query methods compose boolean filtering and SQL annotations" do
+      author = authors(:david)
+      post = posts(:welcome)
+      base = Post.where(author_id: author.id)
+      compatible = Post.where(title: post.title)
+      combined = base.and(compatible)
+      either = Post.where(id: post.id).or(Post.where(id: posts(:thinking).id)).order(:id)
+      inverted = Post.where(id: post.id).invert_where
+      annotated = combined.annotate("query methods batch").optimizer_hints("SeqScan(posts)")
+
+      assert_equal [post], combined.to_a
+      assert_equal [post.id, posts(:thinking).id], either.ids
+      assert_not_includes inverted.ids, post.id
+      assert_match(/query methods batch/, annotated.to_sql)
+      assert_match(/SeqScan\(posts\)/, annotated.to_sql)
+    end
+
+    test "query methods control creation defaults distinct limits offsets and locks" do
+      relation = Post.where(author_id: authors(:david).id)
+        .create_with(body: "query method body", type: "Post")
+        .distinct
+        .order(:id)
+        .limit(2)
+        .offset(1)
+        .lock
+      record = relation.new(title: "query method create_with")
+
+      assert_equal "query method body", record.body
+      assert_equal "Post", record.type
+      assert_equal Post.where(author_id: authors(:david).id).order(:id).ids[1, 2], relation.ids
+      assert relation.distinct_value
+      assert_equal 2, relation.limit_value
+      assert_equal 1, relation.offset_value
+      assert relation.lock_value
+    end
+
+    test "query methods eager loading and association extraction preserve loaded associations" do
+      relation = Post.includes(:author).preload(:comments).eager_load(:taggings).where(author_id: authors(:david).id).order(:id)
+      authors_from_posts = relation.extract_associated(:author)
+
+      assert_equal relation.map(&:author), authors_from_posts
+      assert_no_queries { relation.each(&:comments) }
+      assert_match(/LEFT OUTER JOIN/i, relation.to_sql)
+    end
+
+    test "query methods from joins left outer joins group having and in order of keep SQL shape" do
+      relation = Post.from("posts AS posts")
+        .joins(:author)
+        .left_outer_joins(:taggings)
+        .where("authors.id = ?", authors(:david).id)
+        .group("posts.id")
+        .having("COUNT(taggings.id) >= 0")
+        .in_order_of(:id, [posts(:thinking).id, posts(:welcome).id])
+
+      assert_equal [posts(:thinking).id, posts(:welcome).id], relation.ids
+      assert_match(/INNER JOIN/i, relation.to_sql)
+      assert_match(/LEFT OUTER JOIN/i, relation.to_sql)
+      assert_match(/GROUP BY/i, relation.to_sql)
+      assert_match(/HAVING/i, relation.to_sql)
+    end
+
+    test "query methods excluding extending and none keep relation behavior explicit" do
+      mod = Module.new do
+        def titles
+          pluck(:title)
+        end
+      end
+      relation = Post.where(author_id: authors(:david).id).excluding(posts(:welcome)).extending(mod).order(:id)
+
+      assert_not_includes relation.ids, posts(:welcome).id
+      assert_equal relation.pluck(:title), relation.titles
+      assert_empty relation.none.to_a
+      assert_match(/"posts"\."id" !=/, relation.to_sql)
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
