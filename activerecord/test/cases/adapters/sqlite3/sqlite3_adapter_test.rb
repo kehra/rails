@@ -1131,6 +1131,45 @@ module ActiveRecord
         assert_not_equal stored_column, virtual_column
       end
 
+      def test_sqlite_column_public_contracts
+        cast_type = @conn.lookup_cast_type("integer")
+        type_metadata = SqlTypeMetadata.new(sql_type: "integer", type: :integer)
+
+        plain_column = SQLite3::Column.new("id", cast_type, "1", type_metadata, true, nil)
+        auto_increment_column = SQLite3::Column.new("id", cast_type, "1", type_metadata, true, nil, auto_increment: true)
+        rowid_column = SQLite3::Column.new("id", cast_type, nil, type_metadata, true, nil, rowid: true)
+        virtual_column = SQLite3::Column.new("generated", cast_type, "5", type_metadata, true, nil, generated_type: :virtual)
+        stored_column = SQLite3::Column.new("stored", cast_type, "5", type_metadata, true, nil, generated_type: :stored)
+
+        refute plain_column.auto_increment?
+        refute plain_column.auto_incremented_by_db?
+        assert auto_increment_column.auto_increment?
+        assert auto_increment_column.auto_incremented_by_db?
+        assert rowid_column.auto_incremented_by_db?
+        assert rowid_column.rowid
+
+        refute plain_column.virtual?
+        assert virtual_column.virtual?
+        refute virtual_column.virtual_stored?
+        assert stored_column.virtual_stored?
+        assert plain_column.has_default?
+        refute virtual_column.has_default?
+
+        encoded = {}
+        auto_increment_column.encode_with(encoded)
+        assert_equal true, encoded["auto_increment"]
+
+        decoded = SQLite3::Column.allocate
+        decoded.init_with(encoded)
+        assert decoded.auto_increment?
+        assert_nil decoded.rowid
+        assert_not_equal auto_increment_column, decoded
+        assert_not_equal auto_increment_column.hash, decoded.hash
+        assert_not_equal auto_increment_column, rowid_column
+        assert_not_equal stored_column, virtual_column
+        refute_equal auto_increment_column, Object.new
+      end
+
       def test_sqlite_extensions_are_constantized_for_the_client_constructor
         mock_adapter = Class.new(SQLite3Adapter) do
           class << self
