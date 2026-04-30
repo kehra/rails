@@ -1017,6 +1017,55 @@ module ActiveRecord
       assert_equal relation.order(:id).ids, relation.order(:id).ids
     end
 
+    test "relation delegation exposes model and records public contracts" do
+      relation = Post.where(author_id: authors(:david).id).order(:id)
+
+      assert_includes ActiveRecord::Delegation.delegated_classes, ActiveRecord::Relation
+      assert_kind_of Set, ActiveRecord::Delegation.uncacheable_methods
+      assert_equal Post.table_name, relation.table_name
+      assert_equal Post.name, relation.name
+      assert_equal relation.records.length, relation.length
+      assert_equal relation.records.first, relation[0]
+      assert_equal relation.records.map(&:id), relation.each.map(&:id)
+      assert_equal relation.records + [posts(:authorless)], relation + [posts(:authorless)]
+    end
+
+    test "finder methods locate records by id conditions and ordinal positions" do
+      ordered = Post.order(:id)
+
+      assert_predicate ordered, :exists?
+      assert ordered.exists?(posts(:welcome).id)
+      assert_equal posts(:welcome), ordered.find(posts(:welcome).id)
+      assert_equal posts(:welcome), ordered.find_by(title: posts(:welcome).title)
+      assert_equal posts(:welcome), ordered.find_by!(title: posts(:welcome).title)
+      assert_equal ordered.limit(1).where(id: posts(:welcome).id).sole, ordered.find_sole_by(id: posts(:welcome).id)
+      assert_equal ordered.offset(3).first, ordered.fourth
+      assert_equal ordered.offset(4).first, ordered.fifth
+      assert_nil ordered.forty_two
+      assert_equal ordered.first, ordered.first
+      assert_equal ordered.last, ordered.last
+    end
+
+    test "finder bang ordinal methods raise when position is missing" do
+      empty = Post.where(id: -1)
+
+      assert_raises(ActiveRecord::RecordNotFound) { empty.first! }
+      assert_raises(ActiveRecord::RecordNotFound) { empty.fourth! }
+      assert_raises(ActiveRecord::RecordNotFound) { empty.fifth! }
+      assert_raises(ActiveRecord::RecordNotFound) { empty.forty_two! }
+      assert_raises(ActiveRecord::RecordNotFound) { empty.find_by!(title: "missing") }
+    end
+
+    test "finder include checks loaded records and unloaded relation membership" do
+      relation = Post.where(author_id: authors(:david).id).order(:id)
+      post = posts(:welcome)
+
+      assert_includes relation, post
+      assert_not_includes relation, posts(:authorless)
+      relation.load
+      assert_includes relation, post
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
