@@ -110,6 +110,8 @@ module ActiveRecord
       ENV["PATH"] = old_path
       extended_type_map = adapter_class.extended_type_map(default_timezone: :utc)
       assert_kind_of ActiveRecord::Type::Time, extended_type_map.lookup("time(6)")
+      assert_equal :utc, adapter.default_timezone
+      assert_kind_of ActiveRecord::Type::Time, adapter.send(:type_map).lookup("time(6)")
 
       adapter_class.migration_strategy = :custom_strategy
       assert_equal :custom_strategy, adapter_class.migration_strategy
@@ -221,6 +223,8 @@ module ActiveRecord
       end.new(cache)
       assert_equal [:eq, "value"], adapter.case_sensitive_comparison(attribute, "value")
       assert_equal [:lower_eq, "title", [:lower, "value"]], adapter.case_insensitive_comparison(attribute, "value")
+      adapter.define_singleton_method(:can_perform_case_insensitive_comparison_for?) { |_column| false }
+      assert_equal [:eq, "value"], adapter.case_insensitive_comparison(attribute, "value")
       assert_equal "title", adapter.send(:column_for, :posts, :title).name
       assert_raises(ActiveRecord::ActiveRecordError) { adapter.send(:column_for, :posts, :missing) }
       assert_equal "title", adapter.send(:column_for_attribute, attribute).name
@@ -235,6 +239,8 @@ module ActiveRecord
       assert_instance_of RuntimeError, translated
       statement_error = adapter.send(:translate_exception_class, StandardError.new("boom"), "SELECT", [])
       assert_instance_of ActiveRecord::StatementInvalid, statement_error
+      active_record_error = ActiveRecord::ActiveRecordError.new("boom")
+      assert_same active_record_error, adapter.send(:translate_exception_class, active_record_error, "SELECT", [])
 
       old_warning_ignore = ActiveRecord.db_warnings_ignore
       ActiveRecord.db_warnings_ignore = [/ignore-me/, "123"]
@@ -294,11 +300,19 @@ module ActiveRecord
         def invalidate! = self.invalidated = true
       end.new(false)
       adapter.define_singleton_method(:current_transaction) { current_transaction }
-      adapter.define_singleton_method(:savepoint_errors_invalidate_transactions?) { true }
+      savepoint_errors_invalidate = true
+      adapter.define_singleton_method(:savepoint_errors_invalidate_transactions?) { savepoint_errors_invalidate }
       adapter.send(:invalidate_transaction, ActiveRecord::StatementInvalid.new("boom"))
       refute current_transaction.invalidated?
       adapter.send(:invalidate_transaction, ActiveRecord::TransactionRollbackError.new("rollback"))
       assert current_transaction.invalidated?
+      savepoint_errors_invalidate = false
+      current_transaction.invalidated = false
+      adapter.send(:invalidate_transaction, ActiveRecord::TransactionRollbackError.new("rollback"))
+      refute current_transaction.invalidated?
+      savepoint_errors_invalidate = true
+      current_transaction.invalidated = true
+      refute adapter.send(:retryable_query_error?, ActiveRecord::StatementInvalid.new("boom"))
 
       assert_equal "INSERT INTO posts (id) VALUES (1)", adapter.build_insert_sql(Struct.new(:skip_duplicates?, :update_duplicates?, :into, :values_list).new(false, false, "INTO posts", "(id) VALUES (1)"))
       assert_raises(NotImplementedError) { adapter.build_insert_sql(Struct.new(:skip_duplicates?, :update_duplicates?, :into, :values_list).new(true, false, "INTO posts", "(id) VALUES (1)")) }
@@ -325,6 +339,76 @@ module ActiveRecord
       assert_equal false, Class.new(adapter_class) { def connect! = raise ActiveRecord::NoDatabaseError }.database_exists?({})
     ensure
       adapter_class.migration_strategy = nil if defined?(adapter_class) && adapter_class.respond_to?(:migration_strategy=)
+    end
+
+    def test_abstract_adapter_connection_lifecycle_public_contracts
+      @connection.reconnect!
+      assert @connection.verified?
+      assert @connection.connected?
+
+      adapter_class = Class.new(ActiveRecord::ConnectionAdapters::AbstractAdapter) do
+        def self.native_database_types = { string: { name: "varchar" } }
+        def columns(_table_name) = []
+        def connect! = true
+      end
+      adapter_class.const_set(:ADAPTER_NAME, "LifecycleAbstract")
+
+      assert_raises(ArgumentError) { adapter_class.new({}, Object.new) }
+
+      deprecated_connection = Object.new
+      deprecated = adapter_class.new(deprecated_connection, nil, { pool_jitter: 0.0 }, { replica: true, retry_deadline: "1.25" })
+      assert deprecated.replica?
+      assert deprecated.preventing_writes?
+      assert_equal 1.25, deprecated.retry_deadline
+      assert_operator deprecated.pool_jitter(10.0), :<=, 10.0
+      assert_operator deprecated.pool_jitter(10.0), :>=, 0.0
+      assert_same deprecated_connection, deprecated.instance_variable_get(:@unconfigured_connection)
+
+      primary_config = Struct.new(:name, :env_name).new("primary", "test")
+      named_config = Struct.new(:name, :env_name).new("animals", "test")
+      pool_class = Struct.new(:db_config, :role, :shard) do
+        def schema_cache = nil
+        def schema_reflection = nil
+        def connection_descriptor = nil
+      end
+      default_pool = pool_class.new(primary_config, :writing, :default)
+      named_pool = pool_class.new(named_config, :reading, :shard_one)
+
+      adapter = adapter_class.new({ pool_jitter: 0.0, prepared_statements: true })
+      adapter.pool = default_pool
+      adapter.unprepared_statement do
+        refute adapter.prepared_statements?
+      end
+      assert adapter.prepared_statements?
+      assert_no_match(/ name=/, adapter.inspect)
+      assert_no_match(/ shard=/, adapter.inspect)
+      adapter.pool = named_pool
+      assert_match(/name="animals"/, adapter.inspect)
+      assert_match(/shard=:shard_one/, adapter.inspect)
+
+      adapter.lock_thread = Thread.current
+      assert_kind_of ActiveSupport::Concurrency::ThreadMonitor, adapter.instance_variable_get(:@lock)
+      adapter.lock_thread = Fiber.current
+      assert_instance_of Monitor, adapter.instance_variable_get(:@lock)
+
+      adapter.instance_variable_set(:@owner, ActiveSupport::IsolatedExecutionState.context)
+      assert adapter.in_use?
+      assert_equal 0, adapter.seconds_idle
+      adapter.instance_variable_set(:@raw_connection, Object.new)
+      adapter.instance_variable_set(:@last_activity, Process.clock_gettime(Process::CLOCK_MONOTONIC) - 1)
+      adapter.instance_variable_set(:@connected_since, Process.clock_gettime(Process::CLOCK_MONOTONIC) - 1)
+      assert_operator adapter.seconds_since_last_activity, :>=, 0
+      assert_operator adapter.connection_age, :>=, 0
+
+      adapter.define_singleton_method(:enable_lazy_transactions!) { @lazy_enabled_by_expire = true }
+      adapter.define_singleton_method(:unset_query_cache!) { @query_cache_unset = true }
+      adapter.expire(false)
+      refute adapter.in_use?
+      assert adapter.instance_variable_get(:@lazy_enabled_by_expire)
+      assert adapter.instance_variable_get(:@query_cache_unset)
+
+      assert_raises(ActiveRecord::ActiveRecordError) { adapter.expire }
+      assert_raises(ActiveRecord::ActiveRecordError) { adapter.steal! }
     end
 
     def test_savepoint_public_methods_issue_transaction_commands
