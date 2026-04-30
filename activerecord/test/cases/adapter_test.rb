@@ -650,6 +650,128 @@ module ActiveRecord
       assert_includes adapter.executed_sql, "DROP TEMPORARY TABLE IF EXISTS `cats`, `dogs` CASCADE"
     end
 
+    def test_abstract_mysql_adapter_metadata_and_support_contracts
+      adapter_class = Class.new(ActiveRecord::ConnectionAdapters::AbstractMysqlAdapter) do
+        attr_reader :executed_sql
+
+        def initialize(*)
+          super
+          @executed_sql = []
+          @version = "8.0.34"
+          @full_version = "8.0.34 MySQL Community Server"
+        end
+
+        attr_writer :version, :full_version
+
+        def database_version = ActiveRecord::ConnectionAdapters::AbstractAdapter::Version.new(@version, @full_version)
+        def full_version = @full_version
+        def execute(sql) = (@executed_sql << sql; sql)
+        def reconnect! = (@reconnected = true)
+        def reconnected? = @reconnected
+        def row_format_dynamic_by_default? = true
+        def error_number(_exception) = nil
+        def active? = true
+
+        def query_all(sql)
+          @last_query_all_sql = sql
+          if sql.include?("referential_constraints")
+            [
+              { "to_table" => "authors", "primary_key" => "id", "column" => "author_id", "name" => "fk_books_authors", "position" => 1, "on_update" => "CASCADE", "on_delete" => "SET NULL" },
+              { "to_table" => "shops", "primary_key" => "country", "column" => "shop_country", "name" => "fk_orders_shops", "position" => 2, "on_update" => "RESTRICT", "on_delete" => "CASCADE" },
+              { "to_table" => "shops", "primary_key" => "id", "column" => "shop_id", "name" => "fk_orders_shops", "position" => 1, "on_update" => "RESTRICT", "on_delete" => "CASCADE" },
+            ]
+          else
+            [
+              { "name" => "chk_positive", "expression" => "(`price` > 0)" },
+              { "name" => "chk_quote", "expression" => "`name` <> \\'bad\\'" },
+            ]
+          end
+        end
+
+        def last_query_all_sql = @last_query_all_sql
+      end
+
+      adapter_class.const_set(:ADAPTER_NAME, "MetadataMysql")
+      adapter = adapter_class.new({ prepared_statements: false })
+
+      assert adapter.strict_mode?
+      refute adapter_class.new({ prepared_statements: false, strict: "false" }).strict_mode?
+      assert adapter.supports_bulk_alter?
+      assert adapter.supports_advisory_locks?
+      assert adapter.supports_foreign_keys?
+      assert adapter.supports_explain?
+      assert adapter.supports_indexes_in_create?
+      assert adapter.supports_transaction_isolation?
+      assert adapter.supports_restart_db_transaction?
+      assert adapter.supports_views?
+      assert adapter.supports_datetime_with_precision?
+
+      assert adapter.supports_check_constraints?
+      adapter.version = "8.0.15"
+      refute adapter.supports_check_constraints?
+      adapter.full_version = "10.3.10-MariaDB"
+      adapter.version = "10.3.10"
+      assert adapter.supports_check_constraints?
+      adapter.version = "10.2.22"
+      assert adapter.supports_check_constraints?
+      adapter.version = "10.2.21"
+      refute adapter.supports_check_constraints?
+
+      adapter.full_version = "8.0.34 MySQL Community Server"
+      adapter.version = "8.0.34"
+      assert adapter.supports_common_table_expressions?
+      assert adapter.supports_optimizer_hints?
+      assert adapter.supports_expression_index?
+      assert adapter.supports_index_sort_order?
+      assert adapter.supports_virtual_columns?
+      assert adapter.supports_disabling_indexes?
+      assert adapter.supports_insert_on_duplicate_skip?
+      assert adapter.supports_insert_on_duplicate_update?
+      refute adapter.supports_insert_returning?
+      auto_increment_column = Struct.new(:auto_populated?, :auto_increment?).new(false, true)
+      auto_populated_column = Struct.new(:auto_populated?, :auto_increment?).new(true, false)
+      assert adapter.return_value_after_insert?(auto_increment_column)
+      adapter.full_version = "10.8.1-MariaDB"
+      adapter.version = "10.8.1"
+      assert adapter.supports_common_table_expressions?
+      assert adapter.supports_index_sort_order?
+      assert adapter.supports_insert_returning?
+      assert adapter.supports_disabling_indexes?
+      assert adapter.return_value_after_insert?(auto_populated_column)
+
+      raw_connection = Struct.new(:escaped) do
+        def escape(value) = "escaped #{value}"
+      end.new
+      adapter.instance_variable_set(:@raw_connection, raw_connection)
+      adapter.instance_variable_set(:@verified, true)
+      assert_equal "escaped O'Reilly", adapter.quote_string("O'Reilly")
+
+      assert_equal "CREATE DATABASE `again` DEFAULT CHARACTER SET `utf8mb4`", adapter.recreate_database("again")
+      assert_includes adapter.executed_sql, "DROP DATABASE IF EXISTS `again`"
+      assert adapter.reconnected?
+
+      foreign_keys = adapter.foreign_keys(:books)
+      assert_equal 2, foreign_keys.size
+      assert_equal "fk_books_authors", foreign_keys.first.name
+      assert_equal "author_id", foreign_keys.first.options[:column]
+      assert_equal "id", foreign_keys.first.options[:primary_key]
+      composite = foreign_keys.detect { |fk| fk.name == "fk_orders_shops" }
+      assert_equal ["shop_id", "shop_country"], composite.options[:column]
+      assert_equal ["id", "country"], composite.options[:primary_key]
+      assert_raises(ArgumentError) { adapter.foreign_keys(nil) }
+
+      adapter.full_version = "8.0.34 MySQL Community Server"
+      checks = adapter.check_constraints(:products)
+      assert_equal ["chk_positive", "chk_quote"], checks.map(&:name)
+      assert_equal "`price` > 0", checks.first.expression
+      assert_equal "`name` <> 'bad'", checks.second.expression
+      adapter.full_version = "10.5.0-MariaDB"
+      adapter.check_constraints(:products)
+      assert_includes adapter.last_query_all_sql, "cc.table_name"
+      adapter.define_singleton_method(:supports_check_constraints?) { false }
+      assert_raises(NotImplementedError) { adapter.check_constraints(:products) }
+    end
+
     def test_savepoint_public_methods_issue_transaction_commands
       commands = []
       transaction = Struct.new(:savepoint_name).new("active_record_test_savepoint")
