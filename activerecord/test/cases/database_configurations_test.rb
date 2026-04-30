@@ -185,4 +185,74 @@ class DatabaseConfigurationsTest < ActiveRecord::TestCase
   ensure
     ActiveRecord::Base.configurations = prev_configs
   end
+
+  def test_empty_and_blank_return_true_for_directly_empty_configurations
+    configurations = ActiveRecord::DatabaseConfigurations.new([])
+
+    assert_predicate configurations, :empty?
+    assert_predicate configurations, :blank?
+  end
+
+  def test_initialize_accepts_existing_database_configurations_and_arrays
+    hash_config = ActiveRecord::DatabaseConfigurations::HashConfig.new("production", "primary", adapter: "sqlite3", database: "db/production.sqlite3")
+    array_configurations = ActiveRecord::DatabaseConfigurations.new([hash_config])
+    wrapped_configurations = ActiveRecord::DatabaseConfigurations.new(array_configurations)
+
+    assert_same hash_config, array_configurations.configurations.first
+    assert_same array_configurations.configurations, wrapped_configurations.configurations
+  end
+
+  def test_initialize_builds_url_configs_and_rejects_invalid_raw_configs
+    configurations = ActiveRecord::DatabaseConfigurations.new(
+      "production" => "sqlite3:///tmp/production.sqlite3"
+    )
+
+    assert_instance_of ActiveRecord::DatabaseConfigurations::UrlConfig, configurations.configurations.first
+    assert_raises(ActiveRecord::DatabaseConfigurations::InvalidConfigurationError) do
+      ActiveRecord::DatabaseConfigurations.new("production" => 123)
+    end
+    assert_raises(ActiveRecord::DatabaseConfigurations::InvalidConfigurationError) do
+      ActiveRecord::DatabaseConfigurations.new("production" => "not-a-url")
+    end
+  end
+
+  def test_hash_config_builder_returns_nil_when_all_registered_handlers_decline
+    previous_handlers = ActiveRecord::DatabaseConfigurations.db_config_handlers
+    ActiveRecord::DatabaseConfigurations.db_config_handlers = [->(_env_name, _name, _url, _config) {}]
+    configurations = ActiveRecord::DatabaseConfigurations.allocate
+
+    assert_nil configurations.send(:build_db_config_from_hash, "production", "primary", adapter: "sqlite3", database: "db/production.sqlite3")
+  ensure
+    ActiveRecord::DatabaseConfigurations.db_config_handlers = previous_handlers
+  end
+
+  def test_initialize_merges_database_url_for_current_environment
+    previous_database_url = ENV["DATABASE_URL"]
+    previous_env = ENV["RAILS_ENV"]
+    ENV["DATABASE_URL"] = "sqlite3:///tmp/env-url.sqlite3"
+    ENV["RAILS_ENV"] = "env_url"
+
+    configurations = ActiveRecord::DatabaseConfigurations.new(
+      "env_url" => { "primary" => { "adapter" => "sqlite3", "database" => "db/from_hash.sqlite3" } }
+    )
+
+    assert_instance_of ActiveRecord::DatabaseConfigurations::UrlConfig, configurations.configs_for(env_name: "env_url", name: "primary", include_hidden: true)
+    assert_equal "/tmp/env-url.sqlite3", configurations.configs_for(env_name: "env_url", name: "primary", include_hidden: true).database
+  ensure
+    ENV["DATABASE_URL"] = previous_database_url
+    ENV["RAILS_ENV"] = previous_env
+  end
+
+  def test_configs_for_without_env_name_returns_all_visible_configs
+    configurations = ActiveRecord::DatabaseConfigurations.new(
+      "production" => {
+        "primary" => { "adapter" => "sqlite3", "database" => "db/production.sqlite3" },
+        "replica" => { "adapter" => "sqlite3", "database" => "db/replica.sqlite3", "replica" => true }
+      },
+      "staging" => { "primary" => { "adapter" => "sqlite3", "database" => "db/staging.sqlite3" } }
+    )
+
+    assert_equal ["production:primary", "staging:primary"], configurations.configs_for.map { |config| "#{config.env_name}:#{config.name}" }
+    assert_equal 3, configurations.configs_for(include_hidden: true).size
+  end
 end
