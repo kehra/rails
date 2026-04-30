@@ -986,6 +986,37 @@ module ActiveRecord
       assert_empty destroyable
     end
 
+    test "calculations async aggregate methods match synchronous results" do
+      relation = Developer.where("salary > ?", 0)
+
+      assert_equal relation.average(:salary), relation.async_average(:salary).value
+      assert_equal relation.count, relation.async_count.value
+      assert_equal relation.maximum(:salary), relation.async_maximum(:salary).value
+      assert_equal relation.minimum(:salary), relation.async_minimum(:salary).value
+      assert_equal relation.sum(:salary), relation.async_sum(:salary).value
+    end
+
+    test "calculations async ids pick and pluck match synchronous projections" do
+      relation = Post.where(author_id: authors(:david).id).order(:id)
+
+      assert_equal relation.ids, relation.async_ids.value
+      assert_equal relation.pick(:title), relation.async_pick(:title).value
+      assert_equal relation.pluck(:id, :title), relation.async_pluck(:id, :title).value
+    end
+
+    test "calculations synchronous methods keep grouped and scalar result shapes" do
+      relation = Developer.where("salary > ?", 0)
+      grouped = relation.group(:name)
+
+      assert_equal relation.count(:all), relation.calculate(:count, :all)
+      assert_equal relation.average(:salary), relation.calculate(:average, :salary)
+      assert_equal relation.maximum(:salary), relation.calculate(:maximum, :salary)
+      assert_equal relation.minimum(:salary), relation.calculate(:minimum, :salary)
+      assert_equal relation.sum(:salary), relation.calculate(:sum, :salary)
+      assert_equal grouped.count, grouped.calculate(:count, :all)
+      assert_equal relation.order(:id).ids, relation.order(:id).ids
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
