@@ -61,6 +61,22 @@ module ActiveRecord
         database_class.define_method(:new, original)
       end
 
+      def test_new_client_reraises_other_enoent_errors
+        database_class = class << ::SQLite3::Database; self; end
+        original = ::SQLite3::Database.method(:new)
+        database_class.define_method(:new) do |*_args|
+          error = Errno::ENOENT.new("permission-ish failure")
+          error.define_singleton_method(:message) { "permission-ish failure" }
+          raise error
+        end
+
+        assert_raises(Errno::ENOENT) do
+          SQLite3Adapter.new_client(database: "/missing/sqlite/directory/database.sqlite3")
+        end
+      ensure
+        database_class.define_method(:new, original)
+      end
+
       def test_dbconsole_builds_sqlite_cli_arguments
         config = ActiveRecord::DatabaseConfigurations::HashConfig.new("default_env", "primary", { database: "db/development.sqlite3" })
         calls = []
@@ -71,9 +87,11 @@ module ActiveRecord
         end
 
         SQLite3Adapter.dbconsole(config, mode: "line", header: true)
+        SQLite3Adapter.dbconsole(config)
 
         assert_equal ActiveRecord.database_cli[:sqlite], calls.first.first
         assert_equal ["-line", "-header", File.expand_path("db/development.sqlite3")], calls.first.last
+        assert_equal [File.expand_path("db/development.sqlite3")], calls.last.last
       ensure
         adapter_class.define_method(:find_cmd_and_exec, original)
       end
@@ -101,6 +119,14 @@ module ActiveRecord
         assert shared.shared_cache?
       ensure
         shared&.disconnect!
+      end
+
+      def test_file_uri_database_is_left_as_uri
+        adapter = SQLite3Adapter.new(adapter: "sqlite3", database: "file:memory_adapter_contract?mode=memory&cache=shared")
+
+        assert_equal "file:memory_adapter_contract?mode=memory&cache=shared", adapter.instance_variable_get(:@config)[:database]
+      ensure
+        adapter&.disconnect!
       end
 
       def test_strict_strings_default_class_attribute
@@ -1255,6 +1281,64 @@ module ActiveRecord
 
         error = assert_raises(ActiveRecord::StatementInvalid) { fake.check_all_foreign_keys_valid! }
         assert_match(/Foreign key violations found: comments, posts/, error.message)
+      end
+
+      def test_change_column_null_updates_existing_nulls_when_default_given
+        @conn.create_table :ar_sqlite_null_changes, force: true do |t|
+          t.string :name
+        end
+        @conn.execute("INSERT INTO ar_sqlite_null_changes (name) VALUES (NULL)")
+
+        @conn.change_column_null :ar_sqlite_null_changes, :name, false, "missing"
+
+        assert_equal "missing", @conn.select_value("SELECT name FROM ar_sqlite_null_changes")
+        assert_not @conn.columns(:ar_sqlite_null_changes).find { |column| column.name == "name" }.null
+      ensure
+        @conn.drop_table :ar_sqlite_null_changes, if_exists: true
+      end
+
+      def test_check_version_rejects_old_sqlite_versions
+        old_version = SQLite3Adapter::Version.new("3.22.0")
+        @conn.stub(:database_version, old_version) do
+          error = assert_raises(RuntimeError) { @conn.check_version }
+          assert_match(/SQLite >= 3.23.0/, error.message)
+        end
+      end
+
+      def test_default_extraction_handles_double_quoted_and_binary_literals
+        assert_equal 'a"b', @conn.send(:extract_value_from_default, '"a""b"')
+        assert_equal "A\x00".b, @conn.send(:extract_value_from_default, "x'4100'")
+      end
+
+      def test_sqlite_exceptions_translate_to_specific_active_record_errors
+        translations = {
+          ::SQLite3::ConstraintException.new("FOREIGN KEY constraint failed") => ActiveRecord::InvalidForeignKey,
+          ::SQLite3::ConstraintException.new("CHECK constraint failed: price_positive") => ActiveRecord::CheckViolation,
+          ::SQLite3::SQLException.new("called on a closed database") => ActiveRecord::ConnectionNotEstablished,
+          ::SQLite3::BusyException.new("database is locked") => ActiveRecord::StatementTimeout,
+        }
+
+        translations.each do |exception, expected_class|
+          translated = @conn.send(:translate_exception, exception, message: exception.message, sql: "SELECT 1", binds: [])
+          assert_instance_of expected_class, translated
+        end
+      end
+
+      def test_table_structure_parses_collation_and_generated_columns
+        @conn.create_table :ar_sqlite_structure_checks, force: true do |t|
+          t.string :name, collation: "NOCASE"
+          t.virtual :upper_name, type: :string, as: "UPPER(name)", stored: true
+        end
+
+        columns = @conn.send(:table_structure, "ar_sqlite_structure_checks").index_by { |column| column["name"] }
+        assert_equal "NOCASE", columns["name"]["collation"]
+        assert_equal "UPPER(name)", columns["upper_name"]["dflt_value"]
+
+        @conn.stub(:supports_virtual_columns?, false) do
+          assert @conn.send(:table_info, "ar_sqlite_structure_checks").any?
+        end
+      ensure
+        @conn.drop_table :ar_sqlite_structure_checks, if_exists: true
       end
 
       def test_rename_table_updates_table_and_drop_virtual_table_removes_it
