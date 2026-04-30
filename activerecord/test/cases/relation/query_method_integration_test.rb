@@ -631,6 +631,62 @@ module ActiveRecord
       assert_equal "upserted #{post.id}", Post.find(post.id).title
     end
 
+    test "count by sql and async count by sql return integer counts from sanitized SQL" do
+      sql = ["SELECT COUNT(*) FROM posts WHERE author_id = ?", authors(:david).id]
+      expected = Post.where(author_id: authors(:david).id).count
+
+      assert_equal expected, Post.count_by_sql(sql)
+      assert_equal expected, Post.async_count_by_sql(sql).value
+    end
+
+    test "find by sql and async find by sql instantiate matching records with blocks" do
+      sql = ["SELECT * FROM posts WHERE author_id = ? ORDER BY id ASC", authors(:david).id]
+      sync_records = Post.find_by_sql(sql) { |record| record.readonly! }
+      async_records = Post.async_find_by_sql(sql).value
+
+      assert_equal Post.where(author_id: authors(:david).id).order(:id).ids, sync_records.map(&:id)
+      assert sync_records.all?(&:readonly?)
+      assert_equal sync_records.map(&:id), async_records.map(&:id)
+    end
+
+    test "relation equality compares relations arrays and association collections" do
+      author = authors(:david)
+      relation = Post.where(author_id: author.id).order(:id)
+      same_relation = Post.where(author_id: author.id).order(:id)
+      different_relation = Post.where(author_id: author.id).order(id: :desc)
+
+      assert_equal relation, same_relation
+      assert_not_equal relation, different_relation
+      assert_equal relation, relation.to_a
+      assert_equal author.posts.order(:id), relation
+    end
+
+    test "relation any and blank respect none loaded and block forms" do
+      relation = Post.where(author_id: authors(:david).id)
+      none = Post.none
+
+      assert_predicate relation, :any?
+      assert relation.any? { |post| post.author_id == authors(:david).id }
+      assert_not_predicate none, :any?
+      assert_not_predicate relation, :blank?
+      assert_predicate none, :blank?
+    end
+
+    test "relation cache key version and key with version use timestamp column" do
+      previous = Developer.collection_cache_versioning
+      Developer.collection_cache_versioning = true
+      relation = Developer.where(name: "Jamis").order(:id)
+      relation.load
+      cache_key = relation.cache_key(:updated_at)
+      cache_version = relation.cache_version(:updated_at)
+
+      assert_match(%r{developers/query-}, cache_key)
+      assert_match(/\A\d+-\d{14}/, cache_version)
+      assert_equal "#{cache_key}-#{cache_version}", relation.cache_key_with_version
+    ensure
+      Developer.collection_cache_versioning = previous
+    end
+
     private
       def relation_test_post_class(&block)
         klass = Class.new(ActiveRecord::Base)
