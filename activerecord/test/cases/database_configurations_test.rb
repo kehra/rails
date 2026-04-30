@@ -3,6 +3,27 @@
 require "cases/helper"
 
 class DatabaseConfigurationsTest < ActiveRecord::TestCase
+  class FakeDatabaseConfigAdapter
+    attr_reader :configuration_hash
+
+    def initialize(configuration_hash)
+      @configuration_hash = configuration_hash
+    end
+  end
+
+  class ConcreteDatabaseConfig < ActiveRecord::DatabaseConfigurations::DatabaseConfig
+    attr_reader :configuration_hash
+
+    def initialize(env_name = "default_env", name = "primary", configuration_hash = {})
+      super(env_name, name)
+      @configuration_hash = configuration_hash
+    end
+
+    def adapter
+      configuration_hash[:adapter]
+    end
+  end
+
   unless in_memory_db?
     def test_empty_returns_true_when_db_configs_are_empty
       old_config = ActiveRecord::Base.configurations
@@ -254,5 +275,50 @@ class DatabaseConfigurationsTest < ActiveRecord::TestCase
 
     assert_equal ["production:primary", "staging:primary"], configurations.configs_for.map { |config| "#{config.env_name}:#{config.name}" }
     assert_equal 3, configurations.configs_for(include_hidden: true).size
+  end
+
+  def test_database_config_base_contract_for_adapter_resolution_connection_and_validation
+    config = ConcreteDatabaseConfig.new("production", "primary", adapter: "fake")
+    calls = 0
+    resolver = ->(adapter) do
+      calls += 1
+      assert_equal "fake", adapter
+      FakeDatabaseConfigAdapter
+    end
+
+    ActiveRecord::ConnectionAdapters.stub(:resolve, resolver) do
+      assert_same FakeDatabaseConfigAdapter, config.adapter_class
+      assert_same FakeDatabaseConfigAdapter, config.adapter_class
+      assert_equal 1, calls
+      assert_equal({ adapter: "fake" }, config.new_connection.configuration_hash)
+      assert config.validate!
+      assert_match(/env_name=production name=primary adapter_class=DatabaseConfigurationsTest::FakeDatabaseConfigAdapter/, config.inspect)
+    end
+  end
+
+  def test_database_config_validate_without_adapter_is_true
+    assert ConcreteDatabaseConfig.new("production", "primary", {}).validate!
+  end
+
+  def test_database_config_for_current_env_matches_default_env
+    current_config = ConcreteDatabaseConfig.new(ActiveRecord::ConnectionHandling::DEFAULT_ENV.call, "primary", {})
+    other_config = ConcreteDatabaseConfig.new("elsewhere", "primary", {})
+
+    assert_predicate current_config, :for_current_env?
+    assert_not_predicate other_config, :for_current_env?
+  end
+
+  def test_database_config_abstract_methods_raise_not_implemented_error
+    config = ActiveRecord::DatabaseConfigurations::DatabaseConfig.new("production", "primary")
+
+    %i[
+      host database _database= adapter min_connections max_connections min_threads max_threads
+      max_queue query_cache checkout_timeout reaping_frequency idle_timeout replica?
+      migrations_paths schema_cache_path use_metadata_table? seeds?
+    ].each do |method_name|
+      assert_raises(NotImplementedError) do
+        method_name == :_database= ? config.public_send(method_name, "db/test.sqlite3") : config.public_send(method_name)
+      end
+    end
   end
 end
