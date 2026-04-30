@@ -772,6 +772,107 @@ module ActiveRecord
       assert_raises(NotImplementedError) { adapter.check_constraints(:products) }
     end
 
+    def test_abstract_mysql_adapter_rename_and_dbconsole_contracts
+      executed_dbconsole = nil
+      adapter_class = Class.new(ActiveRecord::ConnectionAdapters::AbstractMysqlAdapter) do
+        attr_reader :executed_sql, :renamed_table_indexes, :added_indexes, :removed_indexes
+
+        def initialize(*)
+          super
+          @executed_sql = []
+          @renamed_table_indexes = []
+          @added_indexes = []
+          @removed_indexes = []
+        end
+
+        define_singleton_method(:find_cmd_and_exec) do |commands, *args|
+          executed_dbconsole = [commands, args]
+        end
+
+        def execute(sql) = (@executed_sql << sql; sql)
+        def error_number(_exception) = nil
+        def active? = true
+        def supports_rename_index? = @supports_rename_index != false
+        def supports_rename_index=(value)
+          @supports_rename_index = value
+        end
+        def rename_table_indexes(table_name, new_name, **options) = @renamed_table_indexes << [table_name, new_name, options]
+        def add_index(table_name, columns, **options) = @added_indexes << [table_name, columns, options]
+        def remove_index(table_name, **options) = @removed_indexes << [table_name, options]
+        def indexes(_table_name) = [Struct.new(:name, :columns, :unique).new("old_idx", ["author_id"], true)]
+      end
+
+      adapter_class.const_set(:ADAPTER_NAME, "RenameMysql")
+      config = Struct.new(:configuration_hash, :database).new({
+        host: "db.example.test",
+        port: 3306,
+        socket: "/tmp/mysql.sock",
+        username: "root",
+        encoding: "utf8mb4",
+        password: "secret",
+        sslca: "ca.pem",
+        sslcert: "cert.pem",
+        sslcapath: "certs",
+        sslcipher: "AES256",
+        sslkey: "key.pem",
+        ssl_mode: "VERIFY_IDENTITY",
+      }, "animals_test")
+
+      adapter_class.dbconsole(config, include_password: true)
+      assert_equal ActiveRecord.database_cli[:mysql], executed_dbconsole.first
+      assert_includes executed_dbconsole.last, "--host=db.example.test"
+      assert_includes executed_dbconsole.last, "--port=3306"
+      assert_includes executed_dbconsole.last, "--socket=/tmp/mysql.sock"
+      assert_includes executed_dbconsole.last, "--user=root"
+      assert_includes executed_dbconsole.last, "--default-character-set=utf8mb4"
+      assert_includes executed_dbconsole.last, "--password=secret"
+      assert_includes executed_dbconsole.last, "--ssl-ca=ca.pem"
+      assert_includes executed_dbconsole.last, "--ssl-cert=cert.pem"
+      assert_includes executed_dbconsole.last, "--ssl-capath=certs"
+      assert_includes executed_dbconsole.last, "--ssl-cipher=AES256"
+      assert_includes executed_dbconsole.last, "--ssl-key=key.pem"
+      assert_includes executed_dbconsole.last, "--ssl-mode=VERIFY_IDENTITY"
+      assert_equal "animals_test", executed_dbconsole.last.last
+
+      adapter_class.dbconsole(config, include_password: false)
+      assert_includes executed_dbconsole.last, "-p"
+      refute_includes executed_dbconsole.last, "--password=secret"
+
+      no_password_config = Struct.new(:configuration_hash, :database).new({ password: "" }, "empty_password")
+      adapter_class.dbconsole(no_password_config)
+      refute_includes executed_dbconsole.last, "-p"
+      assert_equal "empty_password", executed_dbconsole.last.last
+
+      adapter = adapter_class.new({ prepared_statements: false })
+      cleared = []
+      adapter.pool = Struct.new(:schema_cache) do
+        def db_config = Struct.new(:name, :env_name).new("primary", "test")
+        def role = :writing
+        def shard = :default
+        def schema_reflection = nil
+        def connection_descriptor = nil
+      end.new(Struct.new(:cleared) do
+        def clear_data_source_cache!(name) = cleared << name
+      end.new(cleared))
+
+      adapter.rename_table(:old_cats, :new_cats)
+      assert_equal ["old_cats", "new_cats"], cleared
+      assert_includes adapter.executed_sql, "RENAME TABLE `old_cats` TO `new_cats`"
+      assert_equal [[:old_cats, :new_cats, {}]], adapter.renamed_table_indexes
+
+      adapter.rename_table(:legacy_old, :legacy_new, _uses_legacy_table_name: true)
+      assert_includes adapter.executed_sql, "RENAME TABLE `legacy_old` TO `legacy_new`"
+      assert_equal [:legacy_old, :legacy_new, { _uses_legacy_table_name: true }], adapter.renamed_table_indexes.last
+
+      adapter.rename_index(:books, :old_idx, :new_idx)
+      assert_includes adapter.executed_sql, "ALTER TABLE `books` RENAME INDEX `old_idx` TO `new_idx`"
+
+      adapter.supports_rename_index = false
+      adapter.rename_index(:books, :old_idx, :copied_idx)
+      assert_equal [:books, ["author_id"], { name: "copied_idx", unique: true }], adapter.added_indexes.last
+      assert_equal [:books, { name: "old_idx" }], adapter.removed_indexes.last
+    end
+
     def test_savepoint_public_methods_issue_transaction_commands
       commands = []
       transaction = Struct.new(:savepoint_name).new("active_record_test_savepoint")
