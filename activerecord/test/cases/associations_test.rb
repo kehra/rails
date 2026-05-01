@@ -57,6 +57,24 @@ class AssociationsTest < ActiveRecord::TestCase
     assert post.association_cached?(:comments)
     assert_not post.dup.association_cached?(:comments)
   end
+
+  def test_alias_tracker_merges_supplied_alias_counts_with_join_counts
+    aliases = Hash.new { 2 }
+    joins = [Arel::Nodes::StringJoin.new('JOIN comments ON comments.post_id = posts.id')]
+
+    tracker = ActiveRecord::Associations::AliasTracker.create(ActiveRecord::Base.connection_pool, "posts", joins, aliases)
+
+    assert_equal 3, tracker.aliases["comments"]
+    assert_equal 2, tracker.aliases["tags"]
+  end
+
+  def test_alias_tracker_rejects_non_arel_join_nodes
+    error = assert_raises(ArgumentError) do
+      ActiveRecord::Associations::AliasTracker.initial_count_for(ActiveRecord::Base.lease_connection, "posts", [Object.new])
+    end
+
+    assert_equal "joins list should be initialized by list of Arel::Nodes::Join", error.message
+  end
   fixtures :accounts, :companies, :developers, :projects, :developers_projects,
            :computers, :people, :readers, :authors, :author_addresses, :author_favorites,
            :comments, :posts, :sharded_blogs, :sharded_blog_posts, :sharded_comments, :sharded_tags, :sharded_blog_posts_tags,
