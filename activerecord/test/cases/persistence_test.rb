@@ -658,6 +658,17 @@ class PersistenceTest < ActiveRecord::TestCase
     assert_equal "Validation failed: Content Empty", error.message
   end
 
+  def test_save_returns_false_when_record_invalid_is_raised
+    topic = Topic.new(title: "New Topic")
+
+    topic.define_singleton_method(:create_or_update) do |**|
+      raise ActiveRecord::RecordInvalid, self
+    end
+    topic.singleton_class.send(:private, :create_or_update)
+
+    assert_equal false, topic.save
+  end
+
   def test_save_destroyed_object
     topic = Topic.create!(title: "New Topic")
     topic.destroy!
