@@ -1187,6 +1187,70 @@ class PreloaderTest < ActiveRecord::TestCase
     assert_equal [nil], loader.associated_records
   end
 
+  def test_preloader_branch_requires_symbol_or_string_association_names
+    error = assert_raises(ArgumentError) do
+      ActiveRecord::Associations::Preloader::Branch.new(
+        association: Object.new,
+        children: nil,
+        parent: nil,
+        associate_by_default: true,
+        scope: nil
+      )
+    end
+
+    assert_match(/Association names must be Symbol or String/, error.message)
+  end
+
+  def test_preloader_branch_target_classes_use_preloaded_records_when_done
+    branch = ActiveRecord::Associations::Preloader::Branch.new(
+      association: nil,
+      children: nil,
+      parent: nil,
+      associate_by_default: true,
+      scope: nil
+    )
+    branch.preloaded_records = [Struct.new(:klass).new(Author), Struct.new(:klass).new(Post)]
+
+    assert_equal [Author, Post], branch.target_classes
+  end
+
+  def test_preloader_branch_skips_missing_child_reflections_under_polymorphic_parent
+    parent = Struct.new(:preloaded_records) do
+      def polymorphic?; true; end
+    end.new([authors(:david)])
+    branch = ActiveRecord::Associations::Preloader::Branch.new(
+      association: :not_an_association,
+      children: nil,
+      parent: parent,
+      associate_by_default: true,
+      scope: nil
+    )
+
+    assert_empty branch.grouped_records
+  end
+
+  def test_preloader_branch_memoizes_polymorphic_detection
+    comment = comments(:greetings)
+    parent = ActiveRecord::Associations::Preloader::Branch.new(
+      association: nil,
+      children: nil,
+      parent: nil,
+      associate_by_default: true,
+      scope: nil
+    )
+    parent.preloaded_records = [comment]
+    branch = ActiveRecord::Associations::Preloader::Branch.new(
+      association: :origin,
+      children: nil,
+      parent: parent,
+      associate_by_default: true,
+      scope: nil
+    )
+
+    assert_predicate branch, :polymorphic?
+    assert_predicate branch, :polymorphic?
+  end
+
   def test_preload_makes_correct_number_of_queries_on_array
     post = posts(:welcome)
 
