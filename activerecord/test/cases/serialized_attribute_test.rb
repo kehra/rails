@@ -715,6 +715,80 @@ class SerializedAttributeTestWithYamlSafeLoad < SerializedAttributeTest
     assert topic.save
   end
 
+  def test_serialize_requires_coder_when_default_column_serializer_is_disabled
+    old_default_column_serializer = Topic.default_column_serializer
+    Topic.default_column_serializer = nil
+
+    error = assert_raises(ArgumentError) do
+      Topic.serialize(:content)
+    end
+
+    assert_match "missing keyword: :coder", error.message
+  ensure
+    Topic.default_column_serializer = old_default_column_serializer
+  end
+
+  class InitializingCoder
+    def initialize(attr_name, type)
+      @attr_name = attr_name
+      @type = type
+    end
+
+    def dump(value)
+      value&.to_json
+    end
+
+    def load(value)
+      value.is_a?(@type) ? value : value && JSON.parse(value)
+    end
+  end
+
+  def test_serialize_accepts_coder_class_that_is_initialized_with_attribute_and_type
+    topic_class = Class.new(ActiveRecord::Base) do
+      self.table_name = "topics"
+      serialize :content, coder: InitializingCoder, type: Hash
+    end
+
+    topic = topic_class.create!(content: { "key" => "value" })
+    assert_equal({ "key" => "value" }, topic.reload.content)
+  end
+
+  module HashCoder
+    def self.dump(value)
+      value&.to_json
+    end
+
+    def self.load(value)
+      value && JSON.parse(value)
+    end
+  end
+
+  def test_serialize_wraps_coder_with_type_constraint_when_type_is_provided
+    topic_class = Class.new(ActiveRecord::Base) do
+      self.table_name = "topics"
+      serialize :content, coder: HashCoder, type: Hash
+    end
+
+    topic = topic_class.create!(content: { "key" => "value" })
+    assert_equal({ "key" => "value" }, topic.reload.content)
+  end
+
+  def test_serialize_rejects_json_coder_for_native_json_attribute
+    topic_class = Class.new(ActiveRecord::Base) do
+      self.table_name = "topics"
+
+      def self.decorate_attributes(names)
+        yield names.first, ActiveRecord::Type::Json.new
+      end
+    end
+
+    error = assert_raises(ActiveRecord::AttributeMethods::Serialization::ColumnNotSerializableError) do
+      topic_class.serialize :content, coder: JSON
+    end
+
+    assert_match "does not support `serialize` feature", error.message
+  end
+
   def test_changed_in_place_compare_serialized_representation
     Topic.serialize :content, type: Hash
     topic = Topic.create!(content: { "a" => 1, "b" => 2 })
