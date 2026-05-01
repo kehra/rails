@@ -85,6 +85,47 @@ class PrimaryKeysTest < ActiveRecord::TestCase
     end
   end
 
+  def test_default_primary_key_attribute_method_values_use_scalar_id
+    topic = Topic.find(1)
+
+    assert_equal 1, topic.id
+    assert_predicate topic, :primary_key_values_present?
+    assert_predicate topic, :id?
+    assert_equal 1, topic.id_before_type_cast
+    assert_equal 1, topic.id_was
+    assert_equal 1, topic.id_in_database
+    assert_equal 1, topic.id_for_database
+  end
+
+  def test_composite_primary_key_attribute_methods_fall_back_to_super_for_scalar_primary_keys
+    record = Class.new do
+      prepend ActiveRecord::AttributeMethods::CompositePrimaryKey
+
+      def self.composite_primary_key? = false
+      def id = :id
+      def primary_key_values_present? = :primary_key_values_present
+      def id=(value)
+        @id_value = value
+      end
+      def id? = :id_query
+      def id_before_type_cast = :id_before_type_cast
+      def id_was = :id_was
+      def id_in_database = :id_in_database
+      def id_for_database = :id_for_database
+      attr_reader :id_value
+    end.new
+
+    assert_equal :id, record.id
+    assert_equal :primary_key_values_present, record.primary_key_values_present?
+    assert_equal :assigned_id, record.id = :assigned_id
+    assert_equal :assigned_id, record.id_value
+    assert_equal :id_query, record.id?
+    assert_equal :id_before_type_cast, record.id_before_type_cast
+    assert_equal :id_was, record.id_was
+    assert_equal :id_in_database, record.id_in_database
+    assert_equal :id_for_database, record.id_for_database
+  end
+
   def test_integer_key
     topic = Topic.find(1)
     assert_equal(topics(:first).author_name, topic.author_name)
@@ -443,6 +484,18 @@ class CompositePrimaryKeyTest < ActiveRecord::TestCase
 
     assert_equal book_id, book.id_was
     assert_equal [42, 42], book.id
+  end
+
+  def test_composite_primary_key_attribute_method_values
+    book = cpk_books(:cpk_great_author_first_book)
+    book_id = book.id
+
+    book.id = ["42", "43"]
+
+    assert_equal [42, 43], book.id
+    assert_equal ["42", "43"], book.id_before_type_cast
+    assert_equal book_id, book.id_in_database
+    assert_equal [42, 43], book.id_for_database
   end
 
   def test_id_predicate_composite
