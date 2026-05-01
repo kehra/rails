@@ -1251,6 +1251,92 @@ class PreloaderTest < ActiveRecord::TestCase
     assert_predicate branch, :polymorphic?
   end
 
+  def test_preloader_through_association_filters_loaded_through_records_by_source_type
+    owner = Struct.new(:through_association) do
+      def association(name)
+        if name == :taggings
+          through_association
+        else
+          Struct.new(:loaded?).new(false)
+        end
+      end
+    end.new(Struct.new(:loaded?).new(true))
+    source_record = Struct.new(:id).new(1)
+    matching_through = { "source_type" => "Post" }
+    skipped_through = { "source_type" => "Comment" }
+    reflection = Struct.new(:name, :options, :through_reflection, :foreign_type).new(
+      :tagged_posts,
+      { source_type: "Post" },
+      Struct.new(:name).new(:taggings),
+      "source_type"
+    )
+    loader = ActiveRecord::Associations::Preloader::ThroughAssociation.allocate
+    loader.instance_variable_set(:@owners, [owner])
+    loader.instance_variable_set(:@reflection, reflection)
+    loader.instance_variable_set(:@through_records_by_owner, { owner => [matching_through, skipped_through] })
+    loader.instance_variable_set(:@source_records_by_owner, { matching_through => [source_record], skipped_through => [Struct.new(:id).new(2)] })
+    loader.instance_variable_set(:@scope, Struct.new(:order_values, :distinct_value).new([], false))
+
+    assert_equal [source_record], loader.records_by_owner[owner]
+  end
+
+  def test_preloader_through_association_orders_and_deduplicates_records_by_preload_index
+    owner = Struct.new(:loaded_association) do
+      def association(*) = loaded_association
+    end.new(Struct.new(:loaded?).new(false))
+    first_record = Struct.new(:id).new(1)
+    second_record = Struct.new(:id).new(2)
+    first_through = Object.new
+    second_through = Object.new
+    reflection = Struct.new(:name, :options, :through_reflection).new(:ordered_tags, {}, Struct.new(:name).new(:taggings))
+    loader = ActiveRecord::Associations::Preloader::ThroughAssociation.allocate
+    loader.instance_variable_set(:@owners, [owner])
+    loader.instance_variable_set(:@reflection, reflection)
+    loader.instance_variable_set(:@through_records_by_owner, { owner => [first_through, second_through] })
+    loader.instance_variable_set(:@source_records_by_owner, { first_through => [second_record, first_record], second_through => [second_record] })
+    loader.instance_variable_set(:@preloaded_records, [first_record, second_record])
+    loader.instance_variable_set(:@scope, Struct.new(:order_values, :distinct_value).new([Arel.sql("tags.id")], true))
+
+    assert_equal [first_record, second_record], loader.records_by_owner[owner]
+  end
+
+  def test_preloader_through_scope_applies_join_scope_values
+    loader = ActiveRecord::Associations::Preloader::ThroughAssociation.allocate
+    through_reflection = Struct.new(:klass).new(Tagging)
+    source_reflection = Struct.new(:name, :table_name).new(:tag, Tag.table_name)
+    reflection = Struct.new(:options, :through_reflection, :source_reflection).new({}, through_reflection, source_reflection)
+    reflection_scope = Tagging.annotate("preloader annotation").includes(:tag).references(:tags).joins(:tag).left_outer_joins(:tag).where(tags: { name: "Blue" }).order("tags.name")
+    loader.instance_variable_set(:@reflection, reflection)
+    loader.instance_variable_set(:@reflection_scope, reflection_scope)
+    loader.instance_variable_set(:@preload_scope, nil)
+
+    through_scope = loader.__send__(:through_scope)
+
+    assert_includes through_scope.values[:annotate], "preloader annotation"
+    assert_equal [{ tag: [:tag] }], through_scope.values[:includes]
+    assert_includes through_scope.references_values, "tags"
+    assert_equal [{ tag: [:tag] }], through_scope.joins_values
+    assert_equal [{ tag: [:tag] }], through_scope.left_outer_joins_values
+    assert_equal ["tags.name"], through_scope.order_values
+  end
+
+  def test_preloader_through_scope_handles_disable_joins_and_source_type
+    disable_loader = ActiveRecord::Associations::Preloader::ThroughAssociation.allocate
+    through_reflection = Struct.new(:klass).new(Tagging)
+    source_reflection = Struct.new(:name, :table_name).new(:tag, Tag.table_name)
+    disable_loader.instance_variable_set(:@reflection, Struct.new(:options, :through_reflection, :source_reflection).new({ disable_joins: true }, through_reflection, source_reflection))
+
+    assert_empty disable_loader.__send__(:through_scope).where_clause
+
+    source_type_loader = ActiveRecord::Associations::Preloader::ThroughAssociation.allocate
+    reflection = Struct.new(:options, :through_reflection, :source_reflection, :foreign_type).new({ source_type: "Post" }, through_reflection, source_reflection, "taggable_type")
+    source_type_loader.instance_variable_set(:@reflection, reflection)
+    source_type_loader.instance_variable_set(:@preload_scope, nil)
+    source_type_loader.instance_variable_set(:@reflection_scope, Tagging.all)
+
+    assert_match(/"taggings"\."taggable_type" = 'Post'/, source_type_loader.__send__(:through_scope).to_sql)
+  end
+
   def test_preload_makes_correct_number_of_queries_on_array
     post = posts(:welcome)
 
