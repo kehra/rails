@@ -2117,6 +2117,78 @@ class EagerAssociationTest < ActiveRecord::TestCase
     end.new(reflection, model, primary_key, readonly, strict_loading)
   end
 
+  test "join association matches itself without comparing reflections" do
+    reflection = Struct.new(:klass).new(Post)
+    join_association = ActiveRecord::Associations::JoinDependency::JoinAssociation.new(reflection, [])
+
+    assert_predicate join_association, :itself
+    assert join_association.match?(join_association)
+  end
+
+  test "join association stops building constraints when yielded chain is terminated" do
+    reflection = Struct.new(:klass, :chain).new(Post, [])
+    reflection.chain << reflection
+    join_association = ActiveRecord::Associations::JoinDependency::JoinAssociation.new(reflection, [])
+    table = Post.arel_table
+
+    joins = join_association.join_constraints(Author.arel_table, Author, Arel::Nodes::OuterJoin, Object.new) do
+      [table, true]
+    end
+
+    assert_empty joins
+    assert_same table, join_association.table
+  end
+
+  test "join association folds nested eager load dependencies from join scope" do
+    table = Post.arel_table
+    scope = Struct.new(:joined_dependencies, keyword_init: true) do
+      def references_values
+        [:comments]
+      end
+
+      def eager_load_values
+        [:comments]
+      end
+
+      def includes_values
+        []
+      end
+
+      def construct_join_dependency(associations, join_type)
+        [associations, join_type]
+      end
+
+      def joins!(dependency)
+        joined_dependencies << dependency
+      end
+
+      def arel(*)
+        Struct.new(:constraints, :join_sources).new([Arel.sql("posts.author_id = authors.id")], [])
+      end
+    end.new(joined_dependencies: [])
+    reflection = Struct.new(:klass, :chain).new(Post, [])
+    reflection.chain << reflection
+    reflection.define_singleton_method(:join_scope) { |*| scope }
+    join_association = ActiveRecord::Associations::JoinDependency::JoinAssociation.new(reflection, [])
+    alias_tracker = Struct.new(:aliases).new({})
+
+    joins = join_association.join_constraints(Author.arel_table, Author, Arel::Nodes::OuterJoin, alias_tracker) do
+      [table, false]
+    end
+
+    assert_equal [[[:comments], Arel::Nodes::OuterJoin]], scope.joined_dependencies
+    assert_equal 1, joins.length
+  end
+
+  test "join association appends extra constraints to string joins" do
+    join_association = ActiveRecord::Associations::JoinDependency::JoinAssociation.allocate
+    join = Arel::Nodes::StringJoin.new(Arel.sql("JOIN posts ON posts.author_id = authors.id"))
+
+    join_association.__send__(:append_constraints, join, [Arel.sql("posts.published = 1")])
+
+    assert_kind_of Arel::Nodes::And, join.left
+  end
+
   private
     def find_all_ordered(klass, include = nil)
       klass.order("#{klass.table_name}.#{klass.primary_key}").includes(include).to_a
