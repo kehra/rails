@@ -441,6 +441,28 @@ class CallbacksTest < ActiveRecord::TestCase
     assert_not someone.after_destroy_called
   end
 
+  def test_destroy_returns_true_when_destroy_callbacks_are_already_running
+    developer = Developer.find(1)
+    developer.instance_variable_set(:@_destroy_callback_already_called, true)
+
+    assert_equal true, developer.destroy
+    assert_not developer.destroyed?
+  end
+
+  def test_destroy_rescues_record_not_destroyed_from_callback
+    developer = Class.new(ActiveRecord::Base) do
+      self.table_name = "developers"
+
+      before_destroy do
+        raise ActiveRecord::RecordNotDestroyed.new("callback halted destroy", self)
+      end
+    end.find(1)
+
+    assert_not developer.destroy
+    assert_instance_of ActiveRecord::RecordNotDestroyed, developer.instance_variable_get(:@_association_destroy_exception)
+    assert_not developer.destroyed?
+  end
+
   def test_callback_throwing_abort
     david = CallbackDeveloperWithHaltedValidation.find(1)
     david.save
