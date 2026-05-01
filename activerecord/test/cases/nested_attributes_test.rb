@@ -20,6 +20,20 @@ require "models/car"
 require "models/dats"
 require "active_support/hash_with_indifferent_access"
 
+class PermittedNestedAttributes
+  def initialize(attributes)
+    @attributes = attributes
+  end
+
+  def permitted?
+    true
+  end
+
+  def to_h
+    @attributes
+  end
+end
+
 class TestNestedAttributesInGeneral < ActiveRecord::TestCase
   teardown do
     Pirate.accepts_nested_attributes_for :ship, allow_destroy: true, reject_if: proc(&:empty?)
@@ -319,6 +333,13 @@ class TestNestedAttributesOnAHasOneAssociation < ActiveRecord::TestCase
 
   def test_should_take_a_hash_with_string_keys_and_update_the_associated_model
     @pirate.reload.ship_attributes = { "id" => @ship.id, "name" => "Davy Jones Gold Dagger" }
+
+    assert_equal @ship, @pirate.ship
+    assert_equal "Davy Jones Gold Dagger", @pirate.ship.name
+  end
+
+  def test_should_take_permitted_parameters_and_update_the_associated_model
+    @pirate.reload.ship_attributes = PermittedNestedAttributes.new("id" => @ship.id, "name" => "Davy Jones Gold Dagger")
 
     assert_equal @ship, @pirate.ship
     assert_equal "Davy Jones Gold Dagger", @pirate.ship.name
@@ -667,6 +688,17 @@ module NestedAttributesOnACollectionAssociationTests
 
   def test_should_take_an_array_and_assign_the_attributes_to_the_associated_models
     @pirate.public_send(association_setter, @alternate_params[association_getter].values)
+    @pirate.save
+    assert_equal ["Grace OMalley", "Privateers Greed"], [@child_1.reload.name, @child_2.reload.name]
+  end
+
+  def test_should_take_permitted_parameters_and_assign_the_attributes_to_the_associated_models
+    attributes = PermittedNestedAttributes.new(
+      "foo" => PermittedNestedAttributes.new(id: @child_1.id, name: "Grace OMalley"),
+      "bar" => PermittedNestedAttributes.new(id: @child_2.id, name: "Privateers Greed")
+    )
+
+    @pirate.public_send(association_setter, attributes)
     @pirate.save
     assert_equal ["Grace OMalley", "Privateers Greed"], [@child_1.reload.name, @child_2.reload.name]
   end
