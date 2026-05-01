@@ -128,6 +128,62 @@ class HasManyAssociationsTest < ActiveRecord::TestCase
     Client.destroyed_client_ids.clear
   end
 
+  def test_find_on_loaded_inverse_collection_requires_an_id
+    human = humans(:gordon)
+    human.interests.load
+
+    error = assert_raises(ActiveRecord::RecordNotFound) do
+      human.interests.find([])
+    end
+
+    assert_match(/Couldn't find Interest without an ID/, error.message)
+  end
+
+  def test_find_on_loaded_inverse_collection_raises_when_id_is_missing
+    human = humans(:gordon)
+    human.interests.load
+
+    assert_raises(ActiveRecord::RecordNotFound) do
+      human.interests.find(0)
+    end
+  end
+
+  def test_find_on_loaded_inverse_collection_returns_multiple_scanned_records
+    human = humans(:gordon)
+    interests = human.interests.to_a
+
+    assert_equal interests, human.interests.find(interests.map(&:id))
+  end
+
+  def test_collection_target_assignment_with_has_many_inversing_handles_nil_array_and_record
+    with_has_many_inversing(Interest) do
+      human = Human.create!
+      association = human.association(:interests)
+      interest = Interest.new
+
+      association.target = nil
+      assert_equal [], association.target
+
+      association.target = []
+      assert_equal [], association.target
+
+      association.target = interest
+      assert_equal [interest], association.target
+    end
+  end
+
+  def test_collection_destroy_with_no_records_is_noop
+    assert_nil authors(:david).association(:posts).destroy
+  end
+
+  def test_collection_association_base_delete_records_is_abstract
+    association = authors(:david).association(:posts)
+
+    assert_raises(NotImplementedError) do
+      ActiveRecord::Associations::CollectionAssociation.instance_method(:delete_records).bind_call(association, [], nil)
+    end
+  end
+
   def test_sti_subselect_count
     tag = Tag.first
     len = Post.tagged_with(tag.id).limit(10).size
