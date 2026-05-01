@@ -659,6 +659,9 @@ class AttributeMethodsTest < ActiveRecord::TestCase
     object.string_value = "  "
     assert_not_predicate object, :string_value?
 
+    object.string_value = "false"
+    assert_not_predicate object, :string_value?
+
     assert_equal 1, object.int_value.to_i
     assert_predicate object, :int_value?
 
