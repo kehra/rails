@@ -477,6 +477,109 @@ class HasOneThroughAssociationsTest < ActiveRecord::TestCase
 
     assert_predicate(book.association(:order_agreement), :stale_target?)
   end
+
+  def test_has_one_through_create_through_record_destroys_existing_join_when_replacing_with_nil
+    through_record = HasOneThroughAssociationThroughRecord.new
+    association = has_one_through_association_stub(
+      through_association: HasOneThroughAssociationThroughAssociation.new(load_target: through_record)
+    )
+
+    association.__send__(:create_through_record, nil, true)
+
+    assert_predicate through_record, :destroyed?
+  end
+
+  def test_has_one_through_create_through_record_noops_without_join_or_replacement_record
+    through_association = HasOneThroughAssociationThroughAssociation.new
+    association = has_one_through_association_stub(through_association: through_association)
+
+    assert_nil association.__send__(:create_through_record, nil, true)
+    assert_nil through_association.built_attributes
+    assert_nil through_association.created_attributes
+  end
+
+  def test_has_one_through_create_through_record_reloads_destroyed_join_before_update
+    stale_through_record = HasOneThroughAssociationThroughRecord.new(destroyed: true)
+    reloaded_through_record = HasOneThroughAssociationThroughRecord.new
+    through_association = HasOneThroughAssociationThroughAssociation.new(
+      load_target: stale_through_record,
+      reload_target: reloaded_through_record
+    )
+    association = has_one_through_association_stub(through_association: through_association)
+
+    association.__send__(:create_through_record, HasOneThroughAssociationSourceRecord.new(7), true)
+
+    assert_equal 1, through_association.reload_calls
+    assert_equal({ source_id: 7 }, reloaded_through_record.updated_attributes)
+  end
+
+  HasOneThroughAssociationSourceRecord = Struct.new(:id)
+
+  class HasOneThroughAssociationThroughRecord
+    attr_reader :assigned_attributes, :updated_attributes
+
+    def initialize(destroyed: false, new_record: false)
+      @destroyed = destroyed
+      @new_record = new_record
+    end
+
+    def destroy
+      @destroyed = true
+    end
+
+    def destroyed?
+      @destroyed
+    end
+
+    def new_record?
+      @new_record
+    end
+
+    def assign_attributes(attributes)
+      @assigned_attributes = attributes
+    end
+
+    def update(attributes)
+      @updated_attributes = attributes
+    end
+  end
+
+  class HasOneThroughAssociationThroughAssociation
+    attr_reader :reload_calls, :built_attributes, :created_attributes
+    attr_accessor :target
+
+    def initialize(load_target: nil, reload_target: nil)
+      @load_target = load_target
+      @reload_target = reload_target
+      @reload_calls = 0
+    end
+
+    def load_target
+      @load_target
+    end
+
+    def reload
+      @reload_calls += 1
+      self.target = @reload_target
+      self
+    end
+
+    def build(attributes)
+      @built_attributes = attributes
+    end
+
+    def create(attributes)
+      @created_attributes = attributes
+    end
+  end
+
+  def has_one_through_association_stub(through_association: HasOneThroughAssociationThroughAssociation.new)
+    association = ActiveRecord::Associations::HasOneThroughAssociation.allocate
+    association.define_singleton_method(:ensure_not_nested) { nil }
+    association.define_singleton_method(:through_association) { through_association }
+    association.define_singleton_method(:construct_join_attributes) { |record| { source_id: record.id } }
+    association
+  end
 end
 
 class DeprecatedHasOneThroughAssociationsTest < ActiveRecord::TestCase
