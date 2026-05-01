@@ -42,6 +42,39 @@ module ActiveRecord
           Time.zone = old_time_zone
         end
 
+        def test_converter_new_returns_existing_converter
+          subtype = ActiveRecord::Type::DateTime.new
+          converter = ActiveRecord::AttributeMethods::TimeZoneConversion::TimeZoneConverter.new(subtype)
+
+          assert_same converter, ActiveRecord::AttributeMethods::TimeZoneConversion::TimeZoneConverter.new(converter)
+        end
+
+        def test_cast_handles_nil_invalid_and_infinite_values
+          converter = ActiveRecord::AttributeMethods::TimeZoneConversion::TimeZoneConverter.new(ActiveRecord::Type::DateTime.new)
+
+          assert_nil converter.cast(nil)
+          assert_nil converter.cast("invalid date")
+          assert_equal Float::INFINITY, converter.cast(Float::INFINITY)
+        end
+
+        def test_cast_returns_nil_when_user_input_conversion_raises_argument_error
+          subtype = Class.new(ActiveRecord::Type::DateTime) do
+            def user_input_in_time_zone(*)
+              raise ArgumentError
+            end
+          end.new
+          converter = ActiveRecord::AttributeMethods::TimeZoneConversion::TimeZoneConverter.new(subtype)
+
+          assert_nil converter.cast(Time.current)
+        end
+
+        def test_deserialize_handles_infinite_and_array_values
+          converter = ActiveRecord::AttributeMethods::TimeZoneConversion::TimeZoneConverter.new(ActiveRecord::Type::Value.new)
+
+          assert_equal Float::INFINITY, converter.deserialize(Float::INFINITY)
+          assert_equal [Float::INFINITY], converter.deserialize([Float::INFINITY])
+        end
+
         def test_time_attribute_dirty_tracking_with_fixed_date
           old_time_zone = Time.zone
           old_default_timezone = ActiveRecord.default_timezone
