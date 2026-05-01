@@ -117,6 +117,43 @@ class AssociationsTest < ActiveRecord::TestCase
     assert_not_nil association.send(:association_scope)
   end
 
+  def test_singular_association_find_target_uses_first_when_disable_joins_is_configured
+    association = ActiveRecord::Associations::SingularAssociation.allocate
+    scope = Struct.new(:first).new(:first_record)
+    association.define_singleton_method(:disable_joins) { true }
+    association.define_singleton_method(:scope) { scope }
+
+    assert_equal :first_record, ActiveRecord::Associations::SingularAssociation.instance_method(:find_target).bind_call(association)
+  end
+
+  def test_singular_association_find_target_uses_async_first_when_disable_joins_is_configured
+    association = ActiveRecord::Associations::SingularAssociation.allocate
+    promise = Struct.new(:record) do
+      def then
+        yield [record]
+      end
+    end.new(:async_record)
+    scope = Struct.new(:promise) do
+      def load_async
+        promise
+      end
+    end.new(promise)
+    association.define_singleton_method(:disable_joins) { true }
+    association.define_singleton_method(:scope) { scope }
+
+    assert_equal :async_record, ActiveRecord::Associations::SingularAssociation.instance_method(:find_target).bind_call(association, async: true)
+  end
+
+  def test_singular_association_writer_requires_subclass_replace_implementation
+    association = ActiveRecord::Associations::SingularAssociation.allocate
+
+    error = assert_raises(NotImplementedError) do
+      association.writer(Object.new)
+    end
+
+    assert_equal "Subclasses must implement a replace(record) method", error.message
+  end
+
   def test_association_scope_is_nil_without_target_class
     association = posts(:welcome).association(:comments)
     association.singleton_class.define_method(:klass) { nil }
