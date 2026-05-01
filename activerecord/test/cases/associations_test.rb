@@ -154,6 +154,107 @@ class AssociationsTest < ActiveRecord::TestCase
     assert_equal "Subclasses must implement a replace(record) method", error.message
   end
 
+  def test_through_association_ensure_mutable_raises_for_has_one_non_belongs_to_source
+    association = ActiveRecord::Associations::HasOneThroughAssociation.allocate
+    source_reflection = through_source_reflection(belongs_to: false, macro: :has_one)
+    reflection = through_reflection(has_one: true)
+    association.define_singleton_method(:owner) { Object.new }
+    association.define_singleton_method(:source_reflection) { source_reflection }
+    association.define_singleton_method(:reflection) { reflection }
+
+    assert_raises(ActiveRecord::HasOneThroughCantAssociateThroughHasOneOrManyReflection) do
+      association.__send__(:ensure_mutable)
+    end
+  end
+
+  def test_through_association_ensure_not_nested_raises_for_has_one_and_has_many
+    has_one = ActiveRecord::Associations::HasOneThroughAssociation.allocate
+    has_one_reflection = through_reflection(has_one: true, nested: true)
+    has_one.define_singleton_method(:owner) { Object.new }
+    has_one.define_singleton_method(:reflection) { has_one_reflection }
+
+    assert_raises(ActiveRecord::HasOneThroughNestedAssociationsAreReadonly) do
+      has_one.__send__(:ensure_not_nested)
+    end
+
+    has_many = ActiveRecord::Associations::HasManyThroughAssociation.allocate
+    has_many_reflection = through_reflection(has_one: false, nested: true)
+    has_many.define_singleton_method(:owner) { Object.new }
+    has_many.define_singleton_method(:reflection) { has_many_reflection }
+
+    assert_raises(ActiveRecord::HasManyThroughNestedAssociationsAreReadonly) do
+      has_many.__send__(:ensure_not_nested)
+    end
+  end
+
+  def test_through_association_build_record_without_inverse_skips_foreign_key_assignment
+    association = ActiveRecord::Associations::HasManyThroughAssociation.allocate
+    association.define_singleton_method(:source_reflection) do
+      Struct.new(:collection?, :inverse_of).new(true, nil)
+    end
+    association.define_singleton_method(:through_association) do
+      Struct.new(:target).new([])
+    end
+
+    assert_raises(NoMethodError) do
+      association.__send__(:build_record, {})
+    end
+  end
+
+  def test_through_association_build_record_with_collection_through_target_skips_inverse_assignment
+    association = ActiveRecord::Associations::HasManyThroughAssociation.allocate
+    inverse = Struct.new(:foreign_key).new(:post_id)
+    association.define_singleton_method(:source_reflection) do
+      Struct.new(:collection?, :inverse_of).new(true, inverse)
+    end
+    association.define_singleton_method(:through_association) do
+      Struct.new(:target).new([Struct.new(:id).new(1)])
+    end
+
+    assert_raises(NoMethodError) do
+      association.__send__(:build_record, {})
+    end
+  end
+
+  def test_through_association_build_record_without_through_target_skips_inverse_assignment
+    association = through_association_build_record_stub
+    inverse = Struct.new(:foreign_key).new(:post_id)
+    association.define_singleton_method(:source_reflection) do
+      Struct.new(:collection?, :inverse_of).new(true, inverse)
+    end
+    association.define_singleton_method(:through_association) do
+      Struct.new(:target).new(nil)
+    end
+
+    assert_equal({}, association.__send__(:build_record, {}))
+  end
+
+  def through_source_reflection(belongs_to:, macro: :has_many)
+    Struct.new(:belongs_to?, :class_name, :macro).new(belongs_to, "JoinModel", macro)
+  end
+
+  def through_reflection(has_one:, nested: false)
+    Struct.new(:name, :has_one?, :nested?, :source_reflection, :through_reflection).new(
+      :through_records,
+      has_one,
+      nested,
+      through_source_reflection(belongs_to: false),
+      Struct.new(:class_name).new("ThroughModel")
+    )
+  end
+
+  def through_association_build_record_stub
+    base = Class.new do
+      def build_record(attributes)
+        attributes
+      end
+    end
+
+    Class.new(base) do
+      include ActiveRecord::Associations::ThroughAssociation
+    end.new
+  end
+
   def test_association_scope_is_nil_without_target_class
     association = posts(:welcome).association(:comments)
     association.singleton_class.define_method(:klass) { nil }
@@ -2295,4 +2396,5 @@ class WithAnnotationsTest < ActiveRecord::TestCase
       SpacePirate.includes(:treasure_estimates_with_annotation, :treasures).first
     end
   end
+
 end
