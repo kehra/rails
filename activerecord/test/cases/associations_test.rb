@@ -138,6 +138,155 @@ class AssociationsTest < ActiveRecord::TestCase
     assert_not ActiveRecord::Associations::Association.instance_method(:foreign_key_present?).bind_call(association)
   end
 
+  def test_foreign_association_detects_owner_foreign_key_presence_from_primary_key
+    association = foreign_association_stub(
+      reflection: foreign_association_reflection(klass_primary_key: "id", active_record_primary_key: "author_id"),
+      owner: foreign_association_owner("author_id" => 1)
+    )
+
+    assert_predicate association, :foreign_key_present?
+
+    association = foreign_association_stub(
+      reflection: foreign_association_reflection(klass_primary_key: "id", active_record_primary_key: "author_id"),
+      owner: foreign_association_owner("author_id" => nil)
+    )
+
+    assert_not_predicate association, :foreign_key_present?
+  end
+
+  def test_foreign_association_foreign_key_presence_is_false_without_primary_key
+    association = foreign_association_stub(
+      reflection: foreign_association_reflection(klass_primary_key: nil, active_record_primary_key: "author_id"),
+      owner: foreign_association_owner("author_id" => 1)
+    )
+
+    assert_not_predicate association, :foreign_key_present?
+  end
+
+  def test_foreign_association_nullified_owner_attributes_include_foreign_keys_and_type
+    association = foreign_association_stub(
+      reflection: foreign_association_reflection(foreign_key: ["author_id", "tenant_id"], type: "author_type")
+    )
+
+    assert_equal({ "author_id" => nil, "tenant_id" => nil, "author_type" => nil }, association.nullified_owner_attributes)
+  end
+
+  def test_foreign_association_nullified_owner_attributes_omit_blank_type
+    association = foreign_association_stub(
+      reflection: foreign_association_reflection(foreign_key: "author_id", type: nil)
+    )
+
+    assert_equal({ "author_id" => nil }, association.nullified_owner_attributes)
+  end
+
+  def test_foreign_association_sets_owner_attributes_from_join_keys_and_polymorphic_type
+    association = foreign_association_stub(
+      reflection: foreign_association_reflection(
+        join_primary_key: ["author_id", "tenant_id"],
+        join_foreign_key: ["id", "tenant_id"],
+        type: "author_type"
+      ),
+      owner: foreign_association_owner("id" => 7, "tenant_id" => 42)
+    )
+    record = foreign_association_record
+
+    association.__send__(:set_owner_attributes, record)
+
+    assert_equal({ "author_id" => 7, "tenant_id" => 42, "author_type" => "AssociationsTest::ForeignAssociationOwner" }, record.written_attributes)
+  end
+
+  def test_foreign_association_sets_owner_attributes_without_polymorphic_type
+    association = foreign_association_stub(
+      reflection: foreign_association_reflection(join_primary_key: "author_id", join_foreign_key: "id", type: nil),
+      owner: foreign_association_owner("id" => 7)
+    )
+    record = foreign_association_record
+
+    association.__send__(:set_owner_attributes, record)
+
+    assert_equal({ "author_id" => 7 }, record.written_attributes)
+  end
+
+  def test_foreign_association_does_not_set_owner_attributes_for_through_association
+    association = foreign_association_stub(
+      reflection: foreign_association_reflection(join_primary_key: "author_id", join_foreign_key: "id"),
+      owner: foreign_association_owner("id" => 7),
+      options: { through: :authorships }
+    )
+    record = foreign_association_record
+
+    association.__send__(:set_owner_attributes, record)
+
+    assert_empty record.written_attributes
+  end
+
+  ForeignAssociationReflection = Struct.new(
+    :klass, :active_record_primary_key, :foreign_key, :type, :join_primary_key, :join_foreign_key,
+    keyword_init: true
+  )
+
+  ForeignAssociationKlass = Struct.new(:primary_key, keyword_init: true)
+
+  ForeignAssociationOwner = Struct.new(:attributes, keyword_init: true) do
+    def attribute_present?(name)
+      attributes[name].present?
+    end
+
+    def _read_attribute(name)
+      attributes[name]
+    end
+
+    def self.polymorphic_name
+      name
+    end
+  end
+
+  ForeignAssociationRecord = Struct.new(:written_attributes, keyword_init: true) do
+    def _write_attribute(name, value)
+      written_attributes[name] = value
+    end
+  end
+
+  def foreign_association_stub(reflection:, owner: foreign_association_owner, options: {})
+    Class.new do
+      include ActiveRecord::Associations::ForeignAssociation
+
+      attr_reader :reflection, :owner, :options
+
+      def initialize(reflection, owner, options)
+        @reflection = reflection
+        @owner = owner
+        @options = options
+      end
+    end.new(reflection, owner, options)
+  end
+
+  def foreign_association_reflection(
+    klass_primary_key: "id",
+    active_record_primary_key: "author_id",
+    foreign_key: "author_id",
+    type: nil,
+    join_primary_key: "author_id",
+    join_foreign_key: "id"
+  )
+    ForeignAssociationReflection.new(
+      klass: ForeignAssociationKlass.new(primary_key: klass_primary_key),
+      active_record_primary_key: active_record_primary_key,
+      foreign_key: foreign_key,
+      type: type,
+      join_primary_key: join_primary_key,
+      join_foreign_key: join_foreign_key
+    )
+  end
+
+  def foreign_association_owner(attributes = {})
+    ForeignAssociationOwner.new(attributes: attributes)
+  end
+
+  def foreign_association_record
+    ForeignAssociationRecord.new(written_attributes: {})
+  end
+
   def test_association_type_mismatch_raises_for_wrong_record_class
     association = posts(:welcome).association(:comments)
 
