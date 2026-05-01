@@ -75,6 +75,119 @@ class AssociationsTest < ActiveRecord::TestCase
 
     assert_equal "joins list should be initialized by list of Arel::Nodes::Join", error.message
   end
+
+  def test_association_target_resolves_promise
+    association = posts(:welcome).association(:comments)
+    association.instance_variable_set(:@target, ActiveRecord::Promise::Complete.new(:resolved_target))
+
+    assert_equal :resolved_target, association.target
+    assert_equal :resolved_target, association.instance_variable_get(:@target)
+  end
+
+  def test_association_load_target_resets_when_record_not_found
+    association = posts(:welcome).association(:comments)
+    association.singleton_class.define_method(:find_target?) { true }
+    association.singleton_class.define_method(:find_target) { |async: false| raise ActiveRecord::RecordNotFound }
+
+    assert_nil ActiveRecord::Associations::Association.instance_method(:load_target).bind_call(association)
+    assert_not association.loaded?
+  end
+
+  def test_association_async_load_target_uses_async_skip_statement_cache_path
+    association = authors(:david).association(:posts_sorted_by_id)
+
+    assert_nil association.async_load_target
+    assert_predicate association, :loaded?
+    assert_kind_of Array, association.target
+  end
+
+  def test_association_async_load_target_noops_when_already_loaded
+    association = posts(:welcome).association(:comments)
+    association.target = []
+
+    assert_nil association.async_load_target
+    assert_predicate association, :loaded?
+    assert_equal [], association.target
+  end
+
+  def test_association_scope_uses_disable_joins_scope_when_configured
+    association = authors(:david).association(:no_joins_comments)
+
+    assert association.disable_joins
+    assert_not_nil association.send(:association_scope)
+  end
+
+  def test_association_scope_is_nil_without_target_class
+    association = posts(:welcome).association(:comments)
+    association.singleton_class.define_method(:klass) { nil }
+
+    assert_nil association.send(:association_scope)
+  end
+
+  def test_association_scope_merges_global_current_scope
+    association = posts(:welcome).association(:comments)
+
+    Comment.where(author_id: 1).scoping(all_queries: true) do
+      assert_match(/author_id/, association.scope.to_sql)
+    end
+  end
+
+  def test_association_default_foreign_key_present_is_false
+    association = posts(:welcome).association(:comments)
+
+    assert_not ActiveRecord::Associations::Association.instance_method(:foreign_key_present?).bind_call(association)
+  end
+
+  def test_association_type_mismatch_raises_for_wrong_record_class
+    association = posts(:welcome).association(:comments)
+
+    error = assert_raises(ActiveRecord::AssociationTypeMismatch) do
+      association.send(:raise_on_type_mismatch!, authors(:david))
+    end
+
+    assert_match(/Comment\(#\d+\) expected/, error.message)
+    assert_match(/Author\(#\d+\)/, error.message)
+  end
+
+  def test_association_type_mismatch_accepts_record_matching_fresh_class_name
+    association = posts(:welcome).association(:comments)
+    original_reflection = association.reflection
+    stale_class = Class.new
+    fake_reflection = Struct.new(:klass, :class_name).new(stale_class, "Author")
+    association.instance_variable_set(:@reflection, fake_reflection)
+
+    assert_nothing_raised do
+      association.send(:raise_on_type_mismatch!, authors(:david))
+    end
+  ensure
+    association.instance_variable_set(:@reflection, original_reflection) if association && original_reflection
+  end
+
+  def test_association_enqueue_destroy_association_skips_without_job_class
+    post = posts(:welcome)
+    association = post.association(:comments)
+    old_job = Post._destroy_association_async_job
+    Post._destroy_association_async_job = nil
+
+    assert_nil association.send(:enqueue_destroy_association, owner_model_name: "Post")
+  ensure
+    Post._destroy_association_async_job = old_job
+  end
+
+  def test_association_enqueue_destroy_association_records_job_after_commit
+    post = posts(:welcome)
+    association = post.association(:comments)
+    job_class = Class.new
+    old_job = Post._destroy_association_async_job
+    Post._destroy_association_async_job = job_class
+    post.define_singleton_method(:_after_commit_jobs) { @_after_commit_jobs ||= [] }
+
+    association.send(:enqueue_destroy_association, owner_model_name: "Post")
+
+    assert_equal [[job_class, { owner_model_name: "Post" }]], post._after_commit_jobs
+  ensure
+    Post._destroy_association_async_job = old_job
+  end
   fixtures :accounts, :companies, :developers, :projects, :developers_projects,
            :computers, :people, :readers, :authors, :author_addresses, :author_favorites,
            :comments, :posts, :sharded_blogs, :sharded_blog_posts, :sharded_comments, :sharded_tags, :sharded_blog_posts_tags,
