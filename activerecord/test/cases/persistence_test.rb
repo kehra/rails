@@ -1340,6 +1340,26 @@ class PersistenceTest < ActiveRecord::TestCase
     assert_raises(ActiveRecord::ActiveRecordError) { topic.update_columns(approved: false) }
   end
 
+  def test_update_columns_should_raise_exception_if_destroyed_record
+    topic = Topic.find(1)
+    topic.destroy!
+
+    assert_raises(ActiveRecord::ActiveRecordError) { topic.update_columns(approved: false) }
+  end
+
+  def test_update_columns_should_raise_exception_if_readonly_record
+    topic = Topic.find(1)
+    topic.readonly!
+
+    assert_raises(ActiveRecord::ReadOnlyRecord) { topic.update_columns(approved: false) }
+  end
+
+  def test_update_columns_touch_option_with_model_without_timestamp_attributes
+    minimalistic = Minimalistic.create!
+
+    assert_raises(ActiveRecord::StatementInvalid) { minimalistic.update_columns(touch: true) }
+  end
+
   def test_update_columns_should_not_leave_the_object_dirty
     topic = Topic.find(1)
     topic.update("content" => "--- Have a nice day\n...\n", :author_name => "Jose")
