@@ -1607,6 +1607,21 @@ class PersistenceTest < ActiveRecord::TestCase
     assert_not_predicate post, :new_record?
   end
 
+  def test_reload_with_lock
+    post = posts(:welcome)
+
+    assert_same post, post.reload(lock: true)
+    assert_equal "Welcome to the weblog", post.title
+  end
+
+  def test_reload_respects_all_queries_scoping
+    topic = topics(:first)
+
+    Topic.where(id: topic.id).scoping(all_queries: true) do
+      assert_same topic, topic.reload
+    end
+  end
+
   def test_reload_via_querycache
     ActiveRecord::Base.lease_connection.enable_query_cache!
     ActiveRecord::Base.lease_connection.clear_query_cache
