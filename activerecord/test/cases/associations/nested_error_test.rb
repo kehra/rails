@@ -75,6 +75,52 @@ class AssociationsNestedErrorInNestedAttributesOrderTest < ActiveRecord::TestCas
     assert_equal guitar, error.base
   end
 
+  test "no index when collection association disables indexed errors" do
+    tuning_peg_class = Class.new(ActiveRecord::Base) do
+      self.table_name = "tuning_pegs"
+      def self.name; "TuningPeg"; end
+
+      validates_numericality_of :pitch
+    end
+
+    guitar_class = Class.new(ActiveRecord::Base) do
+      self.table_name = "guitars"
+      def self.name; "Guitar"; end
+
+      has_many :tuning_pegs, index_errors: false, anonymous_class: tuning_peg_class
+      accepts_nested_attributes_for :tuning_pegs
+    end
+
+    guitar = guitar_class.create!
+    peg = guitar.tuning_pegs.create!(pitch: 1)
+    guitar.update(tuning_pegs_attributes: [{ id: peg.id, pitch: nil }])
+
+    error = guitar.errors.objects.first
+
+    assert_equal ActiveRecord::Associations::NestedError, error.class
+    assert_equal :"tuning_pegs.pitch", error.attribute
+    assert_equal :not_a_number, error.type
+    assert_equal guitar, error.base
+  end
+
+  test "no index when indexed collection has no ordered records" do
+    owner = Guitar.new
+    child = TuningPeg.new
+    inner_error = ActiveModel::Error.new(child, :pitch, :not_a_number)
+    reflection = Struct.new(:name).new(:tuning_pegs)
+    association = Struct.new(:owner, :reflection, :options) do
+      def collection?; true; end
+      def target; nil; end
+      def nested_attributes_target; nil; end
+    end.new(owner, reflection, { index_errors: :unknown_order })
+
+    error = ActiveRecord::Associations::NestedError.new(association, inner_error)
+
+    assert_equal :"tuning_pegs.pitch", error.attribute
+    assert_equal :not_a_number, error.type
+    assert_equal owner, error.base
+  end
+
   class AssociationsNestedErrorWithSingularAssociationTest < ActiveRecord::TestCase
     def setup
       pet_class = Class.new(ActiveRecord::Base) do
