@@ -44,6 +44,19 @@ require "models/other_dog"
 
 
 class AssociationsTest < ActiveRecord::TestCase
+  def test_associations_eager_load
+    assert_nothing_raised do
+      ActiveRecord::Associations.eager_load!
+    end
+  end
+
+  def test_dup_clears_association_cache
+    post = posts(:welcome)
+    post.association(:comments)
+
+    assert post.association_cached?(:comments)
+    assert_not post.dup.association_cached?(:comments)
+  end
   fixtures :accounts, :companies, :developers, :projects, :developers_projects,
            :computers, :people, :readers, :authors, :author_addresses, :author_favorites,
            :comments, :posts, :sharded_blogs, :sharded_blog_posts, :sharded_comments, :sharded_tags, :sharded_blog_posts_tags,
