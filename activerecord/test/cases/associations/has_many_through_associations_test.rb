@@ -1716,6 +1716,99 @@ class HasManyThroughAssociationsTest < ActiveRecord::TestCase
     assert_equal [[comment.blog_id, comment.id]], ids
   end
 
+  def test_delete_through_records_clears_singular_through_target_when_join_matches
+    through_record = HasManyThroughAssociationThroughRecord.new(post_id: 1)
+    through_association = HasManyThroughAssociationThroughAssociation.new(through_record)
+    association = has_many_through_association_stub(
+      through_association: through_association,
+      through_reflection: HasManyThroughAssociationThroughReflection.new(collection: false)
+    )
+    record = HasManyThroughAssociationSourceRecord.new(1)
+
+    association.__send__(:delete_through_records, [record])
+
+    assert_nil through_association.target
+  end
+
+  def test_delete_through_records_keeps_singular_through_target_when_join_does_not_match
+    through_record = HasManyThroughAssociationThroughRecord.new(post_id: 2)
+    through_association = HasManyThroughAssociationThroughAssociation.new(through_record)
+    association = has_many_through_association_stub(
+      through_association: through_association,
+      through_reflection: HasManyThroughAssociationThroughReflection.new(collection: false)
+    )
+    record = HasManyThroughAssociationSourceRecord.new(1)
+
+    association.__send__(:delete_through_records, [record])
+
+    assert_same through_record, through_association.target
+  end
+
+  def test_find_target_raises_for_async_has_many_through_loading
+    association = has_many_through_association_stub
+
+    error = assert_raises(NotImplementedError) do
+      association.__send__(:find_target, async: true)
+    end
+
+    assert_equal "No async loading for HasManyThroughAssociation yet", error.message
+  end
+
+  def test_find_target_returns_empty_array_without_target_reflection_record
+    association = has_many_through_association_stub(target_reflection_has_associated_record: false)
+
+    assert_equal [], association.__send__(:find_target)
+  end
+
+  def test_find_target_uses_scope_when_disable_joins_is_enabled
+    scope = HasManyThroughAssociationScope.new([:from_scope])
+    association = has_many_through_association_stub(disable_joins: true, scope: scope)
+
+    assert_equal [:from_scope], association.__send__(:find_target)
+    assert_equal 1, scope.to_a_calls
+  end
+
+  HasManyThroughAssociationSourceRecord = Struct.new(:id)
+
+  HasManyThroughAssociationThroughRecord = Struct.new(:post_id)
+
+  HasManyThroughAssociationThroughAssociation = Struct.new(:target)
+
+  HasManyThroughAssociationThroughReflection = Struct.new(:collection, keyword_init: true) do
+    def collection?
+      collection
+    end
+  end
+
+  HasManyThroughAssociationScope = Struct.new(:records, :to_a_calls, keyword_init: true) do
+    def initialize(records)
+      super(records: records, to_a_calls: 0)
+    end
+
+    def to_a
+      self.to_a_calls += 1
+      records
+    end
+  end
+
+  def has_many_through_association_stub(
+    through_association: HasManyThroughAssociationThroughAssociation.new([]),
+    through_reflection: HasManyThroughAssociationThroughReflection.new(collection: true),
+    target_reflection_has_associated_record: true,
+    disable_joins: false,
+    scope: HasManyThroughAssociationScope.new([])
+  )
+    association = ActiveRecord::Associations::HasManyThroughAssociation.allocate
+    association.instance_variable_set(:@through_records, {}.compare_by_identity)
+    association.define_singleton_method(:through_association) { through_association }
+    association.define_singleton_method(:through_reflection) { through_reflection }
+    association.define_singleton_method(:construct_join_attributes) { |record| { post_id: record.id } }
+    association.define_singleton_method(:target_reflection_has_associated_record?) { target_reflection_has_associated_record }
+    association.define_singleton_method(:disable_joins) { disable_joins }
+    association.define_singleton_method(:scope) { scope }
+    association
+  end
+
   private
     def make_model(name)
       Class.new(ActiveRecord::Base) { define_singleton_method(:name) { name } }
