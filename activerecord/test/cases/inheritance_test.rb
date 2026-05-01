@@ -57,6 +57,16 @@ class InheritanceTest < ActiveRecord::TestCase
     end
   end
 
+  def test_polymorphic_name_and_class_for_without_full_class_name
+    old_store_full_class_name = ActiveRecord::Base.store_full_class_name
+    ActiveRecord::Base.store_full_class_name = false
+
+    assert_equal "Company", Namespaced::Company.polymorphic_name
+    assert_equal Namespaced::Company, Namespaced::Company.polymorphic_class_for("Company")
+  ensure
+    ActiveRecord::Base.store_full_class_name = old_store_full_class_name
+  end
+
   def test_compute_type_success
     assert_equal Author, Company.send(:compute_type, "Author")
   end
