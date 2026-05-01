@@ -968,6 +968,288 @@ class HasOneAssociationsTest < ActiveRecord::TestCase
       doesn't match with foreign key broken_order_with_non_cpk_books_id. Please specify query_constraints, or primary_key and foreign_key values.
     MESSAGE
   end
+
+  def test_has_one_association_handle_dependency_restrict_with_exception_allows_missing_target
+    association = has_one_dependency_association(dependent: :restrict_with_exception, target: nil)
+
+    assert_nothing_raised do
+      association.handle_dependency
+    end
+  end
+
+  def test_has_one_association_handle_dependency_restrict_with_exception_raises_for_target
+    association = has_one_dependency_association(dependent: :restrict_with_exception)
+
+    assert_raises(ActiveRecord::DeleteRestrictionError) do
+      association.handle_dependency
+    end
+  end
+
+  def test_has_one_association_handle_dependency_restrict_with_error_allows_missing_target
+    association = has_one_dependency_association(dependent: :restrict_with_error, target: nil)
+
+    assert_nothing_raised do
+      association.handle_dependency
+    end
+  end
+
+  def test_has_one_association_handle_dependency_restrict_with_error_adds_owner_error_and_aborts
+    association = has_one_dependency_association(dependent: :restrict_with_error)
+
+    result = catch(:abort) do
+      association.handle_dependency
+      :not_aborted
+    end
+
+    assert_nil result
+    assert_equal [[:base, :'restrict_dependent_destroy.has_one', { record: "child" }]], association.owner.errors.added_errors
+  end
+
+  def test_has_one_association_handle_dependency_default_delegates_to_delete
+    target = HasOneDependencyRecord.new
+    association = has_one_dependency_association(dependent: :delete, target: target)
+
+    association.handle_dependency
+
+    assert_equal 1, target.delete_calls
+  end
+
+  def test_has_one_association_delete_noops_without_loaded_target
+    association = has_one_dependency_association(dependent: :delete, target: nil)
+
+    assert_nil association.delete(:delete)
+  end
+
+  def test_has_one_association_delete_deletes_target
+    target = HasOneDependencyRecord.new
+    association = has_one_dependency_association(dependent: :delete, target: target)
+
+    association.delete(:delete)
+
+    assert_equal 1, target.delete_calls
+  end
+
+  def test_has_one_association_delete_destroys_target_and_sets_destroyed_by_association
+    target = HasOneDependencyRecord.new
+    association = has_one_dependency_association(dependent: :destroy, target: target)
+
+    association.delete(:destroy)
+
+    assert_equal association.reflection, target.destroyed_by_association
+    assert_predicate target, :destroyed?
+  end
+
+  def test_has_one_association_delete_aborts_when_destroy_does_not_destroy_target
+    target = HasOneDependencyRecord.new(destroy_fails: true)
+    association = has_one_dependency_association(dependent: :destroy, target: target)
+
+    result = catch(:abort) do
+      association.delete(:destroy)
+      :not_aborted
+    end
+
+    assert_nil result
+    assert_equal association.reflection, target.destroyed_by_association
+  end
+
+  def test_has_one_association_delete_destroy_async_uses_primary_key_payload
+    target = HasOneDependencyRecord.new(id: 7)
+    association = has_one_dependency_association(dependent: :destroy_async, target: target, ensuring_owner_was: :destroyed?)
+
+    association.delete(:destroy_async)
+
+    assert_equal [
+      {
+        owner_model_name: "HasOneAssociationsTest::HasOneDependencyOwner",
+        owner_id: 9,
+        association_class: "HasOneAssociationsTest::HasOneDependencyRecord",
+        association_ids: [7],
+        association_primary_key_column: "id",
+        ensuring_owner_was_method: :destroyed?
+      }
+    ], association.enqueued_destroy_associations
+  end
+
+  def test_has_one_association_delete_destroy_async_uses_query_constraints_payload
+    target = HasOneDependencyConstrainedRecord.new(tenant_id: 7, status: "draft")
+    association = has_one_dependency_association(dependent: :destroy_async, target: target)
+
+    association.delete(:destroy_async)
+
+    assert_equal [[7, "draft"]], association.enqueued_destroy_associations.first[:association_ids]
+    assert_equal ["tenant_id", "status"], association.enqueued_destroy_associations.first[:association_primary_key_column]
+  end
+
+  def test_has_one_association_delete_nullifies_persisted_target
+    target = HasOneDependencyRecord.new
+    association = has_one_dependency_association(dependent: :nullify, target: target)
+
+    association.delete(:nullify)
+
+    assert_equal({ "owner_id" => nil }, target.updated_columns)
+  end
+
+  def test_has_one_association_delete_ignores_unknown_method
+    target = HasOneDependencyRecord.new
+    association = has_one_dependency_association(dependent: :unknown, target: target)
+
+    assert_nil association.delete(:unknown)
+    assert_equal 0, target.delete_calls
+    assert_not_predicate target, :destroyed?
+    assert_nil target.updated_columns
+  end
+
+  def test_has_one_association_delete_nullify_skips_non_persisted_target
+    target = HasOneDependencyRecord.new(persisted: false)
+    association = has_one_dependency_association(dependent: :nullify, target: target)
+
+    association.delete(:nullify)
+
+    assert_nil target.updated_columns
+  end
+
+  def test_has_one_association_nullify_owner_attributes_keeps_primary_key_columns
+    target = HasOneDependencyRecord.new
+    association = has_one_dependency_association(dependent: :nullify, target: target, foreign_key: ["id", "owner_id"])
+
+    association.__send__(:nullify_owner_attributes, target)
+
+    assert_equal({ "owner_id" => nil }, target.assigned_attributes)
+  end
+
+  def test_has_one_association_replace_failed_save_without_existing_target_raises_record_not_saved
+    record = HasOneDependencyRecord.new(save_result: false)
+    association = has_one_dependency_association(dependent: :nullify, target: nil)
+    association.define_singleton_method(:raise_on_type_mismatch!) { |_| nil }
+    association.define_singleton_method(:set_owner_attributes) { |associated_record| associated_record.assigned_attributes["owner_id"] = 9 }
+    association.define_singleton_method(:set_inverse_instance) { |_| nil }
+    association.define_singleton_method(:remove_inverse_instance) { |_| nil }
+    association.define_singleton_method(:target=) { |new_target| @assigned_target = new_target }
+
+    error = assert_raises(ActiveRecord::RecordNotSaved) do
+      association.__send__(:replace, record)
+    end
+
+    assert_equal "Failed to save the new associated child.", error.message
+    assert_equal({ "owner_id" => nil }, record.assigned_attributes)
+  end
+
+  HasOneDependencyReflection = Struct.new(:name, :klass, :foreign_key)
+
+  HasOneDependencyErrors = Struct.new(:added_errors, keyword_init: true) do
+    def add(*args)
+      added_errors << args
+    end
+  end
+
+  class HasOneDependencyOwner
+    def self.human_attribute_name(name)
+      name.to_s
+    end
+
+    def id
+      9
+    end
+
+    def errors
+      @errors ||= HasOneDependencyErrors.new(added_errors: [])
+    end
+
+    def persisted?
+      true
+    end
+  end
+
+  class HasOneDependencyRecord
+    attr_accessor :destroyed_by_association
+    attr_reader :id, :delete_calls, :updated_columns, :assigned_attributes
+
+    def self.query_constraints_list
+      nil
+    end
+
+    def self.primary_key
+      "id"
+    end
+
+    def self.transaction
+      yield
+    end
+
+    def initialize(id: 1, persisted: true, destroy_fails: false, save_result: true)
+      @id = id
+      @persisted = persisted
+      @destroy_fails = destroy_fails
+      @save_result = save_result
+      @destroyed = false
+      @delete_calls = 0
+      @assigned_attributes = {}
+    end
+
+    def delete
+      @delete_calls += 1
+    end
+
+    def destroy
+      @destroyed = true unless @destroy_fails
+    end
+
+    def destroyed?
+      @destroyed
+    end
+
+    def persisted?
+      @persisted
+    end
+
+    def update_columns(attributes)
+      @updated_columns = attributes
+    end
+
+    def has_changes_to_save?
+      true
+    end
+
+    def save
+      @save_result
+    end
+
+    def []=(name, value)
+      @assigned_attributes[name] = value
+    end
+  end
+
+  class HasOneDependencyConstrainedRecord < HasOneDependencyRecord
+    attr_reader :tenant_id, :status
+
+    def self.query_constraints_list
+      ["tenant_id", "status"]
+    end
+
+    def initialize(tenant_id:, status:)
+      super(id: nil)
+      @tenant_id = tenant_id
+      @status = status
+    end
+  end
+
+  def has_one_dependency_association(dependent:, target: HasOneDependencyRecord.new, owner: HasOneDependencyOwner.new, ensuring_owner_was: nil, foreign_key: "owner_id")
+    association = ActiveRecord::Associations::HasOneAssociation.allocate
+    reflection = HasOneDependencyReflection.new(:child, target&.class || HasOneDependencyRecord, foreign_key)
+    options = { dependent: dependent }
+    options[:ensuring_owner_was] = ensuring_owner_was if ensuring_owner_was
+    enqueued = []
+
+    association.define_singleton_method(:options) { options }
+    association.define_singleton_method(:reflection) { reflection }
+    association.define_singleton_method(:owner) { owner }
+    association.define_singleton_method(:load_target) { target }
+    association.define_singleton_method(:target) { target }
+    association.define_singleton_method(:nullified_owner_attributes) { { "owner_id" => nil } }
+    association.define_singleton_method(:enqueue_destroy_association) { |payload| enqueued << payload }
+    association.define_singleton_method(:enqueued_destroy_associations) { enqueued }
+    association
+  end
 end
 
 class AsyncHasOneAssociationsTest < ActiveRecord::TestCase
