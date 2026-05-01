@@ -191,6 +191,15 @@ class CounterCacheTest < ActiveRecord::TestCase
     end
   end
 
+  test "reset counters for multiple cpk model records" do
+    order1, order2 = Cpk::Order.first(2)
+    Cpk::Order.increment_counter(:books_count, [order1.id, order2.id])
+
+    assert_difference [-> { order1.reload.books_count }, -> { order2.reload.books_count }], -1 do
+      Cpk::Order.reset_counters([order1.id, order2.id], :books)
+    end
+  end
+
   test "update counter with initial null value" do
     category = categories(:general)
     assert_equal 2, category.categorizations.count
