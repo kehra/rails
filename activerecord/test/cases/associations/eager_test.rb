@@ -2203,6 +2203,34 @@ class EagerAssociationTest < ActiveRecord::TestCase
     assert join_base.match?(other)
   end
 
+  test "join part enumerates descendants with their parent" do
+    child = ActiveRecord::Associations::JoinDependency::JoinBase.new(Post, Post.arel_table, [])
+    parent = ActiveRecord::Associations::JoinDependency::JoinBase.new(Author, Author.arel_table, [child])
+    pairs = []
+
+    parent.each_children { |parent_node, child_node| pairs << [parent_node, child_node] }
+
+    assert_equal [[parent, child]], pairs
+  end
+
+  test "join part base table is abstract" do
+    join_part = ActiveRecord::Associations::JoinDependency::JoinPart.new(Author, [])
+
+    assert_raises(NotImplementedError) { join_part.table }
+  end
+
+  test "join part extracts and instantiates aliased row attributes" do
+    join_part = ActiveRecord::Associations::JoinDependency::JoinPart.new(Author, [])
+    aliases = [
+      ActiveRecord::Associations::JoinDependency::Aliases::Column.new("id", "author_id_alias"),
+      ActiveRecord::Associations::JoinDependency::Aliases::Column.new("name", "author_name_alias")
+    ]
+    row = { "author_id_alias" => 123, "author_name_alias" => "Aliased Author" }
+
+    assert_equal({ "id" => 123, "name" => "Aliased Author" }, join_part.extract_record(row, aliases))
+    assert_equal "Aliased Author", join_part.instantiate(row, aliases).name
+  end
+
   private
     def find_all_ordered(klass, include = nil)
       klass.order("#{klass.table_name}.#{klass.primary_key}").includes(include).to_a
