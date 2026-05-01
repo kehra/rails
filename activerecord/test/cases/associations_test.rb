@@ -1143,6 +1143,50 @@ class PreloaderTest < ActiveRecord::TestCase
     assert_predicate post.comments.first, :strict_loading?
   end
 
+  def test_preloader_batch_advances_branches_with_no_runnable_loaders
+    branch = Struct.new(:children) do
+      def runnable_loaders; []; end
+      def done?; true; end
+    end.new([])
+    preloader = Struct.new(:branches) do
+      def empty?; false; end
+    end.new([branch])
+
+    assert_nothing_raised do
+      ActiveRecord::Associations::Preloader::Batch.new([preloader], available_records: []).call
+    end
+  end
+
+  def test_preloader_batch_loads_all_loaders_when_every_loader_targets_a_future_table
+    similar_query = Struct.new(:loaded_batches) do
+      def load_records_in_batch(loaders)
+        loaded_batches << loaders
+      end
+    end.new([])
+    loader = Struct.new(:klass, :loader_query, :runs, :associated_records, keyword_init: true) do
+      def table_name; klass.table_name; end
+      def associate_records_from_unscoped(records); associated_records << records; end
+      def run; runs << self; end
+    end.new(klass: Author, loader_query: similar_query, runs: [], associated_records: [])
+    future_author_table = Class.new do
+      def self.table_name; Author.table_name; end
+    end
+    branch = Struct.new(:loader, :future_class, :children) do
+      def runnable_loaders; [loader]; end
+      def future_classes; [future_class]; end
+      def done?; true; end
+    end.new(loader, future_author_table, [])
+    preloader = Struct.new(:branches) do
+      def empty?; false; end
+    end.new([branch])
+
+    ActiveRecord::Associations::Preloader::Batch.new([preloader], available_records: []).call
+
+    assert_equal [[loader]], similar_query.loaded_batches
+    assert_equal [loader], loader.runs
+    assert_equal [nil], loader.associated_records
+  end
+
   def test_preload_makes_correct_number_of_queries_on_array
     post = posts(:welcome)
 
