@@ -45,6 +45,22 @@ class BelongsToAssociationsTest < ActiveRecord::TestCase
            :developers_projects, :computers, :authors, :author_addresses,
            :essays, :posts, :tags, :taggings, :comments, :sponsors, :members, :nodes, :cpk_books
 
+  def test_belongs_to_target_changed_is_false_without_foreign_key_or_target
+    association = posts(:welcome).association(:author)
+    association.singleton_class.define_method(:foreign_key_present?) { false }
+    association.instance_variable_set(:@target, authors(:david))
+
+    assert_not association.target_changed?
+  end
+
+  def test_polymorphic_decrement_counters_before_last_save_without_previous_type
+    sponsor = Sponsor.new(sponsorable_id: authors(:david).id)
+
+    assert_nothing_raised do
+      sponsor.association(:sponsorable).decrement_counters_before_last_save
+    end
+  end
+
   def test_belongs_to
     client = Client.find(3)
     first_firm = companies(:first_firm)
