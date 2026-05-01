@@ -1751,6 +1751,372 @@ class EagerAssociationTest < ActiveRecord::TestCase
     assert_equal book, Cpk::Order.eager_load(:book).find_by(id: order.id).book
   end
 
+  test "join dependency rejects invalid association tree entries" do
+    error = assert_raises(ActiveRecord::ConfigurationError) do
+      ActiveRecord::Associations::JoinDependency.make_tree(Object.new)
+    end
+
+    assert_match(/#<Object:/, error.message)
+  end
+
+  test "join dependency accepts nil nested association tree values" do
+    assert_equal({ posts: {} }, ActiveRecord::Associations::JoinDependency.make_tree(posts: nil))
+  end
+
+  test "join dependency keeps custom select columns while instantiating eager loaded records" do
+    author = authors(:david)
+
+    loaded = Author.eager_load(:posts).select("authors.*, 'custom-value' AS custom_label").where(id: author.id).first
+
+    assert_equal "custom-value", loaded.custom_label
+    assert_predicate loaded.association(:posts), :loaded?
+  end
+
+  test "join dependency applies aliases without replacing explicit select values" do
+    relation = Author.select(:id)
+    join_dependency = ActiveRecord::Associations::JoinDependency.new(Author, Author.arel_table, :posts, Arel::Nodes::OuterJoin)
+
+    join_dependency.apply_column_aliases(relation)
+
+    assert_not_empty relation.select_values
+    assert_equal "id", relation.select_values.first.name
+  end
+
+  test "join dependency reuses joined table when eager load paths share a root" do
+    author = authors(:david)
+
+    loaded = Author.eager_load(posts: [:comments, :tags]).where(id: author.id).first
+
+    assert_predicate loaded.association(:posts), :loaded?
+    loaded.posts.each do |post|
+      assert_predicate post.association(:comments), :loaded?
+      assert_predicate post.association(:tags), :loaded?
+    end
+  end
+
+  test "join dependency each delegates to join root" do
+    join_dependency = ActiveRecord::Associations::JoinDependency.new(Author, Author.arel_table, :posts, Arel::Nodes::OuterJoin)
+    yielded = []
+
+    join_dependency.each { |join_part| yielded << join_part }
+
+    assert_includes yielded.map(&:base_klass), Author
+  end
+
+  test "join dependency aliases explicit root select without primary key" do
+    join_part = Class.new do
+      include Enumerable
+
+      def each
+        yield self
+      end
+
+      def each_with_index
+        return to_enum(:each_with_index) unless block_given?
+
+        yield self, 0
+      end
+
+      def primary_key
+        nil
+      end
+
+      def column_names
+        ["fallback"]
+      end
+
+      def table
+        Author.arel_table
+      end
+    end.new
+    join_dependency = ActiveRecord::Associations::JoinDependency.allocate
+    join_dependency.instance_variable_set(:@join_root, join_part)
+    join_dependency.instance_variable_set(:@join_root_alias, false)
+
+    assert_empty join_dependency.__send__(:aliases).column_aliases(join_part)
+  end
+
+  test "join dependency make constraints reuses an unterminated root table" do
+    table = Author.arel_table
+    reflection = Struct.new(:name, :klass).new(:posts, Post)
+    reflection.define_singleton_method(:alias_candidate) { |_| "posts" }
+    parent = Struct.new(:table, :table_name, :base_klass).new(Author.arel_table, Author.table_name, Author)
+    child = Class.new do
+      attr_reader :reflection, :children
+
+      def initialize(reflection, yielded_reflection = reflection)
+        @reflection = reflection
+        @yielded_reflection = yielded_reflection
+        @children = []
+      end
+
+      def join_constraints(*)
+        yielded = yield @yielded_reflection, :remaining_chain
+        [yielded]
+      end
+    end.new(reflection)
+    join_dependency = ActiveRecord::Associations::JoinDependency.allocate
+    join_dependency.instance_variable_set(:@joined_tables, { remaining_chain: [table, false] })
+    join_dependency.instance_variable_set(:@references, {})
+    join_dependency.instance_variable_set(:@alias_tracker, Object.new)
+
+    assert_equal [[table, true]], join_dependency.__send__(:make_constraints, parent, child, Arel::Nodes::OuterJoin)
+    assert_equal [table, true], join_dependency.instance_variable_get(:@joined_tables)[:remaining_chain]
+  end
+
+  test "join dependency make constraints reuses a non-root joined table without terminating it" do
+    table = Author.arel_table
+    child_reflection = Struct.new(:name, :klass).new(:posts, Post)
+    nested_reflection = Struct.new(:name, :klass).new(:comments, Comment)
+    parent = Struct.new(:table, :table_name, :base_klass).new(Author.arel_table, Author.table_name, Author)
+    child = Class.new do
+      attr_reader :reflection, :children
+
+      def initialize(reflection, yielded_reflection)
+        @reflection = reflection
+        @yielded_reflection = yielded_reflection
+        @children = []
+      end
+
+      def join_constraints(*)
+        [yield(@yielded_reflection, :remaining_chain)]
+      end
+    end.new(child_reflection, nested_reflection)
+    join_dependency = ActiveRecord::Associations::JoinDependency.allocate
+    join_dependency.instance_variable_set(:@joined_tables, { remaining_chain: [table, false] })
+    join_dependency.instance_variable_set(:@references, {})
+    join_dependency.instance_variable_set(:@alias_tracker, Object.new)
+
+    assert_equal [[table, true]], join_dependency.__send__(:make_constraints, parent, child, Arel::Nodes::OuterJoin)
+    assert_equal [table, false], join_dependency.instance_variable_get(:@joined_tables)[:remaining_chain]
+  end
+
+  test "join dependency construct returns immediately for nil parent" do
+    join_dependency = ActiveRecord::Associations::JoinDependency.allocate
+
+    assert_nil join_dependency.__send__(:construct, nil, Object.new, {}, {}, {}, false)
+  end
+
+  test "join dependency construct builds join-primary-key child without id cache" do
+    association = Struct.new(:name, :target, :loaded_calls, :inverse_instances, keyword_init: true) do
+      def loaded!
+        self.loaded_calls += 1
+      end
+
+      def set_inverse_instance(record)
+        inverse_instances << record
+      end
+    end.new(name: :child, target: [], loaded_calls: 0, inverse_instances: [])
+    parent_record = Object.new
+    parent_record.define_singleton_method(:association) { |_| association }
+    parent_record.define_singleton_method(:association_cached?) { |_| false }
+    reflection = Struct.new(:name, :join_primary_key, :collection).new(:child, "join_id", true)
+    reflection.define_singleton_method(:collection?) { collection }
+    model = join_dependency_construct_model
+    node = join_dependency_construct_node(reflection, model, primary_key: nil, collection: true, readonly: false, strict_loading: true)
+    aliases = Object.new
+    aliases.define_singleton_method(:column_alias) { |_, column| column == "join_id" ? "join_alias" : column }
+    aliases.define_singleton_method(:column_aliases) { |_| [] }
+    join_dependency = ActiveRecord::Associations::JoinDependency.allocate
+    join_dependency.instance_variable_set(:@aliases, aliases)
+    parent = Struct.new(:children).new([node])
+    seen = Hash.new { |h, parent_key| h[parent_key] = Hash.new { |i, child_key| i[child_key] = {} } }.compare_by_identity
+    model_cache = Hash.new { |h, klass| h[klass] = {} }
+
+    join_dependency.__send__(:construct, parent_record, parent, { "join_alias" => 1 }, seen, model_cache, true)
+
+    assert_equal [model], association.target
+    assert_equal 2, model.strict_loading_calls
+    assert_equal 0, model.readonly_calls
+  end
+
+  test "join dependency construct_model assigns singular target without id cache" do
+    association = Struct.new(:target, :inverse_instances, keyword_init: true) do
+      def set_inverse_instance(record)
+        inverse_instances << record
+      end
+    end.new(target: nil, inverse_instances: [])
+    parent_record = Object.new
+    parent_record.define_singleton_method(:association) { |_| association }
+    reflection = Struct.new(:name, :collection).new(:child, false)
+    reflection.define_singleton_method(:collection?) { collection }
+    model = join_dependency_construct_model
+    node = join_dependency_construct_node(reflection, model, primary_key: "id", collection: false, readonly: true, strict_loading: false)
+    aliases = Object.new
+    aliases.define_singleton_method(:column_aliases) { |_| [] }
+    join_dependency = ActiveRecord::Associations::JoinDependency.allocate
+    join_dependency.instance_variable_set(:@aliases, aliases)
+
+    returned = join_dependency.__send__(:construct_model, parent_record, node, {}, Hash.new { |h, klass| h[klass] = {} }, nil, false)
+
+    assert_same model, returned
+    assert_same model, association.target
+    assert_equal [model], association.inverse_instances
+    assert_equal 0, model.strict_loading_calls
+    assert_equal 1, model.readonly_calls
+  end
+
+  test "join dependency instantiate handles empty adapter column type metadata" do
+    model = Object.new
+    join_root = Class.new do
+      attr_reader :children
+
+      def initialize(model)
+        @model = model
+        @children = []
+      end
+
+      def primary_key
+        "id"
+      end
+
+      def base_klass
+        Author
+      end
+
+      def attribute_types
+        {}
+      end
+
+      def instantiate(*)
+        @model
+      end
+    end.new(model)
+    aliases = Object.new
+    aliases.define_singleton_method(:column_alias) { |_, column| column == "id" ? "t0_r0" : column }
+    aliases.define_singleton_method(:column_aliases) { |_| [ActiveRecord::Associations::JoinDependency::Aliases::Column.new("id", "t0_r0")] }
+    result_set = Class.new do
+      attr_reader :columns, :column_types
+
+      def initialize
+        @columns = ["t0_r0", "custom_label"]
+        @column_types = {}
+      end
+
+      def length
+        1
+      end
+
+      def each
+        yield({ "t0_r0" => 1, "custom_label" => "custom" })
+      end
+    end.new
+    join_dependency = ActiveRecord::Associations::JoinDependency.allocate
+    join_dependency.instance_variable_set(:@join_root, join_root)
+    join_dependency.instance_variable_set(:@aliases, aliases)
+
+    assert_equal [model], join_dependency.instantiate(result_set, false)
+  end
+
+  test "join dependency construct can skip id-based model cache when id is nil" do
+    association = Struct.new(:target, :loaded_calls, :inverse_instances, keyword_init: true) do
+      def loaded!
+        self.loaded_calls += 1
+      end
+
+      def set_inverse_instance(record)
+        inverse_instances << record
+      end
+    end.new(target: [], loaded_calls: 0, inverse_instances: [])
+    parent_record = Object.new
+    parent_record.define_singleton_method(:association) { |_| association }
+    parent_record.define_singleton_method(:association_cached?) { |_| false }
+    reflection = Struct.new(:name, :collection).new(:child, true)
+    reflection.define_singleton_method(:collection?) { collection }
+    model = join_dependency_construct_model
+    node = join_dependency_construct_node(reflection, model, primary_key: "id", collection: true, readonly: false, strict_loading: false)
+    aliases = Object.new
+    aliases.define_singleton_method(:column_aliases) { |_| [] }
+    join_dependency = ActiveRecord::Associations::JoinDependency.allocate
+    join_dependency.instance_variable_set(:@aliases, aliases)
+    key_list = Class.new do
+      def map
+        nil
+      end
+
+      def any?
+        false
+      end
+    end.new
+    array_wrapper = Class.new do
+      def initialize(key_list)
+        @key_list = key_list
+      end
+
+      def map
+        @key_list
+      end
+    end.new(key_list)
+    join_dependency.define_singleton_method(:Array) { |_| array_wrapper }
+    parent = Struct.new(:children).new([node])
+    seen = Hash.new { |h, parent_key| h[parent_key] = Hash.new { |i, child_key| i[child_key] = {} } }.compare_by_identity
+    model_cache = Hash.new { |h, klass| h[klass] = {} }
+
+    join_dependency.__send__(:construct, parent_record, parent, {}, seen, model_cache, false)
+
+    assert_equal [model], association.target
+  end
+
+  def join_dependency_construct_model
+    Class.new do
+      attr_reader :strict_loading_calls, :readonly_calls
+
+      def initialize
+        @strict_loading_calls = 0
+        @readonly_calls = 0
+      end
+
+      def association(*)
+        Struct.new(:target, :loaded_calls, :inverse_instances, keyword_init: true).new(target: [], loaded_calls: 0, inverse_instances: [])
+      end
+
+      def association_cached?(*)
+        false
+      end
+
+      def strict_loading!
+        @strict_loading_calls += 1
+      end
+
+      def readonly!
+        @readonly_calls += 1
+      end
+    end.new
+  end
+
+  def join_dependency_construct_node(reflection, model, primary_key:, collection:, readonly:, strict_loading:)
+    reflection.collection = collection if reflection.respond_to?(:collection=)
+    Class.new do
+      attr_reader :reflection, :children
+
+      def initialize(reflection, model, primary_key, readonly, strict_loading)
+        @reflection = reflection
+        @model = model
+        @primary_key = primary_key
+        @readonly = readonly
+        @strict_loading = strict_loading
+        @children = []
+      end
+
+      def primary_key
+        @primary_key
+      end
+
+      def instantiate(*, &block)
+        block.call(@model)
+        @model
+      end
+
+      def readonly?
+        @readonly
+      end
+
+      def strict_loading?
+        @strict_loading
+      end
+    end.new(reflection, model, primary_key, readonly, strict_loading)
+  end
+
   private
     def find_all_ordered(klass, include = nil)
       klass.order("#{klass.table_name}.#{klass.primary_key}").includes(include).to_a
