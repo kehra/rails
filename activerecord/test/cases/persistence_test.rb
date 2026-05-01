@@ -135,6 +135,14 @@ class PersistenceTest < ActiveRecord::TestCase
     assert_equal "2 updated", Topic.find(2).content
   end
 
+  def test_update_one_with_id
+    topic = Topic.update(1, "content" => "1 updated")
+
+    assert_equal 1, topic.id
+    assert_equal "1 updated", topic.content
+    assert_equal "1 updated", Topic.find(1).content
+  end
+
   def test_update_many_with_invalid_id
     topic_data = { 1 => { "content" => "1 updated" }, 2 => { "content" => "2 updated" }, 99999 => {} }
 
@@ -215,6 +223,14 @@ class PersistenceTest < ActiveRecord::TestCase
     assert_equal [1, 1, 2], updated.map(&:id)
     assert_equal "1 updated", Topic.find(1).content
     assert_equal "2 updated", Topic.find(2).content
+  end
+
+  def test_update_one_with_id!
+    topic = Topic.update!(1, "content" => "1 updated")
+
+    assert_equal 1, topic.id
+    assert_equal "1 updated", topic.content
+    assert_equal "1 updated", Topic.find(1).content
   end
 
   def test_update_many_with_invalid_id!
