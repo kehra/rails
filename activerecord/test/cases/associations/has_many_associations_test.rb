@@ -3273,6 +3273,189 @@ class HasManyAssociationsTest < ActiveRecord::TestCase
     end
   end
 
+  def test_has_many_association_handle_dependency_restrict_with_exception_allows_empty_association
+    association = has_many_dependency_association(dependent: :restrict_with_exception, empty: true)
+
+    assert_nothing_raised do
+      association.handle_dependency
+    end
+  end
+
+  def test_has_many_association_handle_dependency_restrict_with_exception_raises_when_not_empty
+    association = has_many_dependency_association(dependent: :restrict_with_exception, empty: false)
+
+    assert_raises(ActiveRecord::DeleteRestrictionError) do
+      association.handle_dependency
+    end
+  end
+
+  def test_has_many_association_handle_dependency_restrict_with_error_allows_empty_association
+    association = has_many_dependency_association(dependent: :restrict_with_error, empty: true)
+
+    assert_nothing_raised do
+      association.handle_dependency
+    end
+  end
+
+  def test_has_many_association_handle_dependency_restrict_with_error_adds_owner_error_and_aborts
+    association = has_many_dependency_association(dependent: :restrict_with_error, empty: false)
+
+    result = catch(:abort) do
+      association.handle_dependency
+      :not_aborted
+    end
+
+    assert_nil result
+    assert_equal [[:base, :'restrict_dependent_destroy.has_many', { record: "children" }]], association.owner.errors.added_errors
+  end
+
+  def test_has_many_association_handle_dependency_destroy_marks_targets_before_destroying_all
+    first = HasManyDependencyRecord.new
+    second = HasManyDependencyRecord.new
+    association = has_many_dependency_association(dependent: :destroy, target: [first, second])
+
+    association.handle_dependency
+
+    assert_equal [association.reflection, association.reflection], [first.destroyed_by_association, second.destroyed_by_association]
+    assert_equal 1, association.destroy_all_calls
+  end
+
+  def test_has_many_association_handle_dependency_destroy_async_with_primary_key_batches_job_payload
+    records = [HasManyDependencyPrimaryKeyRecord.new(1), HasManyDependencyPrimaryKeyRecord.new(2), HasManyDependencyPrimaryKeyRecord.new(3)]
+    owner = HasManyDependencyOwner.new(batch_size: 2)
+    association = has_many_dependency_association(dependent: :destroy_async, target: records, owner: owner, ensuring_owner_was: :destroyed?)
+
+    association.handle_dependency
+
+    assert_equal association.reflection, records.first.destroyed_by_association
+    assert_equal [
+      {
+        owner_model_name: "HasManyAssociationsTest::HasManyDependencyOwner",
+        owner_id: 9,
+        association_class: "HasManyAssociationsTest::HasManyDependencyPrimaryKeyRecord",
+        association_ids: [1, 2],
+        association_primary_key_column: "id",
+        ensuring_owner_was_method: :destroyed?
+      },
+      {
+        owner_model_name: "HasManyAssociationsTest::HasManyDependencyOwner",
+        owner_id: 9,
+        association_class: "HasManyAssociationsTest::HasManyDependencyPrimaryKeyRecord",
+        association_ids: [3],
+        association_primary_key_column: "id",
+        ensuring_owner_was_method: :destroyed?
+      }
+    ], association.enqueued_destroy_associations
+  end
+
+  def test_has_many_association_handle_dependency_destroy_async_uses_query_constraints_when_present
+    records = [HasManyDependencyQueryConstraintRecord.new(1, "draft")]
+    association = has_many_dependency_association(dependent: :destroy_async, target: records)
+
+    association.handle_dependency
+
+    assert_equal [[1, "draft"]], association.enqueued_destroy_associations.first[:association_ids]
+    assert_equal ["tenant_id", "status"], association.enqueued_destroy_associations.first[:association_primary_key_column]
+  end
+
+  def test_has_many_association_handle_dependency_destroy_async_skips_jobs_for_empty_target
+    association = has_many_dependency_association(dependent: :destroy_async, target: [])
+
+    association.handle_dependency
+
+    assert_empty association.enqueued_destroy_associations
+  end
+
+  def test_has_many_association_handle_dependency_default_deletes_all
+    association = has_many_dependency_association(dependent: :delete_all)
+
+    association.handle_dependency
+
+    assert_equal 1, association.delete_all_calls
+  end
+
+  def test_has_many_association_update_counter_if_success_does_not_update_on_failure
+    association = has_many_dependency_association(dependent: :delete_all)
+    association.define_singleton_method(:update_counter_in_memory) { raise "should not update counter" }
+
+    assert_not association.__send__(:update_counter_if_success, false, 1)
+  end
+
+  HasManyDependencyReflection = Struct.new(:name, :klass)
+
+  HasManyDependencyErrors = Struct.new(:added_errors, keyword_init: true) do
+    def add(*args)
+      added_errors << args
+    end
+  end
+
+  HasManyDependencyOwner = Struct.new(:batch_size, keyword_init: true) do
+    def self.human_attribute_name(name)
+      name.to_s
+    end
+
+    def self.destroy_association_async_batch_size
+      @destroy_association_async_batch_size
+    end
+
+    def self.destroy_association_async_batch_size=(value)
+      @destroy_association_async_batch_size = value
+    end
+
+    def id
+      9
+    end
+
+    def errors
+      @errors ||= HasManyDependencyErrors.new(added_errors: [])
+    end
+
+    def initialize(batch_size: nil)
+      self.class.destroy_association_async_batch_size = batch_size
+      super(batch_size: batch_size)
+    end
+  end
+
+  HasManyDependencyRecord = Struct.new(:destroyed_by_association)
+
+  HasManyDependencyPrimaryKeyRecord = Struct.new(:id, :destroyed_by_association) do
+    def self.query_constraints_list
+      nil
+    end
+
+    def self.primary_key
+      "id"
+    end
+  end
+
+  HasManyDependencyQueryConstraintRecord = Struct.new(:tenant_id, :status, :destroyed_by_association) do
+    def self.query_constraints_list
+      ["tenant_id", "status"]
+    end
+  end
+
+  def has_many_dependency_association(dependent:, empty: false, target: [HasManyDependencyRecord.new], owner: HasManyDependencyOwner.new, ensuring_owner_was: nil)
+    association = ActiveRecord::Associations::HasManyAssociation.allocate
+    reflection = HasManyDependencyReflection.new(:children, target.first&.class || HasManyDependencyRecord)
+    options = { dependent: dependent }
+    options[:ensuring_owner_was] = ensuring_owner_was if ensuring_owner_was
+    enqueued = []
+
+    association.define_singleton_method(:options) { options }
+    association.define_singleton_method(:empty?) { empty }
+    association.define_singleton_method(:reflection) { reflection }
+    association.define_singleton_method(:owner) { owner }
+    association.define_singleton_method(:load_target) { target }
+    association.define_singleton_method(:target) { target }
+    association.define_singleton_method(:destroy_all) { @destroy_all_calls = destroy_all_calls + 1 }
+    association.define_singleton_method(:destroy_all_calls) { @destroy_all_calls ||= 0 }
+    association.define_singleton_method(:delete_all) { @delete_all_calls = delete_all_calls + 1 }
+    association.define_singleton_method(:delete_all_calls) { @delete_all_calls ||= 0 }
+    association.define_singleton_method(:enqueue_destroy_association) { |payload| enqueued << payload }
+    association.define_singleton_method(:enqueued_destroy_associations) { enqueued }
+    association
+  end
+
   test "composite primary key malformed association class" do
     error = assert_raises(ActiveRecord::CompositePrimaryKeyMismatchError) do
       order = Cpk::BrokenOrder.new(id: [1, 2], books: [Cpk::Book.new(title: "Some book")])
