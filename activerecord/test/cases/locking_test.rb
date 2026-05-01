@@ -917,6 +917,22 @@ class PessimisticLockingWhilePreventingWritesTest < ActiveRecord::TestCase
     end
   end
 
+  def test_lock_returns_new_record_without_reloading
+    person = Person.new(first_name: "new")
+
+    assert_same person, person.lock!
+    assert_predicate person, :new_record?
+  end
+
+  def test_lock_raises_when_persisted_record_has_unpersisted_changes
+    person = Person.last!
+    person.first_name = "changed"
+
+    error = assert_raises(RuntimeError) { person.lock! }
+    assert_match(/Locking a record with unpersisted changes is not supported/, error.message)
+    assert_match(/Changed attributes: "first_name"/, error.message)
+  end
+
   def test_lock_when_preventing_writes
     person = Person.last!
     ActiveRecord::Base.while_preventing_writes do
