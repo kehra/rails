@@ -905,6 +905,22 @@ class DirtyTest < ActiveRecord::TestCase
     assert_equal %w(first_name lock_version updated_at).sort, person.saved_changes.keys.sort
   end
 
+  test "changes to save expose pending database mutations" do
+    person = Person.create!(first_name: "Sean", gender: "M")
+
+    person.first_name = "Jim"
+    person.gender = "F"
+
+    assert person.will_save_change_to_attribute?("first_name", from: "Sean", to: "Jim")
+    assert_not person.will_save_change_to_attribute?("first_name", from: "Mary")
+    assert_equal ["Sean", "Jim"], person.attribute_change_to_be_saved("first_name")
+    assert_equal "Sean", person.attribute_in_database("first_name")
+    assert_predicate person, :has_changes_to_save?
+    assert_equal %w(first_name gender), person.changed_attribute_names_to_save.sort
+    assert_equal ["Sean", "Jim"], person.changes_to_save["first_name"]
+    assert_equal "Sean", person.attributes_in_database["first_name"]
+  end
+
   test "changed? in after callbacks returns false" do
     klass = Class.new(ActiveRecord::Base) do
       self.table_name = "people"
