@@ -203,6 +203,43 @@ module ActiveRecord
       assert_equal "from user", model.wibble
     end
 
+    test "define_attribute applies type-only and user-provided defaults immediately" do
+      custom_type = Class.new(Type::Value) do
+        def cast(value)
+          "cast #{value}"
+        end
+      end
+
+      klass = Class.new(OverloadedType)
+      klass.define_attribute("wibble", custom_type.new)
+      klass.define_attribute("wobble", custom_type.new, default: "default")
+
+      assert_nil klass.new.wibble
+      assert_equal "cast default", klass.new.wobble
+    end
+
+    test "define_attribute can treat the default as a database value" do
+      custom_type = Class.new(Type::Value) do
+        def cast(*)
+          "from user"
+        end
+
+        def deserialize(*)
+          "from database"
+        end
+      end
+
+      klass = Class.new(OverloadedType)
+      klass.define_attribute(
+        "wibble",
+        custom_type.new,
+        default: "default",
+        user_provided_default: false,
+      )
+
+      assert_equal "from database", klass.new.wibble
+    end
+
     test "procs for default values" do
       klass = Class.new(OverloadedType) do
         @@counter = 0
