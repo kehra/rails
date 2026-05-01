@@ -1675,6 +1675,25 @@ class PersistenceTest < ActiveRecord::TestCase
     assert_equal parrot.updated_at, updated_at
   end
 
+  def test_touch_new_record_raises
+    topic = Topic.new
+
+    assert_raises(ActiveRecord::ActiveRecordError) { topic.touch }
+  end
+
+  def test_touch_readonly_record_raises
+    topic = topics(:first)
+    topic.readonly!
+
+    assert_raises(ActiveRecord::ReadOnlyRecord) { topic.touch }
+  end
+
+  def test_touch_without_timestamp_attributes_returns_true
+    minimalistic = Minimalistic.create!
+
+    assert_equal true, minimalistic.touch
+  end
+
   def test_reset_column_information_resets_children
     child_class = Class.new(Topic)
     child_class.new # force schema to load
