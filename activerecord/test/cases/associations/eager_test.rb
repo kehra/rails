@@ -2189,6 +2189,20 @@ class EagerAssociationTest < ActiveRecord::TestCase
     assert_kind_of Arel::Nodes::And, join.left
   end
 
+  test "join base exposes its table and matches itself" do
+    join_base = ActiveRecord::Associations::JoinDependency::JoinBase.new(Author, Author.arel_table, [])
+
+    assert_same Author.arel_table, join_base.table
+    assert join_base.match?(join_base)
+  end
+
+  test "join base matches another join base with the same base class" do
+    join_base = ActiveRecord::Associations::JoinDependency::JoinBase.new(Author, Author.arel_table, [])
+    other = ActiveRecord::Associations::JoinDependency::JoinBase.new(Author, Author.arel_table.alias("authors_alias"), [])
+
+    assert join_base.match?(other)
+  end
+
   private
     def find_all_ordered(klass, include = nil)
       klass.order("#{klass.table_name}.#{klass.primary_key}").includes(include).to_a
