@@ -123,6 +123,12 @@ class SignedIdTest < ActiveRecord::TestCase
     end
   end
 
+  test "finding signed nil with bang returns nil" do
+    signed_nil = Account.signed_id_verifier.generate(nil, purpose: Account.combine_signed_id_purposes(nil))
+
+    assert_nil Account.find_signed!(signed_nil)
+  end
+
   test "find signed record with a bang within expiration duration" do
     assert_equal @account, Account.find_signed!(@account.signed_id(expires_in: 1.minute))
   end
