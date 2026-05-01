@@ -2,6 +2,7 @@
 
 require "cases/helper"
 require "models/person"
+require "models/developer"
 require "models/job"
 require "models/reader"
 require "models/ship"
@@ -26,6 +27,10 @@ end
 
 class ReadonlyNameShip < Ship
   attr_readonly :name
+end
+
+class NoLockingDeveloper < ActiveRecord::Base
+  self.table_name = "developers"
 end
 
 class OptimisticLockingTest < ActiveRecord::TestCase
@@ -585,6 +590,27 @@ class OptimisticLockingTest < ActiveRecord::TestCase
     assert_equal t1.attributes, t2.attributes
   end
 
+  def test_locking_column_can_be_reset_to_default
+    old_locking_column = LockWithCustomColumnWithoutDefault.locking_column
+
+    LockWithCustomColumnWithoutDefault.reset_locking_column
+
+    assert_equal "lock_version", LockWithCustomColumnWithoutDefault.locking_column
+  ensure
+    LockWithCustomColumnWithoutDefault.locking_column = old_locking_column
+  end
+
+  def test_locking_enabled_requires_locking_column_and_optimistic_flag
+    assert_not_predicate NoLockingDeveloper, :locking_enabled?
+
+    old_lock_optimistically = Person.lock_optimistically
+    Person.lock_optimistically = false
+
+    assert_not_predicate Person, :locking_enabled?
+  ensure
+    Person.lock_optimistically = old_lock_optimistically
+  end
+
   private
     def locking_column_nil_error_message
       <<-MSG.squish
@@ -620,6 +646,17 @@ class OptimisticLockingWithSchemaChangeTest < ActiveRecord::TestCase
         model.update_counters id, test_count: 1
       end
     end
+  end
+
+  def test_update_counters_without_locking_column_updates_only_requested_counter
+    add_counter_column_to(NoLockingDeveloper)
+    developer = NoLockingDeveloper.create!(name: "Lockless")
+
+    NoLockingDeveloper.update_counters developer.id, test_count: 1
+
+    assert_equal 1, developer.reload.test_count
+  ensure
+    remove_counter_column_from(NoLockingDeveloper)
   end
 
   # See Lighthouse ticket #1966
