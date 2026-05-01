@@ -1112,6 +1112,37 @@ class PreloaderTest < ActiveRecord::TestCase
     assert_equal [comments(:greetings)], post.comments
   end
 
+  def test_preloader_association_exposes_lazy_loaded_records
+    post = posts(:welcome)
+    preloader = ActiveRecord::Associations::Preloader.new(records: [post], associations: :comments)
+    loader = preloader.loaders.first
+
+    assert_not_predicate loader, :run?
+    assert_equal [post], loader.records_by_owner.keys
+    assert_equal post.comments.reload.sort_by(&:id), loader.preloaded_records.sort_by(&:id)
+    assert_not_predicate loader, :run?
+  end
+
+  def test_preloader_association_exposes_lazy_preloaded_records
+    post = posts(:welcome)
+    preloader = ActiveRecord::Associations::Preloader.new(records: [post], associations: :comments)
+    loader = preloader.loaders.first
+
+    assert_not_predicate loader, :run?
+    assert_equal post.comments.reload.sort_by(&:id), loader.preloaded_records.sort_by(&:id)
+    assert_equal [post], loader.records_by_owner.keys
+    assert_not_predicate loader, :run?
+  end
+
+  def test_preload_with_strict_loading_scope_cascades_to_loaded_records
+    post = posts(:welcome)
+
+    preloader = ActiveRecord::Associations::Preloader.new(records: [post], associations: :comments, scope: Comment.strict_loading)
+    preloader.call
+
+    assert_predicate post.comments.first, :strict_loading?
+  end
+
   def test_preload_makes_correct_number_of_queries_on_array
     post = posts(:welcome)
 
@@ -1568,6 +1599,31 @@ class PreloaderTest < ActiveRecord::TestCase
       assert_predicate post.association(:author), :loaded?
       assert_same david, post.author
     end
+  end
+
+  def test_preload_with_available_record_shared_by_multiple_owners
+    david = authors(:david)
+    first_post = posts(:welcome)
+    second_post = posts(:thinking)
+    second_post.update!(author: david)
+
+    assert_no_queries do
+      ActiveRecord::Associations::Preloader.new(records: [first_post, second_post], associations: :author, available_records: [david]).call
+
+      assert_same david, first_post.author
+      assert_same david, second_post.author
+    end
+  end
+
+  def test_preload_with_available_records_queries_when_association_has_scope
+    post = posts(:welcome)
+    david = authors(:david)
+
+    assert_queries_count(1) do
+      ActiveRecord::Associations::Preloader.new(records: [post], associations: :author_with_the_letter_a, available_records: [david]).call
+    end
+
+    assert_predicate post.association(:author_with_the_letter_a), :loaded?
   end
 
   def test_preload_with_available_records_sti
