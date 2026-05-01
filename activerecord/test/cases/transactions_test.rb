@@ -209,6 +209,26 @@ class TransactionTest < ActiveRecord::TestCase
     end
   end
 
+  def test_pool_transaction_isolation_level_is_scoped_to_block
+    assert_nil Topic.pool_transaction_isolation_level
+
+    result = Topic.with_pool_transaction_isolation_level(:read_committed) do
+      assert_equal :read_committed, Topic.pool_transaction_isolation_level
+      :inside_block
+    end
+
+    assert_equal :inside_block, result
+    assert_nil Topic.pool_transaction_isolation_level
+  end
+
+  def test_pool_transaction_isolation_level_cannot_be_changed_inside_transaction
+    assert_raises(ActiveRecord::TransactionIsolationError) do
+      Topic.transaction do
+        Topic.with_pool_transaction_isolation_level(:read_committed) { flunk("should not yield") }
+      end
+    end
+  end
+
   def test_rollback_dirty_changes
     topic = topics(:fifth)
 
