@@ -87,6 +87,13 @@ class ValidationsTest < ActiveRecord::TestCase
     assert_equal r, invalid.record
   end
 
+  def test_invalid_record_exception_without_record
+    invalid = ActiveRecord::RecordInvalid.new
+
+    assert_nil invalid.record
+    assert_equal "Record invalid", invalid.message
+  end
+
   def test_validate_with_bang
     assert_raise(ActiveRecord::RecordInvalid) do
       WrongReply.new.validate!
