@@ -896,6 +896,7 @@ class PersistenceTest < ActiveRecord::TestCase
     topic = Topic.find(1)
     assert_equal topic, topic.delete, "topic.delete did not return self"
     assert_predicate topic, :frozen?, "topic not frozen after delete"
+    assert_predicate topic, :previously_persisted?
     assert_raise(ActiveRecord::RecordNotFound) { Topic.find(topic.id) }
   end
 
@@ -915,7 +916,16 @@ class PersistenceTest < ActiveRecord::TestCase
     topic = Topic.find(1)
     assert_equal topic, topic.destroy, "topic.destroy did not return self"
     assert_predicate topic, :frozen?, "topic not frozen after destroy"
+    assert_predicate topic, :previously_persisted?
     assert_raise(ActiveRecord::RecordNotFound) { Topic.find(topic.id) }
+  end
+
+  def test_destroy_readonly_record_raises
+    topic = Topic.find(1)
+    topic.readonly!
+
+    assert_raises(ActiveRecord::ReadOnlyRecord) { topic.destroy }
+    assert_not_predicate topic, :destroyed?
   end
 
   def test_destroy!
