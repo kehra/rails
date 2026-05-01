@@ -8,6 +8,9 @@ require "models/node"
 require "models/tree"
 require "models/owner"
 require "models/pet"
+require "models/account"
+require "models/message"
+require "models/entry"
 
 class TouchLaterTest < ActiveRecord::TestCase
   fixtures :nodes, :trees, :owners, :pets
@@ -82,6 +85,34 @@ class TouchLaterTest < ActiveRecord::TestCase
     end
 
     assert_not_equal time.to_i, invoice.updated_at.to_i
+  end
+
+  def test_touch_later_touches_has_one_association
+    time = Time.now.utc - 25.days
+    account = Account.create!(credit_limit: 50_000)
+    message = Message.create!(subject: "touch has one")
+    entry = Entry.create!(entryable: message, account: account, updated_at: time)
+
+    Message.transaction do
+      message.touch_later
+      assert_not_equal time.to_i, entry.reload.updated_at.to_i
+    end
+
+    assert_not_equal time.to_i, entry.reload.updated_at.to_i
+  end
+
+  def test_touch_later_ignores_touch_option_on_other_association_macros
+    model = Class.new(Message) do
+      def self.reflect_on_all_associations(*)
+        [ Struct.new(:options, :macro).new({ touch: true }, :has_many) ]
+      end
+    end
+
+    assert_nothing_raised do
+      model.transaction do
+        model.create!.touch_later
+      end
+    end
   end
 
   def test_touch_touches_immediately_with_a_custom_time
