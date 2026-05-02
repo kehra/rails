@@ -36,6 +36,24 @@ module ActiveRecord
       ActiveRecord.action_on_strict_loading_violation = old_action
     end
 
+    def test_strict_loading_violation_with_polymorphic_reflection
+      subscriber = ActiveRecord::StructuredEventSubscriber.new
+      owner = Struct.new(:name).new("Tagging")
+      reflection = Struct.new(:name) do
+        def polymorphic?
+          true
+        end
+      end.new(:taggable)
+
+      assert_event_reported("active_record.strict_loading_violation", payload: {
+        owner: "Tagging",
+        class: nil,
+        name: :taggable,
+      }) do
+        subscriber.strict_loading_violation(Event.new(0.9, owner: owner, reflection: reflection))
+      end
+    end
+
     def test_schema_statements_are_ignored
       subscriber = ActiveRecord::StructuredEventSubscriber.new
 
@@ -72,6 +90,38 @@ module ActiveRecord
         lock_wait: 0.01,
       }) do
         subscriber.sql(Event.new(0.9, sql: "SELECT * from models", name: "Model Load", async: true, lock_wait: 0.01))
+      end
+    end
+
+    def test_sql_query_with_proc_type_casted_binds_and_array_attributes
+      subscriber = ActiveRecord::StructuredEventSubscriber.new
+      id_attr = Struct.new(:name).new("id")
+      anonymous_bind = Object.new
+
+      assert_event_reported("active_record.sql", payload: {
+        name: "Model Load",
+        binds: [["id", 1], [nil, "secret"]],
+      }) do
+        subscriber.sql(Event.new(1.234,
+          sql: "SELECT * from models WHERE id = ? AND token = ?",
+          name: "Model Load",
+          binds: [[id_attr], anonymous_bind],
+          type_casted_binds: -> { [1, "secret"] }))
+      end
+    end
+
+    def test_sql_query_filters_unidentified_binds
+      subscriber = ActiveRecord::StructuredEventSubscriber.new
+
+      assert_event_reported("active_record.sql", payload: {
+        name: "Model Load",
+        binds: [[nil, "secret"]],
+      }) do
+        subscriber.sql(Event.new(1.234,
+          sql: "SELECT * from models WHERE token = ?",
+          name: "Model Load",
+          binds: [Object.new],
+          type_casted_binds: ["secret"]))
       end
     end
 
