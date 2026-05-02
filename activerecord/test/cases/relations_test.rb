@@ -19,6 +19,7 @@ require "models/company"
 require "models/contract"
 require "models/bird"
 require "models/car"
+require "models/bulb"
 require "models/engine"
 require "models/tire"
 require "models/minivan"
@@ -1062,6 +1063,58 @@ class RelationTest < ActiveRecord::TestCase
 
     assert_equal 0, author.posts.where(author_id: another_author.id).size
     assert_empty author.posts.where(author_id: another_author.id)
+  end
+
+  def test_association_relation_exposes_proxy_association
+    car = cars(:honda)
+    relation = car.bulbs.where(name: "defaulty")
+
+    assert_same car.association(:bulbs), relation.proxy_association
+  end
+
+  def test_association_relation_builds_and_creates_through_association_proxy
+    car = Car.create!(name: "association relation")
+    relation = car.bulbs.where(name: "defaulty")
+
+    built = relation.new { |bulb| bulb.color = "red" }
+    assert_equal car, built.car
+    assert_equal "defaulty", built.name
+    assert_equal "RED!", built.color
+
+    created = relation.create
+    assert_predicate created, :persisted?
+    assert_equal car, created.car
+
+    created_bang = relation.create!
+    assert_predicate created_bang, :persisted?
+    assert_equal car, created_bang.car
+  end
+
+  def test_association_relation_rejects_bulk_insert_on_through_association
+    error = assert_raises(ArgumentError) do
+      posts(:welcome).tags.insert_all([{ name: "bulk tag" }])
+    end
+
+    assert_equal "Bulk insert or upsert is currently not supported for has_many through association", error.message
+  end
+
+  def test_association_relation_equality_compares_with_records
+    car = Car.create!(name: "association relation")
+    bulb = car.bulbs.create!(name: "defaulty")
+
+    assert_equal [bulb], car.bulbs.where(ID: bulb.id)
+  end
+
+  def test_association_relation_exec_queries_yields_records
+    car = Car.create!(name: "association relation")
+    bulb = car.bulbs.create!(name: "defaulty")
+    yielded = []
+
+    car.bulbs.where(ID: bulb.id).send(:exec_queries) do |record|
+      yielded << record
+    end
+
+    assert_equal [bulb], yielded
   end
 
   def test_count_with_distinct
