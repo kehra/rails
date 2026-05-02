@@ -30,6 +30,8 @@ class ActiveRecord::Encryption::CipherTest < ActiveRecord::EncryptionTestCase
   test "key_length and iv_length return the lengths of the cipher" do
     assert_equal OpenSSL::Cipher.new("aes-256-gcm").key_len, @cipher.key_length
     assert_equal OpenSSL::Cipher.new("aes-256-gcm").iv_len, @cipher.iv_length
+    assert_equal OpenSSL::Cipher.new("aes-256-gcm").key_len, ActiveRecord::Encryption::Cipher::Aes256Gcm.key_length
+    assert_equal OpenSSL::Cipher.new("aes-256-gcm").iv_len, ActiveRecord::Encryption::Cipher::Aes256Gcm.iv_length
   end
 
   test "generates different ciphertexts on different invocations with the same key (not deterministic)" do
@@ -50,6 +52,30 @@ class ActiveRecord::Encryption::CipherTest < ActiveRecord::EncryptionTestCase
 
     assert_raises ActiveRecord::Encryption::Errors::Decryption do
       @cipher.decrypt(encrypted_text, key: [ "some wrong key", "other wrong key" ])
+    end
+  end
+
+  test "aes 256 gcm can encrypt and decrypt empty strings" do
+    aes_cipher = ActiveRecord::Encryption::Cipher::Aes256Gcm.new(@key)
+
+    encrypted_text = aes_cipher.encrypt("")
+
+    assert_equal "", encrypted_text.payload
+    assert_equal "", aes_cipher.decrypt(encrypted_text)
+  end
+
+  test "aes 256 gcm rejects missing or truncated authentication tags" do
+    aes_cipher = ActiveRecord::Encryption::Cipher::Aes256Gcm.new(@key)
+    encrypted_text = aes_cipher.encrypt("clean text")
+
+    missing_auth_tag_message = ActiveRecord::Encryption::Message.new(payload: encrypted_text.payload, headers: { iv: encrypted_text.headers.iv, at: nil })
+    assert_raises ActiveRecord::Encryption::Errors::EncryptedContentIntegrity do
+      aes_cipher.decrypt(missing_auth_tag_message)
+    end
+
+    truncated_auth_tag_message = ActiveRecord::Encryption::Message.new(payload: encrypted_text.payload, headers: { iv: encrypted_text.headers.iv, at: "short" })
+    assert_raises ActiveRecord::Encryption::Errors::EncryptedContentIntegrity do
+      aes_cipher.decrypt(truncated_auth_tag_message)
     end
   end
 
