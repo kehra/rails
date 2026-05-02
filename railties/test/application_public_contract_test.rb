@@ -51,6 +51,36 @@ class ApplicationPublicContractTest < ActiveSupport::TestCase
     assert_same Rails.deprecator, app.deprecators[:railties]
   end
 
+  test "application instance runs load hooks and class inheritance registers app class" do
+    klass = Class.new(Rails::Application)
+    assert_equal klass, Rails.app_class
+
+    app = klass.instance
+
+    assert_same app, klass.instance
+    assert app.instance_variable_get(:@ran_load_hooks)
+  end
+
+  test "eager load delegates to each Rails autoloader" do
+    app = ApplicationPublicContractTestNamespace::Application.create
+    loader = Class.new do
+      attr_reader :eager_loaded
+
+      def eager_load
+        @eager_loaded = true
+      end
+    end.new
+    singleton = class << Rails; self; end
+    original_autoloaders = Rails.method(:autoloaders)
+    singleton.define_method(:autoloaders) { [ loader ] }
+
+    app.eager_load!
+
+    assert loader.eager_loaded
+  ensure
+    singleton&.define_method(:autoloaders) { |*args, **kwargs, &block| original_autoloaders.call(*args, **kwargs, &block) }
+  end
+
   test "envs dotenvs credentials encrypted and creds expose configuration backends" do
     app = ApplicationPublicContractTestNamespace::Application.create
     app.config.root = Pathname.new(Dir.mktmpdir("rails-application-config"))
@@ -73,6 +103,22 @@ class ApplicationPublicContractTest < ActiveSupport::TestCase
     assert_instance_of ActiveSupport::CombinedConfiguration, app.creds
   ensure
     FileUtils.rm_rf(app.config.root) if app&.config&.root&.to_s&.include?("rails-application-config")
+  end
+
+  test "env_config exposes action dispatch collaborators" do
+    app = ApplicationPublicContractTestNamespace::Application.create
+    app.config.secret_key_base = "contract-secret"
+    app.config.consider_all_requests_local = true
+
+    env_config = app.env_config
+
+    assert_same env_config, app.env_config
+    assert_equal app.config.filter_parameters, env_config["action_dispatch.parameter_filter"]
+    assert_equal app.secret_key_base, env_config["action_dispatch.secret_key_base"]
+    assert_equal Rails.backtrace_cleaner, env_config["action_dispatch.backtrace_cleaner"]
+    assert_equal app.key_generator, env_config["action_dispatch.key_generator"]
+    assert_nil env_config["action_dispatch.content_security_policy"]
+    assert_nil env_config["action_dispatch.permissions_policy"]
   end
 
   test "config_for loads pathnames merges shared config and reports missing files" do
