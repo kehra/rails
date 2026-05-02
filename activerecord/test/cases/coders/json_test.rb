@@ -19,6 +19,12 @@ module ActiveRecord
         coder = JSON.new(symbolize_names: true)
         assert_equal({ foo: "bar" }, coder.load('{"foo":"bar"}'))
       end
+
+      def test_dump_encodes_values_with_active_support_json_encoder
+        coder = JSON.new
+
+        assert_equal ActiveSupport::JSON.encode("html" => "<tag>"), coder.dump("html" => "<tag>")
+      end
     end
   end
 end
