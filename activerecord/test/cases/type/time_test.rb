@@ -32,6 +32,26 @@ module ActiveRecord
         assert_instance_of type.serialize(value).class, type.serialize_cast_value(value)
         assert_instance_of type.serialize(nil).class, type.serialize_cast_value(nil)
       end
+
+      test "serialize wraps time values to preserve time class semantics" do
+        type = Class.new(Type::Time) do
+          def serialize_cast_value(value)
+            value
+          end
+        end.new
+        value = ::Time.utc(2000, 1, 1, 10, 30, 0)
+
+        serialized = type.serialize(value)
+
+        assert_instance_of Type::Time::Value, serialized
+        assert_equal value, serialized.__getobj__
+      end
+
+      test "serialize returns non time values unchanged after super" do
+        type = Type::Time.new
+
+        assert_nil type.serialize(nil)
+      end
     end
   end
 end
