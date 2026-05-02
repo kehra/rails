@@ -1140,6 +1140,24 @@ class EnumTest < ActiveRecord::TestCase
     ActiveRecord::Base.logger = old_logger
   end
 
+  test "enum skips negative scope warning detection without logger" do
+    old_logger = ActiveRecord::Base.logger
+    ActiveRecord::Base.logger = nil
+
+    assert_nothing_raised do
+      Class.new(ActiveRecord::Base) do
+        def self.name
+          "Book"
+        end
+        silence_warnings do
+          enum :status, [:not_sent, :sent]
+        end
+      end
+    end
+  ensure
+    ActiveRecord::Base.logger = old_logger
+  end
+
   test "raises for attributes with undeclared type" do
     klass = Class.new(Book) do
     def self.name; "Book"; end
