@@ -40,4 +40,15 @@ class ActiveRecord::Encryption::MessageTest < ActiveRecord::EncryptionTestCase
     ActiveRecord::Encryption::Message.new(payload: "")
     ActiveRecord::Encryption::Message.new(payload: "Some payload")
   end
+
+  test "messages compare payloads and headers" do
+    message = ActiveRecord::Encryption::Message.new(payload: "Some payload", headers: { iv: "iv" })
+    same_message = ActiveRecord::Encryption::Message.new(payload: "Some payload", headers: { iv: "iv" })
+    different_payload = ActiveRecord::Encryption::Message.new(payload: "Other payload", headers: { iv: "iv" })
+    different_headers = ActiveRecord::Encryption::Message.new(payload: "Some payload", headers: { iv: "other iv" })
+
+    assert_equal same_message, message
+    assert_not_equal different_payload, message
+    assert_not_equal different_headers, message
+  end
 end
