@@ -18,6 +18,22 @@ class RelationScopingTest < ActiveRecord::TestCase
     developers(:david)
   end
 
+  def test_scope_registry_returns_isolated_execution_registry_instance
+    assert_instance_of ActiveRecord::Scoping::ScopeRegistry, Developer.scope_registry
+    assert_same Developer.scope_registry, ActiveRecord::Scoping::ScopeRegistry.instance
+  end
+
+  def test_global_current_scope_setter_and_getter
+    scope = Developer.where(name: "David")
+    previous_scope = Developer.global_current_scope(true)
+
+    Developer.global_current_scope = scope
+
+    assert_equal scope, Developer.global_current_scope(true)
+  ensure
+    Developer.global_current_scope = previous_scope
+  end
+
   def test_unscoped_breaks_caching
     author = authors :mary
     assert_nil author.first_post
