@@ -219,5 +219,115 @@ module ActiveRecord
       assert_equal :connected_result, result
       assert_equal [["ActiveRecord::Base", ActiveRecord::Base.current_role, ActiveRecord::Base.current_shard]], received
     end
+
+    test "#connected_to validates receiver and requires a role or shard" do
+      concrete_class = Class.new(ActiveRecord::Base)
+      assert_raises(NotImplementedError) do
+        concrete_class.connected_to(role: :writing) { flunk "should not yield" }
+      end
+
+      abstract_without_connection = Class.new(ActiveRecord::Base) do
+        self.abstract_class = true
+      end
+      assert_raises(NotImplementedError) do
+        abstract_without_connection.connected_to(role: :writing) { flunk "should not yield" }
+      end
+
+      assert_raises(ArgumentError) do
+        ActiveRecord::Base.connected_to { flunk "should not yield" }
+      end
+    end
+
+    test "#connected_to pushes role and shard for the block and restores afterward" do
+      assert_equal ActiveRecord::Base.default_role, ActiveRecord::Base.current_role
+      assert_equal ActiveRecord::Base.default_shard, ActiveRecord::Base.current_shard
+
+      result = ActiveRecord::Base.connected_to(role: :reading, shard: :custom) do
+        assert_equal :reading, ActiveRecord::Base.current_role
+        assert_equal :custom, ActiveRecord::Base.current_shard
+        assert ActiveRecord::Base.current_preventing_writes
+        :block_result
+      end
+
+      assert_equal :block_result, result
+      assert_equal ActiveRecord::Base.default_role, ActiveRecord::Base.current_role
+      assert_equal ActiveRecord::Base.default_shard, ActiveRecord::Base.current_shard
+    end
+
+    test "#connected_to? compares role and shard against current stack" do
+      ActiveRecord::Base.connected_to(role: :writing, shard: :custom) do
+        assert ActiveRecord::Base.connected_to?(role: :writing, shard: :custom)
+        assert_not ActiveRecord::Base.connected_to?(role: :reading, shard: :custom)
+        assert_not ActiveRecord::Base.connected_to?(role: :writing, shard: :default)
+      end
+    end
+
+    test "#connected_to_all_shards yields once for each configured shard" do
+      yielded = []
+
+      ActiveRecord::Base.stub(:shard_keys, [:default, :custom]) do
+        results = ActiveRecord::Base.connected_to_all_shards(role: :writing) do
+          yielded << ActiveRecord::Base.current_shard
+          ActiveRecord::Base.current_shard
+        end
+
+        assert_equal [:default, :custom], results
+      end
+
+      assert_equal [:default, :custom], yielded
+    end
+
+    test "#connected_to_many applies one stack entry for flattened classes" do
+      klass_one = Class.new(ActiveRecord::Base) { self.abstract_class = true }
+      klass_two = Class.new(ActiveRecord::Base) { self.abstract_class = true }
+      entry_inside_block = nil
+
+      result = ActiveRecord::Base.connected_to_many([klass_one], klass_two, role: :reading, shard: :custom) do
+        entry_inside_block = ActiveRecord::Base.connected_to_stack.last
+        :many_result
+      end
+
+      assert_equal :many_result, result
+      assert_equal :reading, entry_inside_block[:role]
+      assert_equal :custom, entry_inside_block[:shard]
+      assert_equal true, entry_inside_block[:prevent_writes]
+      assert_equal [klass_one, klass_two], entry_inside_block[:klasses]
+      assert_not_includes ActiveRecord::Base.connected_to_stack, entry_inside_block
+
+      ActiveRecord::Base.connected_to_many(klass_one, role: :writing) do
+        assert_equal false, ActiveRecord::Base.connected_to_stack.last[:prevent_writes]
+      end
+    end
+
+    test "#connected_to_many validates receiver and class list" do
+      klass = Class.new(ActiveRecord::Base) { self.abstract_class = true }
+
+      assert_raises(NotImplementedError) do
+        klass.connected_to_many(klass, role: :writing) { flunk "should not yield" }
+      end
+
+      assert_raises(NotImplementedError) do
+        ActiveRecord::Base.connected_to_many(ActiveRecord::Base, role: :writing) { flunk "should not yield" }
+      end
+    end
+
+    test "#connecting_to pushes a persistent stack entry" do
+      previous_size = ActiveRecord::Base.connected_to_stack.size
+
+      ActiveRecord::Base.connecting_to(role: :reading, shard: :custom)
+      entry = ActiveRecord::Base.connected_to_stack.last
+
+      assert_equal :reading, entry[:role]
+      assert_equal :custom, entry[:shard]
+      assert_equal true, entry[:prevent_writes]
+      assert_equal [ActiveRecord::Base], entry[:klasses]
+
+      ActiveRecord::Base.connected_to_stack.pop
+      ActiveRecord::Base.connecting_to(role: :writing, shard: :default)
+      entry = ActiveRecord::Base.connected_to_stack.last
+      assert_equal false, entry[:prevent_writes]
+    ensure
+      ActiveRecord::Base.connected_to_stack.pop while ActiveRecord::Base.connected_to_stack.size > previous_size
+    end
   end
 end
