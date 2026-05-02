@@ -329,5 +329,103 @@ module ActiveRecord
     ensure
       ActiveRecord::Base.connected_to_stack.pop while ActiveRecord::Base.connected_to_stack.size > previous_size
     end
+
+    test "#connection uses lease or active connection according to pool lease mode" do
+      pool = Class.new do
+        attr_reader :leased, :active
+        attr_accessor :permanent
+
+        def initialize
+          @leased = Object.new
+          @active = Object.new
+          @permanent = true
+        end
+
+        def permanent_lease? = @permanent
+        def lease_connection = @leased
+        def active_connection = @active
+      end.new
+
+      ActiveRecord.permanent_connection_checkout = true
+      ActiveRecord::Base.stub(:connection_pool, pool) do
+        assert_same pool.leased, ActiveRecord::Base.connection
+
+        pool.permanent = false
+        assert_same pool.active, ActiveRecord::Base.connection
+      end
+    end
+
+    test "#connection warns or raises according to permanent checkout mode" do
+      pool = Class.new do
+        def permanent_lease? = true
+        def lease_connection = :leased_connection
+      end.new
+
+      ActiveRecord::Base.stub(:connection_pool, pool) do
+        ActiveRecord.permanent_connection_checkout = :deprecated
+        assert_deprecated(ActiveRecord.deprecator) do
+          assert_equal :leased_connection, ActiveRecord::Base.connection
+        end
+
+        ActiveRecord.permanent_connection_checkout = :disallowed
+        assert_raises(ActiveRecordError) do
+          ActiveRecord::Base.connection
+        end
+      end
+    end
+
+    test "#lease_connection delegates to the current connection pool" do
+      pool = Object.new
+      pool.define_singleton_method(:lease_connection) { :leased_connection }
+
+      ActiveRecord::Base.stub(:connection_pool, pool) do
+        assert_equal :leased_connection, ActiveRecord::Base.lease_connection
+      end
+    end
+
+    test "#connection_db_config and #connection_pool delegate using current specification role and shard" do
+      db_config = Object.new
+      pool = Object.new
+      pool.define_singleton_method(:db_config) { db_config }
+      handler = Object.new
+      received = []
+      handler.define_singleton_method(:retrieve_connection_pool) do |specification_name, role:, shard:, strict: nil|
+        received << [specification_name, role, shard, strict]
+        pool
+      end
+
+      ActiveRecord::Base.stub(:connection_handler, handler) do
+        assert_same pool, ActiveRecord::Base.connection_pool
+        assert_same db_config, ActiveRecord::Base.connection_db_config
+      end
+
+      assert_equal [
+        ["ActiveRecord::Base", ActiveRecord::Base.current_role, ActiveRecord::Base.current_shard, true],
+        ["ActiveRecord::Base", ActiveRecord::Base.current_role, ActiveRecord::Base.current_shard, true],
+      ], received
+    end
+
+    test "#connection_specification_name falls back to base or superclass and can be assigned" do
+      base_had_spec = ActiveRecord::Base.instance_variable_defined?(:@connection_specification_name)
+      base_spec = ActiveRecord::Base.instance_variable_get(:@connection_specification_name) if base_had_spec
+      ActiveRecord::Base.remove_instance_variable(:@connection_specification_name) if base_had_spec
+
+      assert_equal "ActiveRecord::Base", ActiveRecord::Base.connection_specification_name
+    ensure
+      ActiveRecord::Base.instance_variable_set(:@connection_specification_name, base_spec) if base_had_spec
+    end
+
+    test "#connection_specification_name inherits from superclass and can be assigned" do
+      parent = Class.new(ActiveRecord::Base) do
+        self.abstract_class = true
+        self.connection_specification_name = "ParentSpec"
+      end
+      child = Class.new(parent)
+
+      assert_equal "ParentSpec", child.connection_specification_name
+
+      child.connection_specification_name = "ChildSpec"
+      assert_equal "ChildSpec", child.connection_specification_name
+    end
   end
 end
