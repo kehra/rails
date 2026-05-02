@@ -11,6 +11,26 @@ class ActiveRecordTest < ActiveRecord::TestCase
     ActiveRecord.db_warnings_action = :ignore
     ActiveRecord.default_timezone = :utc
     ActiveRecord.marshalling_format_version = 6.1
+    ActiveRecord.permanent_connection_checkout = true
+  end
+
+  test ".permanent_connection_checkout= accepts supported modes" do
+    ActiveRecord.permanent_connection_checkout = true
+    assert_equal true, ActiveRecord.permanent_connection_checkout
+
+    ActiveRecord.permanent_connection_checkout = :deprecated
+    assert_equal :deprecated, ActiveRecord.permanent_connection_checkout
+
+    ActiveRecord.permanent_connection_checkout = :disallowed
+    assert_equal :disallowed, ActiveRecord.permanent_connection_checkout
+  end
+
+  test ".permanent_connection_checkout= rejects unsupported modes" do
+    error = assert_raises(ArgumentError) do
+      ActiveRecord.permanent_connection_checkout = false
+    end
+
+    assert_equal "permanent_connection_checkout must be one of: `true`, `:deprecated` or `:disallowed`", error.message
   end
 
   test ".marshalling_format_version delegates to marshalling configuration" do
