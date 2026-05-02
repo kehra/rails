@@ -184,6 +184,139 @@ class ActiveStorage::AttachmentTest < ActiveSupport::TestCase
     assert_nothing_raised { ActiveStorage::Attachment.create!(name: "whatever", record: @user, blob: create_blob) }
   end
 
+  test "purge deletes the attachment, touches the record, and purges the blob" do
+    blob = create_blob
+    @user.avatar.attach(blob)
+    attachment = @user.avatar.attachment
+    purged = false
+
+    blob.stub(:purge, -> { purged = true }) do
+      assert_changes -> { @user.updated_at } do
+        attachment.purge
+      end
+    end
+
+    assert purged
+    assert_not ActiveStorage::Attachment.exists?(attachment.id)
+  end
+
+  test "purge tolerates missing record and blob" do
+    attachment = ActiveStorage::Attachment.new
+    attachment.stub(:record, nil) do
+      attachment.stub(:blob, nil) do
+        assert_nothing_raised { attachment.purge }
+      end
+    end
+  end
+
+  test "purge_later deletes the attachment, touches the record, and enqueues blob purge" do
+    blob = create_blob
+    @user.avatar.attach(blob)
+    attachment = @user.avatar.attachment
+
+    assert_changes -> { @user.updated_at } do
+      assert_enqueued_with(job: ActiveStorage::PurgeJob, args: [ blob ]) do
+        attachment.purge_later
+      end
+    end
+
+    assert_not ActiveStorage::Attachment.exists?(attachment.id)
+  end
+
+  test "purge_later tolerates missing record and blob" do
+    attachment = ActiveStorage::Attachment.new
+    attachment.stub(:record, nil) do
+      attachment.stub(:blob, nil) do
+        assert_nothing_raised { attachment.purge_later }
+      end
+    end
+  end
+
+  test "variant resolves named variants and delegates explicit transformations" do
+    @user.avatar_with_variants.attach create_file_blob
+    attachment = @user.avatar_with_variants
+
+    assert_equal({ format: "jpg", resize_to_limit: [100, 100] }, attachment.variant(:thumb).variation.transformations)
+    assert_equal({ format: "jpg", resize_to_limit: [50, 50] }, attachment.variant(resize_to_limit: [50, 50]).variation.transformations)
+  end
+
+  test "variant raises a helpful error for unknown named variants" do
+    @user.avatar_with_variants.attach create_file_blob
+
+    error = assert_raises(ArgumentError) do
+      @user.avatar_with_variants.variant(:missing)
+    end
+
+    assert_equal "Cannot find variant :missing for User#avatar_with_variants", error.message
+  end
+
+  test "preview and representation delegate transformed representations" do
+    @user.intro_video.attach create_file_blob(filename: "video.mp4", content_type: "video/mp4")
+    @user.avatar.attach create_file_blob
+
+    preview = @user.intro_video.preview(resize_to_limit: [50, 50])
+    representation = @user.avatar.representation(resize_to_limit: [50, 50])
+
+    assert_instance_of ActiveStorage::Preview, preview
+    assert_equal({ resize_to_limit: [50, 50] }, preview.variation.transformations)
+    assert_respond_to representation, :variation
+    assert_equal({ format: "jpg", resize_to_limit: [50, 50] }, representation.variation.transformations)
+  end
+
+  test "uploaded assigns local io, uploads, persists changed metadata, and clears local io" do
+    io = Object.new
+    blob = Object.new
+    calls = []
+
+    blob.define_singleton_method(:local_io=) { |value| calls << [:local_io, value] }
+    blob.define_singleton_method(:upload_without_unfurling) { |value| calls << [:upload, value] }
+    blob.define_singleton_method(:persisted?) { true }
+    blob.define_singleton_method(:metadata_changed?) { true }
+    blob.define_singleton_method(:save!) { calls << [:save] }
+
+    attachment = ActiveStorage::Attachment.allocate
+    attachment.define_singleton_method(:blob) { blob }
+    attachment.define_singleton_method(:process_immediate_variants_from_io) { |value| calls << [:variants, value] }
+    attachment.define_singleton_method(:analyze_blob_from_io) { |value| calls << [:analyze, value] }
+    attachment.define_singleton_method(:run_upload_callbacks) { calls << [:callbacks] }
+
+    attachment.uploaded(io: io)
+
+    assert_equal [
+      [:local_io, io],
+      [:variants, io],
+      [:analyze, io],
+      [:upload, io],
+      [:save],
+      [:callbacks],
+      [:local_io, nil]
+    ], calls
+  end
+
+  test "uploaded rewinds rewindable io and skips metadata save when unchanged" do
+    io = StringIO.new("contents")
+    io.read
+    blob = Object.new
+    calls = []
+
+    blob.define_singleton_method(:local_io=) { |value| calls << [:local_io, value] }
+    blob.define_singleton_method(:upload_without_unfurling) { |value| calls << [:upload_position, value.pos] }
+    blob.define_singleton_method(:persisted?) { true }
+    blob.define_singleton_method(:metadata_changed?) { false }
+    blob.define_singleton_method(:save!) { calls << [:save] }
+
+    attachment = ActiveStorage::Attachment.allocate
+    attachment.define_singleton_method(:blob) { blob }
+    attachment.define_singleton_method(:process_immediate_variants_from_io) { |value| value.read }
+    attachment.define_singleton_method(:analyze_blob_from_io) { |value| value.read }
+    attachment.define_singleton_method(:run_upload_callbacks) { calls << [:callbacks] }
+
+    attachment.uploaded(io: io)
+
+    assert_includes calls, [:upload_position, 0]
+    assert_not_includes calls, [:save]
+  end
+
   test "create immediate variants on attach" do
     blob = create_file_blob
 
