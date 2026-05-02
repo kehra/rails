@@ -3,6 +3,7 @@
 require "cases/encryption/helper"
 require "models/book_encrypted"
 require "models/author_encrypted"
+require "models/post_encrypted"
 
 class ActiveRecord::Encryption::UniquenessValidationsTest < ActiveRecord::EncryptionTestCase
   test "uniqueness validations work" do
@@ -61,5 +62,25 @@ class ActiveRecord::Encryption::UniquenessValidationsTest < ActiveRecord::Encryp
     record = EncryptedBookWithUniquenessValidation.create(name: "dune")
 
     assert_equal 1, record.errors.count
+  end
+
+  test "uniqueness validation leaves non deterministic encrypted attributes to regular validation" do
+    EncryptedPost.create!(title: "Dune", body: "Arrakis")
+    record = EncryptedPost.new(title: "Dune", body: "Arrakis")
+
+    validator = ActiveRecord::Validations::UniquenessValidator.new(attributes: [:title], class: EncryptedPost)
+    validator.validate(record)
+
+    assert_empty record.errors[:title]
+  end
+
+  test "uniqueness validation leaves records without encrypted attributes to regular validation" do
+    UnencryptedBook.create!(name: "Dune")
+    record = UnencryptedBook.new(name: "Dune")
+
+    validator = ActiveRecord::Validations::UniquenessValidator.new(attributes: [:name], class: UnencryptedBook)
+    validator.validate(record)
+
+    assert_not_empty record.errors[:name]
   end
 end
