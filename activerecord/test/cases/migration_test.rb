@@ -1140,10 +1140,62 @@ class MigrationTest < ActiveRecord::TestCase
     @internal_metadata.create_table
   end
 
+  def test_internal_metadata_create_flags_and_drop_table_are_noops_when_disabled
+    @internal_metadata.drop_table
+    original_config = @pool.db_config.instance_variable_get(:@configuration_hash)
+    modified_config = original_config.dup.merge(use_metadata_table: false)
+    @pool.db_config.instance_variable_set(:@configuration_hash, modified_config)
+
+    @internal_metadata.create_table_and_set_flags("test", "abc123")
+    @internal_metadata.drop_table
+
+    assert_not @internal_metadata.table_exists?
+  ensure
+    @pool.db_config.instance_variable_set(:@configuration_hash, original_config)
+    @internal_metadata.create_table
+  end
+
   def test_inserting_a_new_entry_into_internal_metadata
     @internal_metadata[:version] = "foo"
     assert_equal "foo", @internal_metadata[:version]
   ensure
+    @internal_metadata.delete_all_entries
+  end
+
+  def test_internal_metadata_returns_nil_for_missing_key_and_counts_entries
+    @internal_metadata.delete_all_entries
+
+    assert_nil @internal_metadata[:missing]
+    assert_equal 0, @internal_metadata.count
+
+    @internal_metadata[:version] = "foo"
+    assert_equal 1, @internal_metadata.count
+  ensure
+    @internal_metadata.delete_all_entries
+  end
+
+  def test_internal_metadata_create_table_and_set_flags_stores_schema_sha1
+    @internal_metadata.delete_all_entries
+
+    @internal_metadata.create_table_and_set_flags("test", "abc123")
+
+    assert_equal "test", @internal_metadata[:environment]
+    assert_equal "abc123", @internal_metadata[:schema_sha1]
+  ensure
+    @internal_metadata.delete_all_entries
+  end
+
+  def test_internal_metadata_current_time_uses_local_time_when_connection_default_timezone_is_local
+    old_default_timezone = ActiveRecord.default_timezone
+    ActiveRecord.default_timezone = :local
+    @internal_metadata.delete_all_entries
+
+    @internal_metadata[:version] = "foo"
+
+    entry = @internal_metadata.send(:select_entry, @pool.lease_connection, :version)
+    assert_equal "foo", entry["value"]
+  ensure
+    ActiveRecord.default_timezone = old_default_timezone
     @internal_metadata.delete_all_entries
   end
 
