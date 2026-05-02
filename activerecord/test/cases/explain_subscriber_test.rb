@@ -59,6 +59,18 @@ if ActiveRecord::Base.lease_connection.supports_explain?
       assert_equal 1, queries.size
     end
 
+    def test_ensure_subscribed_rechecks_subscription_inside_mutex
+      subscriber = ActiveRecord::ExplainRegistry::Subscriber
+      mutex = subscriber::MUTEX
+      subscriber.instance_variable_set(:@subscribed, false)
+
+      mutex.stub(:synchronize, ->(&block) { subscriber.instance_variable_set(:@subscribed, true); block.call }) do
+        assert_nil subscriber.ensure_subscribed
+      end
+    ensure
+      subscriber&.instance_variable_set(:@subscribed, true)
+    end
+
     teardown do
       ActiveRecord::ExplainRegistry.reset
     end
