@@ -106,6 +106,40 @@ class CoreTest < ActiveRecord::TestCase
     STRING
   end
 
+  def test_encode_with_records_attributes_and_yaml_metadata
+    topic = Topic.new(title: "Encoded Topic")
+    coder = {}
+
+    topic.encode_with(coder)
+
+    title_attribute = coder["concise_attributes"].detect { |attribute| attribute.name == "title" }
+
+    assert_equal "Encoded Topic", title_attribute.value_before_type_cast
+    assert_equal true, coder["new_record"]
+    assert_equal 2, coder["active_record_yaml_version"]
+  end
+
+  def test_connection_handler_delegates_to_model_class
+    topic = Topic.new
+
+    assert_same Topic.connection_handler, topic.connection_handler
+  end
+
+  def test_freeze_freezes_attributes_and_returns_self
+    topic = Topic.new
+
+    assert_same topic, topic.freeze
+    assert_predicate topic, :frozen?
+  end
+
+  def test_comparison_orders_records_by_key_for_same_class
+    first = topics(:first)
+    second = topics(:second)
+
+    assert_equal(-1, first <=> second)
+    assert_nil first <=> Object.new
+  end
+
   def test_pretty_print_new
     topic = Topic.new
     actual = +""
