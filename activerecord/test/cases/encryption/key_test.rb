@@ -14,4 +14,10 @@ class ActiveRecord::Encryption::KeyTest < ActiveRecord::EncryptionTestCase
   test ".derive_from instantiates a key with its secret derived from the passed password" do
     assert_equal ActiveRecord::Encryption.key_generator.derive_key_from("some password"), ActiveRecord::Encryption::Key.derive_from("some password").secret
   end
+
+  test "id returns the first four SHA1 characters for the secret" do
+    key = ActiveRecord::Encryption::Key.new("the secret")
+
+    assert_equal Digest::SHA1.hexdigest("the secret").first(4), key.id
+  end
 end
