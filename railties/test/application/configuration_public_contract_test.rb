@@ -120,6 +120,84 @@ class ApplicationConfigurationPublicContractTest < ActiveSupport::TestCase
     assert_equal [ @root.join("lib/generators") ], once_loader.ignored
   end
 
+  test "default log file creates log directory and applies autoflush setting" do
+    @config.autoflush_log = false
+
+    log = @config.default_log_file
+    log.write("contract")
+    second_log = @config.default_log_file
+
+    assert_equal @root.join("log/#{Rails.env}.log").to_s, log.path
+    assert_equal log.path, second_log.path
+    assert File.directory?(@root.join("log"))
+    assert log.binmode?
+    assert_not log.sync
+  ensure
+    log&.close
+    second_log&.close
+  end
+
+  test "session store stores options resolves symbols and supports disabled sessions" do
+    @config.session_store :cookie_store, key: "_contract_session", same_site: :lax
+
+    assert_equal ActionDispatch::Session::CookieStore, @config.session_store
+    assert_equal({ key: "_contract_session", same_site: :lax }, @config.session_options)
+    assert_equal :cookie_store, @config.session_store?
+
+    @config.session_store :disabled
+    assert_nil @config.session_store
+
+    custom_store = Class.new
+    @config.session_store custom_store
+    assert_equal custom_store, @config.session_store
+  end
+
+  test "secret key base resolves environment credentials local dummy and validates assignments" do
+    application = Object.new
+    credentials = Struct.new(:secret_key_base).new("credential-secret")
+    application.define_singleton_method(:credentials) { credentials }
+
+    original_env = Rails.env
+    original_secret_key_base = ENV["SECRET_KEY_BASE"]
+    original_secret_key_base_dummy = ENV["SECRET_KEY_BASE_DUMMY"]
+    with_application(application) do
+      Rails.env = "production"
+      ENV["SECRET_KEY_BASE"] = "environment-secret"
+      @config.instance_variable_set(:@secret_key_base, nil)
+      assert_equal "environment-secret", @config.secret_key_base
+
+      ENV.delete("SECRET_KEY_BASE")
+      @config.instance_variable_set(:@secret_key_base, nil)
+      assert_equal "credential-secret", @config.secret_key_base
+
+      Rails.env = "development"
+      ENV["SECRET_KEY_BASE_DUMMY"] = "1"
+      @config.instance_variable_set(:@secret_key_base, nil)
+      local_secret = @config.secret_key_base
+      assert_match(/\A[0-9a-f]{128}\z/, local_secret)
+      @config.instance_variable_set(:@secret_key_base, nil)
+      assert_equal local_secret, @config.secret_key_base
+
+      ENV.delete("SECRET_KEY_BASE_DUMMY")
+      credentials.secret_key_base = nil
+      @config.instance_variable_set(:@secret_key_base, nil)
+      assert_equal local_secret, @config.secret_key_base
+
+      @config.secret_key_base = nil
+      assert_match(/\A[0-9a-f]{128}\z/, @config.secret_key_base)
+
+      assert_raises(ArgumentError) { @config.secret_key_base = :invalid }
+      assert_raises(ArgumentError) do
+        Rails.env = "production"
+        @config.secret_key_base = nil
+      end
+    end
+  ensure
+    Rails.env = original_env
+    ENV["SECRET_KEY_BASE"] = original_secret_key_base
+    ENV["SECRET_KEY_BASE_DUMMY"] = original_secret_key_base_dummy
+  end
+
   test "annotations and revision writer delegate to public collaborators" do
     application = Object.new
     class << application
