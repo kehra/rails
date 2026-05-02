@@ -51,6 +51,19 @@ class ActiveStorage::DiskControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
+  test "showing blob falls back to default service when token service is unknown" do
+    blob = create_blob
+    encoded_key = ActiveStorage.verifier.generate(
+      { key: blob.key, service_name: :unknown, content_type: blob.content_type, disposition: :inline },
+      purpose: :blob_key
+    )
+
+    get rails_disk_service_url(encoded_key: encoded_key, filename: blob.filename)
+
+    assert_response :ok
+    assert_equal "Hello world!", response.body
+  end
+
   test "showing public blob" do
     with_service("local_public") do
       blob = create_blob(content_type: "image/jpeg")
@@ -86,6 +99,16 @@ class ActiveStorage::DiskControllerTest < ActionDispatch::IntegrationTest
     blob = create_blob_before_direct_upload byte_size: data.size, checksum: OpenSSL::Digest::MD5.base64digest("bad data")
 
     put blob.service_url_for_direct_upload, params: data
+    assert_response ActionDispatch::Constants::UNPROCESSABLE_CONTENT
+    assert_not blob.service.exist?(blob.key)
+  end
+
+  test "directly uploading blob with checksum mismatch after content validation" do
+    data = "Something else entirely!"
+    blob = create_blob_before_direct_upload byte_size: data.size, checksum: OpenSSL::Digest::MD5.base64digest("bad data")
+
+    put blob.service_url_for_direct_upload, params: data, headers: { "Content-Type" => "text/plain" }
+
     assert_response ActionDispatch::Constants::UNPROCESSABLE_CONTENT
     assert_not blob.service.exist?(blob.key)
   end
