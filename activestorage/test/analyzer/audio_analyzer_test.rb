@@ -6,6 +6,11 @@ require "database/setup"
 require "active_storage/analyzer/audio_analyzer"
 
 class ActiveStorage::Analyzer::AudioAnalyzerTest < ActiveSupport::TestCase
+  test "accepts audio blobs" do
+    assert ActiveStorage::Analyzer::AudioAnalyzer.accept?(create_blob(content_type: "audio/mp3"))
+    assert_not ActiveStorage::Analyzer::AudioAnalyzer.accept?(create_blob(content_type: "text/plain"))
+  end
+
   test "analyzing an audio" do
     blob = create_file_blob(filename: "audio.mp3", content_type: "audio/mp3")
     metadata = extract_metadata_from(blob)
@@ -26,5 +31,22 @@ class ActiveStorage::Analyzer::AudioAnalyzerTest < ActiveSupport::TestCase
         blob.analyze
       end
     end
+  end
+
+  test "omits missing stream metadata and logs when ffprobe is unavailable" do
+    blob = create_blob(content_type: "audio/mp3")
+    analyzer = ActiveStorage::Analyzer::AudioAnalyzer.new(blob)
+    analyzer.instance_variable_set(:@probe, { "streams" => [ { "codec_type" => "audio" } ] })
+
+    assert_equal({}, analyzer.metadata)
+
+    output = StringIO.new
+    logger = ActiveSupport::Logger.new(output)
+    ActiveStorage.with(logger: logger) do
+      analyzer.stub(:ffprobe_path, "missing-ffprobe") do
+        assert_equal({}, analyzer.send(:probe_from, Struct.new(:path).new("/tmp/audio")))
+      end
+    end
+    assert_includes output.string, "Skipping audio analysis because ffprobe isn't installed"
   end
 end

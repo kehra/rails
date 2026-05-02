@@ -6,6 +6,11 @@ require "database/setup"
 require "active_storage/analyzer/video_analyzer"
 
 class ActiveStorage::Analyzer::VideoAnalyzerTest < ActiveSupport::TestCase
+  test "accepts video blobs" do
+    assert ActiveStorage::Analyzer::VideoAnalyzer.accept?(create_blob(content_type: "video/mp4"))
+    assert_not ActiveStorage::Analyzer::VideoAnalyzer.accept?(create_blob(content_type: "text/plain"))
+  end
+
   test "analyzing a video" do
     blob = create_file_blob(filename: "video.mp4", content_type: "video/mp4")
     metadata = extract_metadata_from(blob)
@@ -94,5 +99,49 @@ class ActiveStorage::Analyzer::VideoAnalyzerTest < ActiveSupport::TestCase
         blob.analyze
       end
     end
+  end
+
+  test "uses display matrix angle and handles missing ffprobe" do
+    blob = create_blob(content_type: "video/mp4")
+    analyzer = ActiveStorage::Analyzer::VideoAnalyzer.new(blob)
+    analyzer.instance_variable_set(:@probe, {
+      "streams" => [
+        { "codec_type" => "video", "width" => "10", "height" => "20", "side_data_list" => [ { "side_data_type" => "Display Matrix", "rotation" => "270" } ], "display_aspect_ratio" => "0:1" }
+      ]
+    })
+
+    metadata = analyzer.metadata
+
+    assert_equal 20, metadata[:width]
+    assert_equal 10, metadata[:height]
+    assert_equal 270, metadata[:angle]
+    assert_nil metadata[:display_aspect_ratio]
+    assert_not metadata[:audio]
+    assert metadata[:video]
+
+    output = StringIO.new
+    logger = ActiveSupport::Logger.new(output)
+    ActiveStorage.with(logger: logger) do
+      analyzer.stub(:ffprobe_path, "missing-ffprobe") do
+        assert_equal({}, analyzer.send(:probe_from, Struct.new(:path).new("/tmp/video")))
+      end
+    end
+    assert_includes output.string, "Skipping video analysis because ffprobe isn't installed"
+  end
+
+  test "uses rotate tag before display matrix angle" do
+    blob = create_blob(content_type: "video/mp4")
+    analyzer = ActiveStorage::Analyzer::VideoAnalyzer.new(blob)
+    analyzer.instance_variable_set(:@probe, {
+      "streams" => [
+        { "codec_type" => "video", "width" => "10", "height" => "20", "tags" => { "rotate" => "90" }, "side_data_list" => [ { "side_data_type" => "Display Matrix", "rotation" => "270" } ] }
+      ]
+    })
+
+    metadata = analyzer.metadata
+
+    assert_equal 90, metadata[:angle]
+    assert_equal 20, metadata[:width]
+    assert_equal 10, metadata[:height]
   end
 end
