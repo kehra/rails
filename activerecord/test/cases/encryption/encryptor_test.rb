@@ -31,6 +31,17 @@ class ActiveRecord::Encryption::EncryptorTest < ActiveRecord::EncryptionTestCase
     end
   end
 
+  test "decrypt raises when the key provider has no decryption keys" do
+    encrypted_text = @encryptor.encrypt("Some text to encrypt")
+    key_provider = ActiveRecord::Encryption::DerivedSecretKeyProvider.new("some key")
+
+    key_provider.stub :decryption_keys, [] do
+      assert_raises(ActiveRecord::Encryption::Errors::Decryption) do
+        @encryptor.decrypt(encrypted_text, key_provider: key_provider)
+      end
+    end
+  end
+
   test "if an encryption error happens when encrypting an encrypted text it should raise" do
     assert_raises(ActiveRecord::Encryption::Errors::Encryption) do
       key_provider_that_raises_an_encryption_error = ActiveRecord::Encryption::DerivedSecretKeyProvider.new("some key")
@@ -78,6 +89,26 @@ class ActiveRecord::Encryption::EncryptorTest < ActiveRecord::EncryptionTestCase
   test "encrypted? returns whether the passed text is encrypted" do
     assert @encryptor.encrypted?(@encryptor.encrypt("clean text"))
     assert_not @encryptor.encrypted?("clean text")
+  end
+
+  test "binary? delegates to the configured message serializer" do
+    assert_equal ActiveRecord::Encryption.message_serializer.binary?, @encryptor.binary?
+  end
+
+  test "deterministic encryption forces the configured encoding" do
+    ActiveRecord::Encryption.config.forced_encoding_for_deterministic_encryption = Encoding::UTF_8
+
+    encrypted_text = @encryptor.encrypt("Dune".b, cipher_options: { deterministic: true })
+
+    assert_equal Encoding::UTF_8, @encryptor.decrypt(encrypted_text).encoding
+  end
+
+  test "deterministic encryption preserves encoding when no forced encoding is configured" do
+    ActiveRecord::Encryption.config.forced_encoding_for_deterministic_encryption = nil
+
+    encrypted_text = @encryptor.encrypt("Dune".b, cipher_options: { deterministic: true })
+
+    assert_equal Encoding::ASCII_8BIT, @encryptor.decrypt(encrypted_text).encoding
   end
 
   test "decrypt respects encoding even when compression is used" do
