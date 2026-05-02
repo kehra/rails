@@ -218,6 +218,30 @@ module InitializableTests
       foo = Foo.new
       assert_equal foo.class, foo.initializers.first.context_class
     end
+
+    test "initializer public contracts expose binding idempotency and argument validation" do
+      context = Object.new
+      calls = []
+      initializer = Rails::Initializable::Initializer.new(:direct, nil, before: nil, after: nil) do |value|
+        calls << [ self, value ]
+      end
+
+      bound = initializer.bind(context)
+      assert_same bound, bound.bind(Object.new)
+      assert_equal context.class, bound.context_class
+      assert_nil bound.before
+      assert_nil bound.after
+
+      bound.run(:value)
+      assert_equal [ [ context, :value ] ], calls
+
+      initializable = Class.new do
+        include Rails::Initializable
+      end
+
+      error = assert_raise(ArgumentError) { initializable.initializer(:missing_block) }
+      assert_equal "A block must be passed when defining an initializer", error.message
+    end
   end
 
   class BeforeAfter < ActiveSupport::TestCase
