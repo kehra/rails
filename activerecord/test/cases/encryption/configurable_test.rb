@@ -41,6 +41,32 @@ class ActiveRecord::Encryption::ConfigurableTest < ActiveRecord::EncryptionTestC
     assert_equal :isbn, @attribute_name
   end
 
+  test "encrypted attribute declaration listeners are lazily initialized and appended" do
+    previous_listeners = ActiveRecord::Encryption.encrypted_attribute_declaration_listeners
+    ActiveRecord::Encryption.encrypted_attribute_declaration_listeners = nil
+    first_listener = ->(*) {}
+    second_listener = ->(*) {}
+
+    ActiveRecord::Encryption.on_encrypted_attribute_declared(&first_listener)
+    initialized_listeners = ActiveRecord::Encryption.encrypted_attribute_declaration_listeners
+    ActiveRecord::Encryption.on_encrypted_attribute_declared(&second_listener)
+
+    assert_instance_of Concurrent::Array, initialized_listeners
+    assert_same initialized_listeners, ActiveRecord::Encryption.encrypted_attribute_declaration_listeners
+    assert_equal [first_listener, second_listener], ActiveRecord::Encryption.encrypted_attribute_declaration_listeners
+  ensure
+    ActiveRecord::Encryption.encrypted_attribute_declaration_listeners = previous_listeners
+  end
+
+  test "declared encrypted attributes are ignored when there are no listeners" do
+    previous_listeners = ActiveRecord::Encryption.encrypted_attribute_declaration_listeners
+    ActiveRecord::Encryption.encrypted_attribute_declaration_listeners = nil
+
+    assert_nil ActiveRecord::Encryption.encrypted_attribute_was_declared(Book, :isbn)
+  ensure
+    ActiveRecord::Encryption.encrypted_attribute_declaration_listeners = previous_listeners
+  end
+
   test "installing autofiltered parameters will add the encrypted attribute as a filter parameter using the dot notation" do
     application = Struct.new(:config).new(Struct.new(:filter_parameters).new([]))
 
