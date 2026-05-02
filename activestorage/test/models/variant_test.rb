@@ -293,6 +293,40 @@ class ActiveStorage::VariantTest < ActiveSupport::TestCase
     end
   end
 
+  test "processed returns the variant without reprocessing when already uploaded" do
+    blob = create_file_blob(filename: "racecar.jpg")
+    variant = blob.variant(resize_to_limit: [100, 100]).processed
+
+    blob.stub(:open, ->(*) { flunk "already-processed variant should not open the source blob" }) do
+      assert_same variant, variant.processed
+    end
+  end
+
+  test "download delegates to variant service key" do
+    blob = create_file_blob(filename: "racecar.jpg")
+    variant = blob.variant(resize_to_limit: [100, 100]).processed
+
+    assert_equal blob.service.download(variant.key), variant.download
+  end
+
+  test "image returns the variant itself" do
+    blob = create_file_blob(filename: "racecar.jpg")
+    variant = blob.variant(resize_to_limit: [100, 100])
+
+    assert_same variant, variant.image
+  end
+
+  test "process from local io uploads a variant without opening the blob" do
+    blob = create_file_blob(filename: "racecar.jpg")
+    variant = blob.variant(resize_to_limit: [100, 100])
+
+    blob.stub(:open, ->(*) { flunk "local io variant processing should not open the blob" }) do
+      variant.process_from_io(file_fixture("racecar.jpg").open)
+    end
+
+    assert_predicate variant, :processed?
+  end
+
   private
     def process_variants_with(processor)
       previous_transformer = ActiveStorage.variant_transformer

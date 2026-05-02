@@ -84,6 +84,15 @@ class ActiveStorage::PreviewTest < ActiveSupport::TestCase
     end
   end
 
+  test "processed returns the preview without regenerating the image when already processed" do
+    blob = create_file_blob(filename: "report.pdf", content_type: "application/pdf")
+    preview = blob.preview(resize_to_limit: [640, 280]).processed
+
+    preview.stub(:previewer, -> { flunk "already-processed preview should not invoke the previewer" }) do
+      assert_same preview, preview.processed
+    end
+  end
+
   test "image-related methods raise UnprocessedError when preview is not processed" do
     blob = create_file_blob(filename: "report.pdf", content_type: "application/pdf")
     preview = blob.preview(resize_to_limit: [640, 280])

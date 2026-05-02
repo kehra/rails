@@ -340,4 +340,25 @@ class ActiveStorage::VariantWithRecordTest < ActiveSupport::TestCase
     assert_equal 0, ActiveStorage::VariantRecord.count
     assert_enqueued_with(job: ActiveStorage::PurgeJob, args: [variant.image.blob])
   end
+
+  test "unprocessed variant exposes nil image and destroy is a no-op" do
+    blob = create_file_blob(filename: "racecar.jpg")
+    variant = blob.variant(resize_to_limit: [100, 100])
+
+    assert_not_predicate variant, :processed?
+    assert_nil variant.image
+    assert_nothing_raised { variant.destroy }
+  end
+
+  test "process from local io creates the variant record without opening the blob" do
+    blob = create_file_blob(filename: "racecar.jpg")
+    variant = blob.variant(resize_to_limit: [100, 100])
+
+    blob.stub(:open, ->(*) { flunk "local io variant processing should not open the blob" }) do
+      variant.process_from_io(file_fixture("racecar.jpg").open)
+    end
+
+    assert_predicate variant, :processed?
+    assert_equal 1, blob.variant_records.count
+  end
 end
