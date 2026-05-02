@@ -119,6 +119,14 @@ class ApplicationPublicContractTest < ActiveSupport::TestCase
       YAML
       assert_equal [ "fallback" ], app.config_for(:shared_array, env: "missing")
 
+      config_dir.join("shared_and_env_arrays.yml").write <<~YAML
+        shared:
+          - fallback
+        test:
+          - env
+      YAML
+      assert_equal [ "env" ], app.config_for(:shared_and_env_arrays, env: "test")
+
       config_dir.join("env_array.yml").write <<~YAML
         test:
           - env
@@ -158,6 +166,16 @@ class ApplicationPublicContractTest < ActiveSupport::TestCase
       app.instance_variable_set(:@revision, nil)
       app.instance_variable_set(:@revision_initialized, false)
       File.delete(File.join(root, "REVISION"))
+      system("git", "-C", root, "init", out: File::NULL, err: File::NULL)
+      system("git", "-C", root, "config", "user.email", "test@example.com", out: File::NULL, err: File::NULL)
+      system("git", "-C", root, "config", "user.name", "Test", out: File::NULL, err: File::NULL)
+      File.write(File.join(root, "README.md"), "revision")
+      system("git", "-C", root, "add", "README.md", out: File::NULL, err: File::NULL)
+      system("git", "-C", root, "commit", "-m", "revision", out: File::NULL, err: File::NULL)
+      assert_match(/\A\h{40}\z/, app.revision)
+
+      app.instance_variable_set(:@revision, nil)
+      app.instance_variable_set(:@revision_initialized, false)
       singleton = class << app; self; end
       original_system = app.method(:system)
       singleton.define_method(:system) { |*| false }
