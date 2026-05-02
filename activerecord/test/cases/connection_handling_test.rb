@@ -427,5 +427,196 @@ module ActiveRecord
       child.connection_specification_name = "ChildSpec"
       assert_equal "ChildSpec", child.connection_specification_name
     end
+
+    test "#establish_connection resolves config and delegates role and shard to handler" do
+      config = Object.new
+      configurations = Object.new
+      resolved = []
+      configurations.define_singleton_method(:resolve) do |value|
+        resolved << value
+        config
+      end
+      handler = Object.new
+      established = []
+      handler.define_singleton_method(:establish_connection) do |db_config, owner_name:, role:, shard:|
+        established << [db_config, owner_name, role, shard]
+        :established_connection
+      end
+
+      result = ActiveRecord::Base.stub(:configurations, configurations) do
+        ActiveRecord::Base.stub(:connection_handler, handler) do
+          ActiveRecord::Base.establish_connection(:writing_config)
+        end
+      end
+
+      assert_equal :established_connection, result
+      assert_equal [:writing_config], resolved
+      assert_equal [[config, ActiveRecord::Base, ActiveRecord::Base.current_role, ActiveRecord::Base.current_shard]], established
+    end
+
+    test "#connects_to validates receiver and mutually exclusive inputs" do
+      concrete_class = Class.new(ActiveRecord::Base)
+      assert_raises(NotImplementedError) do
+        concrete_class.connects_to(database: { writing: :primary })
+      end
+
+      abstract_class = Class.new(ActiveRecord::Base) do
+        self.abstract_class = true
+      end
+      assert_raises(ArgumentError) do
+        abstract_class.connects_to(database: { writing: :primary }, shards: { default: { writing: :primary } })
+      end
+    end
+
+    test "#connects_to establishes default database connections" do
+      abstract_class = Class.new(ActiveRecord::Base) do
+        self.abstract_class = true
+      end
+      abstract_class.define_singleton_method(:name) { "ConnectionHandlingTest::DefaultConnector" }
+      configurations = Object.new
+      configurations.define_singleton_method(:resolve) { |value| "config:#{value}" }
+      handler = Object.new
+      established = []
+      handler.define_singleton_method(:establish_connection) do |db_config, owner_name:, role:, shard:|
+        established << [db_config, owner_name, role, shard]
+        "connection:#{role}:#{shard}"
+      end
+
+      connections = ActiveRecord::Base.stub(:configurations, configurations) do
+        abstract_class.stub(:connection_handler, handler) do
+          abstract_class.connects_to(database: { writing: :primary, reading: :replica })
+        end
+      end
+
+      assert_equal ["connection:writing:default", "connection:reading:default"], connections
+      assert_equal [], abstract_class.instance_variable_get(:@shard_keys)
+      assert_equal [], abstract_class.stub(:connection_class_for_self, abstract_class) { abstract_class.shard_keys }
+      assert_equal :default, abstract_class.default_shard
+      assert abstract_class.connection_class?
+      assert_equal [
+        ["config:primary", abstract_class, :writing, :default],
+        ["config:replica", abstract_class, :reading, :default],
+      ], established
+    ensure
+      abstract_class.connection_class = false if abstract_class
+    end
+
+    test "#connects_to establishes sharded connections and preserves integer shard keys" do
+      abstract_class = Class.new(ActiveRecord::Base) do
+        self.abstract_class = true
+      end
+      abstract_class.define_singleton_method(:name) { "ConnectionHandlingTest::ShardedConnector" }
+      configurations = Object.new
+      configurations.define_singleton_method(:resolve) { |value| value }
+      handler = Object.new
+      established = []
+      handler.define_singleton_method(:establish_connection) do |db_config, owner_name:, role:, shard:|
+        established << [db_config, owner_name, role, shard]
+        [db_config, role, shard]
+      end
+
+      connections = ActiveRecord::Base.stub(:configurations, configurations) do
+        abstract_class.stub(:connection_handler, handler) do
+          abstract_class.connects_to(shards: { "one" => { writing: :primary }, 2 => { reading: :replica } })
+        end
+      end
+
+      assert_equal [[:primary, :writing, :one], [:replica, :reading, 2]], connections
+      assert_equal ["one", 2], abstract_class.instance_variable_get(:@shard_keys)
+      assert_equal ["one", 2], abstract_class.stub(:connection_class_for_self, abstract_class) { abstract_class.shard_keys }
+      assert_equal "one", abstract_class.default_shard
+      assert_equal [
+        [:primary, abstract_class, :writing, :one],
+        [:replica, abstract_class, :reading, 2],
+      ], established
+    ensure
+      abstract_class.connection_class = false if abstract_class
+    end
+
+    test "#prohibit_shard_swapping toggles and restores per specification name" do
+      previous = ActiveSupport::IsolatedExecutionState[:active_record_prohibit_shard_swapping]
+      ActiveSupport::IsolatedExecutionState[:active_record_prohibit_shard_swapping] = Set.new(["other"])
+
+      yielded = false
+      ActiveRecord::Base.prohibit_shard_swapping do
+        yielded = true
+        assert ActiveRecord::Base.shard_swapping_prohibited?
+
+        ActiveRecord::Base.prohibit_shard_swapping(false) do
+          assert_not ActiveRecord::Base.shard_swapping_prohibited?
+        end
+
+        assert ActiveRecord::Base.shard_swapping_prohibited?
+      end
+
+      assert yielded
+      assert_equal Set.new(["other"]), ActiveSupport::IsolatedExecutionState[:active_record_prohibit_shard_swapping]
+    ensure
+      ActiveSupport::IsolatedExecutionState[:active_record_prohibit_shard_swapping] = previous
+    end
+
+    test "remove_connection handles missing specification and missing pool" do
+      had_spec = ActiveRecord::Base.instance_variable_defined?(:@connection_specification_name)
+      spec = ActiveRecord::Base.instance_variable_get(:@connection_specification_name) if had_spec
+      ActiveRecord::Base.remove_instance_variable(:@connection_specification_name) if had_spec
+      handler = Object.new
+      calls = []
+      handler.define_singleton_method(:retrieve_connection_pool) do |specification_name, role:, shard:|
+        calls << [:retrieve_connection_pool, specification_name, role, shard]
+        nil
+      end
+      handler.define_singleton_method(:remove_connection_pool) do |specification_name, role:, shard:|
+        calls << [:remove_connection_pool, specification_name, role, shard]
+        :removed_without_pool
+      end
+
+      ActiveRecord::Base.stub(:connection_handler, handler) do
+        assert_equal :removed_without_pool, ActiveRecord::Base.remove_connection
+      end
+
+      assert_equal [
+        [:retrieve_connection_pool, nil, ActiveRecord::Base.current_role, ActiveRecord::Base.current_shard],
+        [:remove_connection_pool, nil, ActiveRecord::Base.current_role, ActiveRecord::Base.current_shard],
+      ], calls
+    ensure
+      ActiveRecord::Base.instance_variable_set(:@connection_specification_name, spec) if had_spec
+    end
+
+    test "release retrieve and remove connection delegate to handler and pool" do
+      pool = Object.new
+      pool.define_singleton_method(:release_connection) { :released_connection }
+      handler = Object.new
+      calls = []
+      handler.define_singleton_method(:retrieve_connection) do |specification_name, role:, shard:|
+        calls << [:retrieve_connection, specification_name, role, shard]
+        :retrieved_connection
+      end
+      handler.define_singleton_method(:retrieve_connection_pool) do |specification_name, role:, shard:, strict: nil|
+        calls << [:retrieve_connection_pool, specification_name, role, shard, strict]
+        pool
+      end
+      handler.define_singleton_method(:remove_connection_pool) do |specification_name, role:, shard:|
+        calls << [:remove_connection_pool, specification_name, role, shard]
+        :removed_connection
+      end
+
+      ActiveRecord::Base.stub(:connection_handler, handler) do
+        ActiveRecord::Base.stub(:connection_pool, pool) do
+          assert_equal :released_connection, ActiveRecord::Base.release_connection
+        end
+        assert_equal :retrieved_connection, ActiveRecord::Base.retrieve_connection
+        ActiveRecord::Base.connection_specification_name = "TemporarySpec"
+        assert_equal :removed_connection, ActiveRecord::Base.remove_connection
+        assert_equal "ActiveRecord::Base", ActiveRecord::Base.connection_specification_name
+      end
+
+      assert_equal [
+        [:retrieve_connection, "ActiveRecord::Base", ActiveRecord::Base.current_role, ActiveRecord::Base.current_shard],
+        [:retrieve_connection_pool, "TemporarySpec", ActiveRecord::Base.current_role, ActiveRecord::Base.current_shard, nil],
+        [:remove_connection_pool, "TemporarySpec", ActiveRecord::Base.current_role, ActiveRecord::Base.current_shard],
+      ], calls
+    ensure
+      ActiveRecord::Base.connection_specification_name = nil
+    end
   end
 end
