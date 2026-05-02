@@ -723,6 +723,20 @@ class ActiveStorage::OneAttachedTest < ActiveSupport::TestCase
     ActiveStorage.track_variants = was_tracking
   end
 
+  test "detaching one is a no-op when there is no attachment" do
+    assert_nothing_raised do
+      @user.avatar.detach
+    end
+  end
+
+  test "purging one without an attachment resets the proxy" do
+    assert_nothing_raised do
+      @user.avatar.purge_later
+    end
+
+    assert_not_predicate @user.avatar, :attached?
+  end
+
   test "overriding attached reader" do
     @user.avatar.attach create_blob(filename: "funky.jpg")
 

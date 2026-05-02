@@ -742,6 +742,21 @@ class ActiveStorage::ManyAttachedTest < ActiveSupport::TestCase
     ActiveStorage.track_variants = was_tracking
   end
 
+  test "delete many change exposes empty attachment state" do
+    change = ActiveStorage::Attached::Changes::DeleteMany.new("highlights", @user)
+
+    assert_empty change.attachables
+    assert_empty change.attachments
+    assert_empty change.blobs
+    assert_nil change.analyze
+  end
+
+  test "detaching many is a no-op when there are no attachments" do
+    assert_nothing_raised do
+      @user.highlights.detach
+    end
+  end
+
   test "overriding attached reader" do
     @user.highlights.attach create_blob(filename: "funky.jpg"), create_blob(filename: "town.jpg")
 
