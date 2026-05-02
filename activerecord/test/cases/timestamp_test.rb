@@ -134,6 +134,75 @@ class TimestampTest < ActiveRecord::TestCase
     assert_equal new_time, @developer.updated_at
   end
 
+  def test_touch_attributes_with_time_includes_aliases_and_custom_names
+    new_time = Time.utc(2015, 2, 16, 4, 54, 0)
+
+    assert_equal({ "legacy_updated_at" => new_time, "legacy_updated_on" => new_time, "legacy_created_at" => new_time, "custom_column" => new_time },
+      Developer.touch_attributes_with_time(:created_at, "custom_column", time: new_time))
+  end
+
+  def test_touch_attributes_with_time_uses_current_time_when_time_is_not_given
+    travel_to Time.utc(2015, 2, 16, 4, 54, 0) do
+      attributes = Developer.touch_attributes_with_time
+
+      assert_equal ["legacy_updated_at", "legacy_updated_on"], attributes.keys
+      assert_equal Time.current, attributes["legacy_updated_at"]
+      assert_equal Time.current, attributes["legacy_updated_on"]
+    end
+  end
+
+  def test_current_time_from_proper_timezone_uses_local_time
+    old_default_timezone = ActiveRecord.default_timezone
+    ActiveRecord.default_timezone = :local
+
+    assert_not Developer.current_time_from_proper_timezone.utc?
+  ensure
+    ActiveRecord.default_timezone = old_default_timezone
+  end
+
+  def test_should_record_timestamps_when_partial_updates_are_disabled
+    old_partial_updates = Developer.partial_updates
+    Developer.partial_updates = false
+    @developer.name = @developer.name
+
+    assert_predicate @developer.send(:should_record_timestamps?), :itself
+  ensure
+    Developer.partial_updates = old_partial_updates
+  end
+
+  def test_create_record_with_record_timestamps_disabled
+    old_record_timestamps = Developer.record_timestamps
+    Developer.record_timestamps = false
+    developer = Developer.create!(name: "No Timestamp", salary: 100000)
+
+    assert_nil developer.created_at
+    assert_nil developer.created_on
+  ensure
+    Developer.record_timestamps = old_record_timestamps
+  end
+
+  def test_create_record_preserves_existing_timestamp_attributes
+    created_at = Time.utc(2015, 2, 16, 4, 54, 0)
+    developer = Developer.create!(name: "Existing Timestamp", salary: 100000, created_at: created_at)
+
+    assert_equal created_at, developer.created_at
+    assert_not_nil developer.updated_at
+  end
+
+  def test_max_updated_column_timestamp
+    time = Time.utc(2015, 2, 16, 4, 54, 0)
+    @developer.updated_at = time
+    @developer.updated_on = time.to_date
+
+    assert_equal time, @developer.send(:max_updated_column_timestamp)
+  end
+
+  def test_max_updated_column_timestamp_returns_nil_without_timestamp_values
+    developer = Developer.new
+
+    assert_nil developer.send(:max_updated_column_timestamp)
+  end
+
   def test_touching_many_attributes_updates_them
     task = Task.first
     previous_starting = task.starting
