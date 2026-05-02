@@ -96,6 +96,19 @@ class ActiveStorage::BlobTest < ActiveSupport::TestCase
     end
   end
 
+  test "find signed uses blob id purpose by default and supports custom purposes" do
+    blob = create_blob
+
+    assert_equal blob, ActiveStorage::Blob.find_signed(blob.signed_id)
+    assert_equal blob, ActiveStorage::Blob.find_signed!(blob.signed_id)
+
+    custom_signed_id = blob.signed_id(purpose: :custom_blob_reference)
+    assert_equal blob, ActiveStorage::Blob.find_signed(custom_signed_id, purpose: :custom_blob_reference)
+    assert_raises(ActiveSupport::MessageVerifier::InvalidSignature) do
+      ActiveStorage::Blob.find_signed!(custom_signed_id)
+    end
+  end
+
   test "record touched after analyze" do
     user = User.create!(
       name: "Nate",
@@ -176,6 +189,17 @@ class ActiveStorage::BlobTest < ActiveSupport::TestCase
     assert_not_predicate blob, :text?
   end
 
+  test "custom metadata defaults to an empty hash and can be replaced" do
+    blob = create_blob
+
+    assert_equal({}, blob.custom_metadata)
+
+    blob.custom_metadata = { "color" => "blue" }
+
+    assert_equal({ "color" => "blue" }, blob.custom_metadata)
+    assert_equal({ "custom" => { "color" => "blue" }, "identified" => true }, blob.metadata)
+  end
+
   test "download yields chunks" do
     blob   = create_blob data: "a" * 5.0625.megabytes
     chunks = []
@@ -187,6 +211,12 @@ class ActiveStorage::BlobTest < ActiveSupport::TestCase
     assert_equal 2, chunks.size
     assert_equal "a" * 5.megabytes, chunks.first
     assert_equal "a" * 64.kilobytes, chunks.second
+  end
+
+  test "download chunk delegates range reads to the service" do
+    blob = create_blob(data: "Hello world!")
+
+    assert_equal "Hello", blob.download_chunk(0...5)
   end
 
   test "open yielding with integrity" do
@@ -293,6 +323,70 @@ class ActiveStorage::BlobTest < ActiveSupport::TestCase
     assert_called_with(blob.service, :url, arguments, **kwargs) do
       blob.url(thumb_size: "300x300", thumb_mode: "crop")
     end
+  end
+
+  test "service url for direct upload delegates upload metadata to the service" do
+    blob = ActiveStorage::Blob.create_before_direct_upload!(
+      filename: "hello.txt",
+      byte_size: 11,
+      checksum: OpenSSL::Digest::MD5.base64digest("Hello world!"),
+      content_type: "text/plain",
+      metadata: { custom: { "source" => "test" } }
+    )
+
+    expected_arguments = [ blob.key ]
+    expected_kwargs = {
+      expires_in: ActiveStorage.service_urls_expire_in,
+      content_type: "text/plain",
+      content_length: 11,
+      checksum: blob.checksum,
+      custom_metadata: { "source" => "test" }
+    }
+
+    assert_called_with(blob.service, :url_for_direct_upload, expected_arguments, **expected_kwargs) do
+      blob.service_url_for_direct_upload
+    end
+  end
+
+  test "service headers for direct upload delegate upload metadata to the service" do
+    blob = ActiveStorage::Blob.create_before_direct_upload!(
+      filename: "hello.txt",
+      byte_size: 11,
+      checksum: OpenSSL::Digest::MD5.base64digest("Hello world!"),
+      content_type: "text/plain",
+      metadata: { custom: { "source" => "test" } }
+    )
+
+    expected_arguments = [ blob.key ]
+    expected_kwargs = {
+      filename: blob.filename,
+      content_type: "text/plain",
+      content_length: 11,
+      checksum: blob.checksum,
+      custom_metadata: { "source" => "test" }
+    }
+
+    assert_called_with(blob.service, :headers_for_direct_upload, expected_arguments, **expected_kwargs) do
+      blob.service_headers_for_direct_upload
+    end
+  end
+
+  test "upload unfurls metadata and uploads without unfurling again" do
+    data = "Hello world!"
+    blob = ActiveStorage::Blob.create_before_direct_upload!(
+      filename: "hello.txt",
+      byte_size: 0,
+      checksum: OpenSSL::Digest::MD5.base64digest(""),
+      content_type: nil
+    )
+
+    blob.upload StringIO.new(data)
+
+    assert_equal data, blob.download
+    assert_equal data.bytesize, blob.byte_size
+    assert_equal OpenSSL::Digest::MD5.base64digest(data), blob.checksum
+    assert_equal "text/plain", blob.content_type
+    assert_predicate blob, :identified?
   end
 
   test "purge deletes file from external service" do
