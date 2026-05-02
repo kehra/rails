@@ -57,6 +57,66 @@ class SanitizeTest < ActiveRecord::TestCase
     assert_equal("", select_author_sql)
   end
 
+  def test_sanitize_sql_for_conditions
+    quoted_bambi = ActiveRecord::Base.lease_connection.quote("Bambi")
+
+    assert_nil Binary.sanitize_sql_for_conditions(nil)
+    assert_nil Binary.sanitize_sql_for_conditions("")
+    assert_equal "name=#{quoted_bambi}", Binary.sanitize_sql_for_conditions(["name=?", "Bambi"])
+    assert_equal "name='Bambi'", Binary.sanitize_sql_for_conditions("name='Bambi'")
+  end
+
+  def test_sanitize_sql_for_assignment
+    quoted_bambi = ActiveRecord::Base.lease_connection.quote("Bambi")
+
+    assert_equal "name=#{quoted_bambi}", Binary.sanitize_sql_for_assignment(["name=?", "Bambi"])
+    assert_equal "name='Bambi'", Binary.sanitize_sql_for_assignment("name='Bambi'")
+
+    assignment = Binary.sanitize_sql_for_assignment({ name: "Bambi" }, "binaries")
+    assert_match(/#{Regexp.escape(Binary.lease_connection.quote_table_name_for_assignment("binaries", "name"))} = #{Regexp.escape(quoted_bambi)}/, assignment)
+  end
+
+  def test_sanitize_sql_for_order
+    assert_equal "id ASC", Binary.sanitize_sql_for_order("id ASC")
+
+    order = Binary.sanitize_sql_for_order([Arel.sql("field(id, ?)"), [1, 3, 2]])
+    assert_instance_of Arel::Nodes::SqlLiteral, order
+    assert_equal "field(id, 1,3,2)", order.to_s
+  end
+
+  class PermittedSqlStringSubclass < String
+  end
+
+  def test_sanitize_sql_for_order_with_permitted_plain_string
+    adapter = Class.new do
+      def self.column_name_with_order_matcher
+        /\Afield\(id, \?\)\z/
+      end
+    end
+
+    Binary.stub(:adapter_class, adapter) do
+      order = Binary.sanitize_sql_for_order(["field(id, ?)", [1, 3, 2]])
+
+      assert_instance_of Arel::Nodes::SqlLiteral, order
+      assert_equal "field(id, 1,3,2)", order.to_s
+    end
+  end
+
+  def test_sanitize_sql_for_order_converts_permitted_string_subclasses
+    adapter = Class.new do
+      def self.column_name_with_order_matcher
+        /\Afield\(id, \?\)\z/
+      end
+    end
+
+    Binary.stub(:adapter_class, adapter) do
+      order = Binary.sanitize_sql_for_order([PermittedSqlStringSubclass.new("field(id, ?)"), [1, 3, 2]])
+
+      assert_instance_of Arel::Nodes::SqlLiteral, order
+      assert_equal "field(id, 1,3,2)", order.to_s
+    end
+  end
+
   def test_sanitize_sql_like
     assert_equal '100\%', Binary.sanitize_sql_like("100%")
     assert_equal 'snake\_cased\_string', Binary.sanitize_sql_like("snake_cased_string")
