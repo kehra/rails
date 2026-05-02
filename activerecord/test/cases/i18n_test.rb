@@ -43,4 +43,8 @@ class ActiveRecordI18nTests < ActiveRecord::TestCase
     I18n.backend.store_translations "en", activerecord: { models: { topic: "topic model" } }
     assert_equal "topic model", Reply.model_name.human
   end
+
+  def test_active_record_base_lookup_ancestors
+    assert_equal [ActiveRecord::Base], ActiveRecord::Base.lookup_ancestors
+  end
 end
