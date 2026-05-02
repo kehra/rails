@@ -16,4 +16,12 @@ class ActiveRecord::Encryption::ReadOnlyNullEncryptorTest < ActiveRecord::Encryp
       @encryptor.encrypt("some text")
     end
   end
+
+  test "encrypted? returns false" do
+    assert_not @encryptor.encrypted?("some text")
+  end
+
+  test "binary? returns false" do
+    assert_not @encryptor.binary?
+  end
 end

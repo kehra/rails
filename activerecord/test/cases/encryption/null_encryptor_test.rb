@@ -18,4 +18,8 @@ class ActiveRecord::Encryption::NullEncryptorTest < ActiveRecord::EncryptionTest
   test "encrypted? returns false" do
     assert_not @encryptor.encrypted?("Some data")
   end
+
+  test "binary? returns false" do
+    assert_not @encryptor.binary?
+  end
 end
