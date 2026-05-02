@@ -120,6 +120,80 @@ class ApplicationConfigurationPublicContractTest < ActiveSupport::TestCase
     assert_equal [ @root.join("lib/generators") ], once_loader.ignored
   end
 
+  test "database configuration loads yaml and merges shared values" do
+    write_database_configuration <<~YAML
+      shared:
+        adapter: sqlite3
+        pool: 5
+      development:
+        database: storage/development.sqlite3
+      production:
+        primary:
+          database: storage/production.sqlite3
+        animals:
+          database: storage/animals.sqlite3
+    YAML
+
+    config = @config.database_configuration
+
+    assert_equal "sqlite3", config["development"]["adapter"]
+    assert_equal 5, config["development"]["pool"]
+    assert_equal "storage/development.sqlite3", config["development"]["database"]
+    assert_equal "sqlite3", config["production"]["primary"]["adapter"]
+    assert_equal 5, config["production"]["animals"]["pool"]
+    assert_equal({ "adapter" => "sqlite3", "pool" => 5 }, config.default)
+  end
+
+  test "database configuration merges named shared configs and handles database url or missing file" do
+    write_database_configuration <<~YAML
+      shared:
+        primary:
+          adapter: sqlite3
+          pool: 3
+        animals:
+          adapter: sqlite3
+          migrations_paths: db/animals_migrate
+      production:
+        primary:
+          database: storage/production.sqlite3
+        animals:
+          database: storage/animals.sqlite3
+    YAML
+
+    config = @config.database_configuration
+
+    assert_equal 3, config["production"]["primary"]["pool"]
+    assert_equal "db/animals_migrate", config["production"]["animals"]["migrations_paths"]
+
+    write_database_configuration <<~YAML
+      development:
+        adapter: sqlite3
+        database: storage/development.sqlite3
+    YAML
+    config_without_shared = @config.database_configuration
+    assert_equal "sqlite3", config_without_shared["development"]["adapter"]
+    assert_nil config_without_shared.default
+
+    FileUtils.rm_f(@root.join("config/database.yml"))
+    with_env("DATABASE_URL", "sqlite3::memory:") do
+      assert_equal({}, @config.database_configuration)
+    end
+
+    with_env("DATABASE_URL", nil) do
+      error = assert_raises(RuntimeError) { @config.database_configuration }
+      assert_match(/Cannot load database configuration:/, error.message)
+      assert_match(/No such file/, error.message)
+    end
+  end
+
+  test "database configuration wraps parse errors with configuration context" do
+    write_database_configuration "development: ["
+
+    error = assert_raises(RuntimeError) { @config.database_configuration }
+
+    assert_match(/Cannot load database configuration:/, error.message)
+  end
+
   test "default log file creates log directory and applies autoflush setting" do
     @config.autoflush_log = false
 
@@ -233,6 +307,23 @@ class ApplicationConfigurationPublicContractTest < ActiveSupport::TestCase
       yield
     ensure
       singleton.define_method(:autoloaders) { |*args, **kwargs, &block| original.call(*args, **kwargs, &block) }
+    end
+
+    def write_database_configuration(content)
+      FileUtils.mkdir_p(@root.join("config"))
+      File.write(@root.join("config/database.yml"), content)
+    end
+
+    def with_env(name, value)
+      original = ENV[name]
+      if value.nil?
+        ENV.delete(name)
+      else
+        ENV[name] = value
+      end
+      yield
+    ensure
+      ENV[name] = original
     end
 
     def with_application(application)
