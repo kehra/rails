@@ -17,6 +17,16 @@ module ActiveRecord
       assert_not result.includes_column?("foo")
     end
 
+    test "result bracket access returns row hash by index" do
+      assert_equal({ "col_1" => "row 2 col 1", "col_2" => "row 2 col 2" }, result[1])
+      assert_nil result[10]
+    end
+
+    test "empty?" do
+      assert_not_predicate result, :empty?
+      assert_predicate Result.new(["col_1"], []), :empty?
+    end
+
     test "length" do
       assert_equal 3, result.length
     end
@@ -150,6 +160,20 @@ module ActiveRecord
       assert_equal a.affected_rows, b.affected_rows
     end
 
+    test "dup resets cached hash rows while preserving row values" do
+      a = result
+      a.to_a
+
+      b = a.dup
+
+      assert_equal a.to_a, b.to_a
+      assert_not_same a.to_a, b.to_a
+    end
+
+    test "column_types returns empty hash when types are absent" do
+      assert_equal({}, Result.new(["col1"], [["value"]]).column_types)
+    end
+
     test "column_types handles nil types in the column_types array" do
       values = [["1.1", "2.2"], ["3.3", "4.4"]]
       columns = ["col1", "col2"]
@@ -164,6 +188,25 @@ module ActiveRecord
       assert_nothing_raised do
         result.column_types["col2"].deserialize("test value")
       end
+    end
+
+    test "indexed row exposes hash-like accessors" do
+      row = Result::IndexedRow.new({ "zero" => 0, "one" => 1 }, ["first", "second"])
+
+      assert_equal 2, row.size
+      assert_equal 2, row.length
+      assert_equal ["zero", "one"], row.keys
+      assert_equal ["zero", "one"], row.each_key.to_a
+      assert row.key?("zero")
+      assert_not row.key?("missing")
+      assert_equal "first", row["zero"]
+      assert_nil row["missing"]
+      assert_equal "second", row.fetch("one")
+      assert_equal :fallback, row.fetch("missing") { :fallback }
+      assert_raises(KeyError) { row.fetch("missing") }
+      assert_equal({ "zero" => "first", "one" => "second" }, row.to_h)
+      assert_equal({ "zero" => "first", "one" => "second" }, row)
+      assert_not_equal row, Object.new
     end
   end
 end
