@@ -96,6 +96,12 @@ module ActiveRecord
           end
         end
 
+        def test_decimal_without_scale_schema_cast
+          cast_type = @connection.send(:type_map).lookup("decimal(2)")
+
+          assert_equal "\"2.1\"", cast_type.type_cast_for_schema(2.1)
+        end
+
         private
           def assert_lookup_type(type, lookup)
             cast_type = @connection.send(:type_map).lookup(lookup)
