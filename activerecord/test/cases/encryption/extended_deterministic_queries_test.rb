@@ -56,6 +56,56 @@ class ActiveRecord::Encryption::ExtendedDeterministicQueriesTest < ActiveRecord:
     assert EncryptedBook.exists?(name: "Dune")
   end
 
+  test "where leaves additional encrypted values in arrays untouched" do
+    type = EncryptedBook.type_for_attribute(:name)
+    additional_value = ActiveRecord::Encryption::ExtendedDeterministicQueries::AdditionalValue.new("Dune", type.previous_types.first)
+
+    processed_arguments = ActiveRecord::Encryption::ExtendedDeterministicQueries::EncryptedQuery.process_arguments(
+      EncryptedBook,
+      [{ name: [additional_value, "Dune"] }],
+      true
+    )
+
+    values = processed_arguments.first["name"]
+    assert_same additional_value, values.first
+    assert values[1..].any? { |value| value.is_a?(ActiveRecord::Encryption::ExtendedDeterministicQueries::AdditionalValue) }
+  end
+
+  test "query argument processing leaves non string values untouched" do
+    processed_arguments = ActiveRecord::Encryption::ExtendedDeterministicQueries::EncryptedQuery.process_arguments(
+      EncryptedBook,
+      [{ name: 42 }],
+      true
+    )
+
+    assert_equal 42, processed_arguments.first["name"]
+  end
+
+  test "query argument processing normalizes array keys" do
+    processed_arguments = ActiveRecord::Encryption::ExtendedDeterministicQueries::EncryptedQuery.process_arguments(
+      EncryptedBook,
+      [{ [:name, :format] => ["Dune", "paperback"] }],
+      true
+    )
+
+    assert_equal ["name", "format"], processed_arguments.first.keys.first
+  end
+
+  test "query argument processing returns original arguments without deterministic encrypted attributes" do
+    owner = Class.new do
+      def self.deterministic_encrypted_attributes
+        []
+      end
+    end
+    arguments = [{ name: "Dune" }]
+
+    assert_same arguments, ActiveRecord::Encryption::ExtendedDeterministicQueries::EncryptedQuery.process_arguments(owner, arguments, true)
+  end
+
+  test "scope_for_create falls back to regular scope attributes without deterministic attributes" do
+    assert_equal({ "name" => "Dune" }, UnencryptedBook.where(name: "Dune").scope_for_create)
+  end
+
   test "If support_unencrypted_data is opted out at the attribute level, cannot find unencrypted data" do
     UnencryptedBook.create! name: "Dune"
     assert_nil EncryptedBookWithUnencryptedDataOptedOut.find_by(name: "Dune") # core
