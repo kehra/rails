@@ -79,6 +79,19 @@ class ActiveStorage::Service::MirrorServiceTest < ActiveSupport::TestCase
     assert_equal "Surprise!", @service.mirrors.third.download(key)
   end
 
+  test "mirroring skips all services when every mirror already has the file" do
+    key      = SecureRandom.base58(24)
+    data     = "Something else entirely!"
+    checksum = OpenSSL::Digest::MD5.base64digest(data)
+
+    @service.primary.upload key, StringIO.new(data), checksum: checksum
+    @service.mirrors.each { |mirror| mirror.upload key, StringIO.new(data), checksum: checksum }
+
+    @service.primary.stub(:open, ->(*) { flunk "primary should not be opened when mirrors already exist" }) do
+      assert_nothing_raised { @service.mirror key, checksum: checksum }
+    end
+  end
+
   test "URL generation in primary service" do
     filename = ActiveStorage::Filename.new("test.txt")
 

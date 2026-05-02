@@ -39,6 +39,22 @@ class ActiveStorage::Service::DiskServiceTest < ActiveSupport::TestCase
     end
   end
 
+  test "public URL generation" do
+    service = ActiveStorage::Service::DiskService.new(root: Dir.mktmpdir("active_storage_public_disk_service"), public: true)
+    service.name = :tmp
+    service.upload @key, StringIO.new("public")
+
+    original_url_options = Rails.application.routes.default_url_options.dup
+    Rails.application.routes.default_url_options.merge!(protocol: "http", host: "test.example.com", port: 3001)
+    begin
+      assert_match(/^https:\/\/example.com\/rails\/active_storage\/disk\/.*\/avatar\.png$/,
+        service.url(@key, filename: ActiveStorage::Filename.new("avatar.png"), content_type: "image/png", disposition: :inline))
+    ensure
+      Rails.application.routes.default_url_options = original_url_options
+      service.delete @key
+    end
+  end
+
   test "URL generation without ActiveStorage::Current.url_options set" do
     ActiveStorage::Current.url_options = nil
 

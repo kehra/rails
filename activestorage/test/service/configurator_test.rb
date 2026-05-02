@@ -21,6 +21,14 @@ class ActiveStorage::Service::ConfiguratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "raises error when service adapter cannot be loaded" do
+    error = assert_raise RuntimeError do
+      ActiveStorage::Service::Configurator.build(:foo, foo: { service: "MissingAdapter" })
+    end
+
+    assert_equal 'Missing service adapter for "MissingAdapter"', error.message
+  end
+
   test "inspect attributes" do
     config = {
       local: { service: "Disk", root: "/tmp/active_storage_configurator_test" },
