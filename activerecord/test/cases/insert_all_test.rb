@@ -15,6 +15,26 @@ class ReadonlyNameBook < Book
   attr_readonly :name
 end
 
+class ConnectionWithChangingConflictSupport
+  def initialize(connection)
+    @connection = connection
+    @conflict_support_checks = 0
+  end
+
+  def supports_insert_conflict_target?
+    @conflict_support_checks += 1
+    @conflict_support_checks == 1
+  end
+
+  def method_missing(...)
+    @connection.public_send(...)
+  end
+
+  def respond_to_missing?(method_name, include_private = false)
+    @connection.respond_to?(method_name, include_private) || super
+  end
+end
+
 class InsertAllTest < ActiveRecord::TestCase
   fixtures :books
 
@@ -524,6 +544,90 @@ class InsertAllTest < ActiveRecord::TestCase
   def test_upsert_all_passing_both_on_duplicate_and_update_only_will_raise_an_error
     assert_raises ArgumentError do
       Book.upsert_all [{ id: 101, name: "Perelandra", author_id: 7, isbn: "1974522598" }], on_duplicate: "NAME=values(name)", update_only: :name
+    end
+  end
+
+  def test_upsert_all_passing_safe_on_duplicate_and_update_only_will_raise_an_error
+    error = assert_raises ArgumentError do
+      Book.upsert_all [{ id: 101, name: "Perelandra", author_id: 7, isbn: "1974522598" }], on_duplicate: Arel.sql("name=excluded.name"), update_only: :name
+    end
+
+    assert_equal "You can't set :update_only and provide custom update SQL via :on_duplicate at the same time", error.message
+  end
+
+  def test_insert_all_requires_all_records_to_have_the_same_keys
+    error = assert_raises ArgumentError do
+      Book.insert_all! [{ name: "Rework", author_id: 1 }, { name: "Remote" }]
+    end
+
+    assert_equal "All objects being inserted must have the same keys", error.message
+  end
+
+  def test_insert_all_raises_when_returning_is_unsupported
+    with_connection_supports(:supports_insert_returning?, false) do
+      error = assert_raises ArgumentError do
+        Book.insert_all! [{ name: "Rework", author_id: 1 }], returning: :id
+      end
+
+      assert_match "does not support :returning", error.message
+    end
+  end
+
+  def test_insert_all_raises_when_skipping_duplicates_is_unsupported
+    with_connection_supports(:supports_insert_on_duplicate_skip?, false) do
+      with_connection_supports(:supports_insert_conflict_target?, false) do
+        error = assert_raises ArgumentError do
+          Book.insert_all [{ name: "Rework", author_id: 1 }]
+        end
+
+        assert_match "does not support skipping duplicates", error.message
+      end
+    end
+  end
+
+  def test_upsert_all_raises_when_upsert_is_unsupported
+    with_connection_supports(:supports_insert_on_duplicate_update?, false) do
+      error = assert_raises ArgumentError do
+        Book.upsert_all [{ id: 101, name: "Perelandra", author_id: 7 }]
+      end
+
+      assert_match "does not support upsert", error.message
+    end
+  end
+
+  def test_insert_all_raises_when_unique_by_lookup_is_unsupported
+    with_connection_supports(:supports_insert_conflict_target?, false) do
+      error = assert_raises ArgumentError do
+        Book.insert_all [{ name: "Rework", author_id: 1 }], unique_by: :isbn
+      end
+
+      assert_match "does not support :unique_by", error.message
+    end
+  end
+
+  def test_insert_all_resolves_attribute_aliases_in_unique_by
+    skip unless supports_insert_conflict_target?
+
+    assert_difference "Book.count", +1 do
+      Book.insert_all [{ title: "Alias unique_by", author_id: 1 }], unique_by: [:author_id, :title]
+    end
+  end
+
+  def test_insert_all_raises_when_unique_by_is_valid_but_conflict_target_becomes_unsupported
+    connection = ConnectionWithChangingConflictSupport.new(Book.lease_connection)
+
+    error = assert_raises ArgumentError do
+      ActiveRecord::InsertAll.new(Book.all, connection, [{ name: "Rework", author_id: 1 }], on_duplicate: :skip, returning: false, unique_by: :isbn)
+    end
+
+    assert_match "does not support :unique_by", error.message
+  end
+
+  def test_insert_all_uses_false_returning_when_connection_does_not_support_implicit_returning
+    with_connection_supports(:supports_insert_returning?, false) do
+      assert_difference "Book.count", +1 do
+        Book.insert_all! [{ name: "Rework", author_id: 1 }]
+      end
     end
   end
 
@@ -1106,5 +1210,13 @@ class InsertAllTest < ActiveRecord::TestCase
       yield
     ensure
       model.record_timestamps = original
+    end
+
+    def with_connection_supports(method_name, value)
+      connection = Book.lease_connection
+      connection.define_singleton_method(method_name) { value }
+      yield
+    ensure
+      connection.singleton_class.remove_method(method_name)
     end
 end
