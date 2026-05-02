@@ -183,5 +183,41 @@ module ActiveRecord
         assert_not_predicate Post.connection_pool, :active_connection?
       end
     end
+
+    test "#clear_query_caches_for_current_thread clears every connection pool" do
+      pools = 2.times.map do
+        pool = Object.new
+        calls = []
+        pool.define_singleton_method(:clear_query_cache) { calls << :clear_query_cache }
+        pool.define_singleton_method(:calls) { calls }
+        pool
+      end
+      handler = Object.new
+      handler.define_singleton_method(:each_connection_pool) do |&block|
+        pools.each(&block)
+      end
+
+      ActiveRecord::Base.stub(:connection_handler, handler) do
+        ActiveRecord::Base.clear_query_caches_for_current_thread
+      end
+
+      assert_equal [[:clear_query_cache], [:clear_query_cache]], pools.map(&:calls)
+    end
+
+    test "#connected? delegates to the current connection specification role and shard" do
+      handler = Object.new
+      received = []
+      handler.define_singleton_method(:connected?) do |specification_name, role:, shard:|
+        received << [specification_name, role, shard]
+        :connected_result
+      end
+
+      result = ActiveRecord::Base.stub(:connection_handler, handler) do
+        ActiveRecord::Base.connected?
+      end
+
+      assert_equal :connected_result, result
+      assert_equal [["ActiveRecord::Base", ActiveRecord::Base.current_role, ActiveRecord::Base.current_shard]], received
+    end
   end
 end
