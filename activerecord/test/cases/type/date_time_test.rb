@@ -17,6 +17,33 @@ module ActiveRecord
 
         assert_equal type.serialize(value), type.serialize_cast_value(value)
       end
+
+      test "timezone defaults to Active Record default timezone" do
+        old_default_timezone = ActiveRecord.default_timezone
+        ActiveRecord.default_timezone = :local
+
+        type = Type::DateTime.new
+        assert_equal :local, type.default_timezone
+        assert_not type.is_utc?
+      ensure
+        ActiveRecord.default_timezone = old_default_timezone
+      end
+
+      test "timezone option overrides Active Record default timezone" do
+        old_default_timezone = ActiveRecord.default_timezone
+        ActiveRecord.default_timezone = :local
+
+        type = Type::DateTime.new(timezone: :utc)
+        assert_equal :utc, type.default_timezone
+        assert_predicate type, :is_utc?
+      ensure
+        ActiveRecord.default_timezone = old_default_timezone
+      end
+
+      test "equality includes timezone" do
+        assert_equal Type::DateTime.new(timezone: :utc), Type::DateTime.new(timezone: :utc)
+        assert_not_equal Type::DateTime.new(timezone: :utc), Type::DateTime.new(timezone: :local)
+      end
     end
   end
 end

@@ -204,6 +204,28 @@ module ActiveRecord
         assert_equal "bar-1-2-3", mapping.fetch("bar", 1, 2, 3) { |*args| args.join("-") }
       end
 
+      def test_clear_removes_registered_types_and_cached_values
+        mapping = klass.new
+        mapping.register_type("string", "string")
+        assert_equal "string", mapping.lookup("string")
+
+        mapping.clear
+
+        assert_empty mapping.keys
+        assert_not mapping.key?("string")
+        assert_kind_of Type::Value, mapping.lookup("string")
+      end
+
+      def test_key_and_keys_reflect_registered_types
+        mapping = klass.new
+        mapping.register_type("string", "string")
+        mapping.register_type(:integer, "integer")
+
+        assert mapping.key?("string")
+        assert mapping.key?(:integer)
+        assert_equal ["string", :integer], mapping.keys
+      end
+
       private
         def klass
           HashLookupTypeMap
