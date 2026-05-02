@@ -29,6 +29,17 @@ class ActiveRecord::Encryption::EnvelopeEncryptionKeyProviderTest < ActiveRecord
     assert_equal key.secret, @key_provider.decryption_keys(encrypted_message).first.secret
   end
 
+  test "decryption_keys returns an empty list when no primary key can decrypt the data key" do
+    encrypted_message = ActiveRecord::Encryption::Message.new(headers: { encrypted_data_key: "encrypted data key" })
+    primary_key_provider = Object.new
+
+    primary_key_provider.define_singleton_method(:decryption_keys) { |_message| nil }
+
+    @key_provider.stub :primary_key_provider, primary_key_provider do
+      assert_empty @key_provider.decryption_keys(encrypted_message)
+    end
+  end
+
   test "work with multiple keys when config.store_key_references is false" do
     ActiveRecord::Encryption.config.primary_key = ["key 1", "key 2"]
 
