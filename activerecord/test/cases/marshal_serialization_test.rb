@@ -68,6 +68,26 @@ class MarshalSerializationTest < ActiveRecord::TestCase
     assert_predicate topic.association(:replies), :loaded?
   end
 
+  def test_unknown_marshalling_format_raises
+    error = assert_raises(ArgumentError) do
+      ActiveRecord::Marshalling.format_version = 8.0
+    end
+
+    assert_equal "Unknown marshalling format: 8.0", error.message
+  end
+
+  def test_rails_7_1_roundtrip_without_cached_associations
+    ActiveRecord::Marshalling.format_version = 7.1
+
+    topic = Topic.find(1)
+    topic = Marshal.load(Marshal.dump(topic))
+
+    assert_not_predicate topic, :new_record?
+    assert_equal 1, topic.id
+    assert_equal "The First Topic", topic.title
+    assert_not_predicate topic.association(:replies), :loaded?
+  end
+
   def test_rails_7_1_rountrip
     ActiveRecord::Marshalling.format_version = 7.1
 
