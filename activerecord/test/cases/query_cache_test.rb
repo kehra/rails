@@ -381,6 +381,30 @@ class QueryCacheTest < ActiveRecord::TestCase
     end
   end
 
+  def test_cache_yields_without_connection_or_configurations
+    klass = Class.new(ActiveRecord::Base)
+    klass.define_singleton_method(:connected?) { false }
+    klass.define_singleton_method(:configurations) { [] }
+
+    yielded = false
+    result = klass.cache { yielded = true; :cached_without_connection }
+
+    assert yielded
+    assert_equal :cached_without_connection, result
+  end
+
+  def test_uncached_yields_without_connection_or_configurations
+    klass = Class.new(ActiveRecord::Base)
+    klass.define_singleton_method(:connected?) { false }
+    klass.define_singleton_method(:configurations) { [] }
+
+    yielded = false
+    result = klass.uncached { yielded = true; :uncached_without_connection }
+
+    assert yielded
+    assert_equal :uncached_without_connection, result
+  end
+
   def test_find_queries
     assert_queries_count(2) { Task.find(1); Task.find(1) }
   end
