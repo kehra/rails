@@ -119,6 +119,18 @@ class CoreTest < ActiveRecord::TestCase
     assert_equal 2, coder["active_record_yaml_version"]
   end
 
+  def test_init_with_restores_attributes_from_encoded_record
+    original = Topic.new(title: "Encoded Topic")
+    coder = {}
+    original.encode_with(coder)
+
+    restored = Topic.allocate
+    restored.init_with(coder)
+
+    assert_equal "Encoded Topic", restored.title
+    assert_predicate restored, :new_record?
+  end
+
   def test_connection_handler_delegates_to_model_class
     topic = Topic.new
 
@@ -130,6 +142,32 @@ class CoreTest < ActiveRecord::TestCase
 
     assert_same topic, topic.freeze
     assert_predicate topic, :frozen?
+  end
+
+  def test_readonly_bang_marks_record_readonly
+    topic = Topic.new
+
+    topic.readonly!
+
+    assert_predicate topic, :readonly?
+  end
+
+  def test_strict_loading_modes_and_invalid_mode
+    topic = Topic.new
+
+    topic.strict_loading!
+    assert_predicate topic, :strict_loading?
+    assert_predicate topic, :strict_loading_all?
+    assert_not_predicate topic, :strict_loading_n_plus_one_only?
+
+    topic.strict_loading!(mode: :n_plus_one_only)
+    assert_predicate topic, :strict_loading_n_plus_one_only?
+    assert_not_predicate topic, :strict_loading_all?
+
+    error = assert_raises(ArgumentError) do
+      topic.strict_loading!(mode: :invalid)
+    end
+    assert_equal "The :mode option must be one of [:all, :n_plus_one_only] but :invalid was provided.", error.message
   end
 
   def test_comparison_orders_records_by_key_for_same_class
