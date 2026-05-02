@@ -32,6 +32,21 @@ module ActiveRecord
         }
       end
 
+      def test_assert_queries_count_failure_without_queries
+        error = assert_raises(Minitest::Assertion) do
+          assert_queries_count(1) { }
+        end
+
+        assert_match(/0 instead of 1 queries/, error.message)
+        assert_no_match(/Queries:/, error.message)
+      end
+
+      def test_assert_queries_count_include_schema_counts_schema_payloads
+        assert_queries_count(1, include_schema: true) do
+          ActiveSupport::Notifications.instrument("sql.active_record", sql: "SELECT schema", name: "SCHEMA")
+        end
+      end
+
       def test_assert_no_queries
         assert_no_queries { Post.none }
 
@@ -67,6 +82,21 @@ module ActiveRecord
       def test_assert_queries_match_when_there_are_no_queries
         assert_raises(Minitest::Assertion, match: "1 or more matching queries expected, but none were executed") do
           assert_queries_match(/something/) { Post.none }
+        end
+      end
+
+      def test_assert_queries_match_count_failure_without_queries
+        error = assert_raises(Minitest::Assertion) do
+          assert_queries_match(/something/, count: 1) { Post.none }
+        end
+
+        assert_match(/0 instead of 1 matching queries/, error.message)
+        assert_no_match(/Queries:/, error.message)
+      end
+
+      def test_assert_queries_match_include_schema_matches_schema_payloads
+        assert_queries_match(/schema/, include_schema: true) do
+          ActiveSupport::Notifications.instrument("sql.active_record", sql: "SELECT schema", name: "SCHEMA")
         end
       end
 
