@@ -132,7 +132,10 @@ if ActiveRecord::Base.lease_connection.supports_explain?
 
       stub_explain_for_query_plans do
         expected = sqls.map { |sql| "#{expected_explain_clause} #{sql}\nquery plan #{sql}" }.join("\n")
-        assert_equal expected, base.exec_explain(queries)
+        explanation = base.exec_explain(queries)
+
+        assert_equal expected, explanation
+        assert_equal expected, explanation.inspect
       end
     end
 
