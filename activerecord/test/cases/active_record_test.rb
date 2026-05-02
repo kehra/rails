@@ -10,6 +10,17 @@ class ActiveRecordTest < ActiveRecord::TestCase
   teardown do
     ActiveRecord.db_warnings_action = :ignore
     ActiveRecord.default_timezone = :utc
+    ActiveRecord.marshalling_format_version = 6.1
+  end
+
+  test ".marshalling_format_version delegates to marshalling configuration" do
+    assert_equal 6.1, ActiveRecord.marshalling_format_version
+
+    ActiveRecord.marshalling_format_version = 7.1
+    assert_equal 7.1, ActiveRecord.marshalling_format_version
+
+    ActiveRecord.marshalling_format_version = 6.1
+    assert_equal 6.1, ActiveRecord.marshalling_format_version
   end
 
   test ".default_timezone= accepts utc and local" do
