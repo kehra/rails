@@ -52,6 +52,18 @@ module ActiveRecord
         end
       end
 
+      def test_empty_yaml_document
+        tmp_yaml ["empty_document", "yml"], "---\n" do |t|
+          assert_equal [], File.open(t.path) { |fh| fh.to_a }
+        end
+      end
+
+      def test_nil_parsed_yaml_returns_no_rows
+        ActiveSupport::ConfigurationFile.stub(:parse, nil) do
+          assert_equal [], File.open("nil.yml") { |fh| fh.to_a }
+        end
+      end
+
       # A valid YAML file is not necessarily a value Fixture file. Make sure
       # an exception is raised if the format is not valid Fixture format.
       def test_wrong_fixture_format_string
@@ -144,6 +156,53 @@ END
         File.open(::File.join(FIXTURES_ROOT, "other_posts.yml")) do |fh|
           assert_equal "Post", fh.model_class
         end
+      end
+
+      def test_extracts_ignored_fixtures_from_config_row
+        yaml = <<~YAML
+          _fixture:
+            ignore:
+              - ignored_label
+          visible_label:
+            id: 1
+          ignored_label:
+            id: 2
+        YAML
+
+        tmp_yaml ["ignored", "yml"], yaml do |t|
+          File.open(t.path) do |fh|
+            assert_equal ["ignored_label"], fh.ignored_fixtures
+          end
+        end
+      end
+
+      def test_config_row_defaults_without_fixture_config
+        tmp_yaml ["plain", "yml"], "one:\n  id: 1\n" do |t|
+          File.open(t.path) do |fh|
+            assert_nil fh.model_class
+            assert_nil fh.ignored_fixtures
+          end
+        end
+      end
+
+      def test_runtime_errors_from_rendering_are_wrapped_as_format_errors
+        tmp_yaml ["raising", "yml"], "<% raise 'boom' %>\n" do |t|
+          error = assert_raises(ActiveRecord::Fixture::FormatError) do
+            File.open(t.path) { |fh| fh.to_a }
+          end
+
+          assert_includes error.message, "boom"
+        end
+      end
+
+      def test_fixture_config_row_must_be_hash
+        fixture_file = File.new("bad_config.yml")
+
+        error = assert_raises(ActiveRecord::Fixture::FormatError) do
+          fixture_file.send(:validate_config_row, "bad")
+        end
+
+        assert_includes error.message, "_fixture` must be a hash"
       end
 
       private
