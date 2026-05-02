@@ -27,7 +27,8 @@ class ActiveRecord::Encryption::CipherTest < ActiveRecord::EncryptionTestCase
     end
   end
 
-  test "iv_length returns the iv length of the cipher" do
+  test "key_length and iv_length return the lengths of the cipher" do
+    assert_equal OpenSSL::Cipher.new("aes-256-gcm").key_len, @cipher.key_length
     assert_equal OpenSSL::Cipher.new("aes-256-gcm").iv_len, @cipher.iv_length
   end
 
