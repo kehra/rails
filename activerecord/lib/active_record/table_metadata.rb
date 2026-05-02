@@ -38,7 +38,9 @@ module ActiveRecord
 
       if association_klass
         arel_table = association_klass.arel_table
-        arel_table = arel_table.alias(table_name) if arel_table.name != table_name
+        if arel_table.name != table_name
+          arel_table = arel_table.alias(table_name)
+        end
         TableMetadata.new(association_klass, arel_table)
       else
         type_caster = TypeCaster::Connection.new(klass, table_name)
