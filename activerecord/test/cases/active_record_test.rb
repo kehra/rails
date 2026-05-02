@@ -12,6 +12,34 @@ class ActiveRecordTest < ActiveRecord::TestCase
     ActiveRecord.default_timezone = :utc
     ActiveRecord.marshalling_format_version = 6.1
     ActiveRecord.permanent_connection_checkout = true
+    ActiveRecord.default_transaction_isolation_level = nil
+  end
+
+  test ".with_transaction_isolation_level sets isolation for the block and restores it" do
+    ActiveRecord.default_transaction_isolation_level = :serializable
+    yielded = false
+
+    ActiveRecord.with_transaction_isolation_level(:read_committed) do
+      yielded = true
+      assert_equal :read_committed, ActiveRecord.default_transaction_isolation_level
+    end
+
+    assert yielded
+    assert_equal :serializable, ActiveRecord.default_transaction_isolation_level
+  end
+
+  test ".with_transaction_isolation_level restores isolation when the block raises" do
+    ActiveRecord.default_transaction_isolation_level = :repeatable_read
+
+    error = assert_raises(RuntimeError) do
+      ActiveRecord.with_transaction_isolation_level(:serializable) do
+        assert_equal :serializable, ActiveRecord.default_transaction_isolation_level
+        raise "boom"
+      end
+    end
+
+    assert_equal "boom", error.message
+    assert_equal :repeatable_read, ActiveRecord.default_transaction_isolation_level
   end
 
   test ".permanent_connection_checkout= accepts supported modes" do
