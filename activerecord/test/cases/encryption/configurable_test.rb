@@ -110,6 +110,34 @@ class ActiveRecord::Encryption::ConfigurableTest < ActiveRecord::EncryptionTestC
     ActiveRecord::Encryption.config.excluded_from_filter_parameters = []
   end
 
+  test "autofiltered parameters apply attributes declared after enabling" do
+    application = Struct.new(:config).new(Struct.new(:filter_parameters).new([]))
+    auto_filtered_parameters = ActiveRecord::Encryption::AutoFilteredParameters.new(application)
+    auto_filtered_parameters.enable
+
+    klass = Class.new(Pirate) do
+      self.table_name = "pirates"
+    end
+    klass.encrypts :catchphrase
+
+    assert_includes application.config.filter_parameters, "catchphrase"
+    assert_includes klass.filter_attributes, :catchphrase
+  end
+
+  test "autofiltered parameters do not duplicate existing filter parameters" do
+    application = Struct.new(:config).new(Struct.new(:filter_parameters).new(["catchphrase"]))
+    auto_filtered_parameters = ActiveRecord::Encryption::AutoFilteredParameters.new(application)
+    auto_filtered_parameters.enable
+
+    klass = Class.new(Pirate) do
+      self.table_name = "pirates"
+    end
+    klass.encrypts :catchphrase
+
+    assert_equal ["catchphrase"], application.config.filter_parameters
+    assert_includes klass.filter_attributes, :catchphrase
+  end
+
   private
     def with_auto_filtered_parameters(application)
       auto_filtered_parameters = ActiveRecord::Encryption::AutoFilteredParameters.new(application)
