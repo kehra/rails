@@ -137,6 +137,54 @@ class CoreTest < ActiveRecord::TestCase
     assert_same Topic.connection_handler, topic.connection_handler
   end
 
+  def test_destroy_association_async_job_constantizes_configured_string
+    old_job = Topic._destroy_association_async_job
+    Topic._destroy_association_async_job = "String"
+
+    assert_equal String, Topic.destroy_association_async_job
+    assert_equal String, Topic._destroy_association_async_job
+  ensure
+    Topic._destroy_association_async_job = old_job
+  end
+
+  def test_destroy_association_async_job_raises_readable_error_for_missing_constant
+    old_job = Topic._destroy_association_async_job
+    Topic._destroy_association_async_job = "ActiveRecord::MissingDestroyAssociationAsyncJob"
+
+    error = assert_raises(NameError) do
+      Topic.destroy_association_async_job
+    end
+    assert_match "Unable to load destroy_association_async_job", error.message
+  ensure
+    Topic._destroy_association_async_job = old_job
+  end
+
+  def test_current_role_shard_and_preventing_writes_use_connection_class_stack_entries
+    old_connection_class = Topic.connection_class
+    Topic.connection_class = true
+    stack = Topic.connected_to_stack
+    stack << { role: :reading, shard: :custom, prevent_writes: true, klasses: [Topic] }
+
+    assert_equal :reading, Topic.current_role
+    assert_equal :custom, Topic.current_shard
+    assert_equal true, Topic.current_preventing_writes
+  ensure
+    stack.pop if stack&.last&.dig(:klasses)&.include?(Topic)
+    Topic.connection_class = old_connection_class
+  end
+
+  def test_current_role_ignores_stack_entries_for_other_connection_classes
+    old_connection_class = Topic.connection_class
+    Topic.connection_class = true
+    stack = Topic.connected_to_stack
+    stack << { role: :reading, klasses: [String] }
+
+    assert_equal Topic.default_role, Topic.current_role
+  ensure
+    stack.pop if stack&.last&.dig(:klasses)&.include?(String)
+    Topic.connection_class = old_connection_class
+  end
+
   def test_freeze_freezes_attributes_and_returns_self
     topic = Topic.new
 

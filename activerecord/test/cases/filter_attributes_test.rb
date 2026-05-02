@@ -95,6 +95,13 @@ class FilterAttributesTest < ActiveRecord::TestCase
     end
   end
 
+  test "filter_attributes inherits superclass filters when unset" do
+    subclass = Class.new(Admin::User)
+    subclass.instance_variable_set(:@filter_attributes, nil)
+
+    assert_same Admin::User.filter_attributes, subclass.filter_attributes
+  end
+
   test "filter_attributes should not filter nil value" do
     account = Admin::Account.new
 
@@ -142,5 +149,16 @@ class FilterAttributesTest < ActiveRecord::TestCase
     assert_includes actual, "token: [FILTERED]"
   ensure
     User.instance_variable_set(:@filter_attributes, nil)
+  end
+
+  test "inspection mask pretty_print writes the filtered marker" do
+    mask = ActiveRecord::Core.const_get(:InspectionMask, false).new("[FILTERED]")
+    output = +""
+    pp = Object.new
+    pp.define_singleton_method(:text) { |value| output << value }
+
+    mask.pretty_print(pp)
+
+    assert_equal "[FILTERED]", output
   end
 end
