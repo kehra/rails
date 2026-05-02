@@ -34,6 +34,126 @@ class TestFixturesTest < ActiveRecord::TestCase
     assert_includes klass.fixture_paths, "test/fixtures"
   end
 
+  def test_transactional_tests_per_database_class_methods
+    @klass.use_transactional_tests_for_database :animals
+    @klass.skip_transactional_tests_for_database :plants
+
+    assert_equal({ animals: true, plants: false }, @klass.database_transactions_config)
+  end
+
+  def test_set_fixture_class_merges_stringified_fixture_names
+    @klass.set_fixture_class some_fixture: Zine
+    @klass.set_fixture_class "namespaced/fixture" => Zine
+
+    assert_equal({ "some_fixture" => Zine, "namespaced/fixture" => Zine }, @klass.fixture_class_names)
+  end
+
+  def test_fixtures_registers_explicit_names_and_accessors
+    @klass.fixtures :accounts, ["admin/users"]
+
+    assert_equal %w[accounts admin/users], @klass.fixture_table_names
+    assert_equal({ "accounts" => "accounts", "admin_users" => "admin/users" }, @klass.fixture_sets)
+  end
+
+  def test_fixtures_all_requires_fixture_paths
+    @klass.fixture_paths = []
+
+    error = assert_raises(StandardError) { @klass.fixtures :all }
+
+    assert_includes error.message, "No fixture path found"
+  end
+
+  def test_fixtures_all_discovers_yaml_files_and_skips_file_fixtures
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p File.join(dir, "admin")
+      FileUtils.mkdir_p File.join(dir, "files")
+      File.write File.join(dir, "accounts.yml"), "one: {}\n"
+      File.write File.join(dir, "admin", "users.yml"), "one: {}\n"
+      File.write File.join(dir, "files", "avatar.yml"), "one: {}\n"
+
+      @klass.fixture_paths = [dir]
+      @klass.define_singleton_method(:file_fixture_path) { File.join(dir, "files") }
+
+      @klass.fixtures :all
+
+      assert_equal %w[accounts admin/users], @klass.fixture_table_names
+      assert_equal({ "accounts" => "accounts", "admin_users" => "admin/users" }, @klass.fixture_sets)
+    end
+  end
+
+  def test_fixtures_all_discovers_yaml_files_without_file_fixture_path
+    Dir.mktmpdir do |dir|
+      File.write File.join(dir, "accounts.yml"), "one: {}\n"
+
+      @klass.fixture_paths = [dir]
+      @klass.fixtures :all
+
+      assert_equal %w[accounts], @klass.fixture_table_names
+    end
+  end
+
+  def test_setup_fixture_accessors_handles_symbols_slashes_defaults_and_empty_input
+    @klass.fixture_table_names = [:accounts, "admin/users"]
+    @klass.setup_fixture_accessors
+
+    assert_equal({ "accounts" => "accounts", "admin_users" => "admin/users" }, @klass.fixture_sets)
+
+    previous_sets = @klass.fixture_sets
+    @klass.setup_fixture_accessors([])
+
+    assert_same previous_sets, @klass.fixture_sets
+  end
+
+  def test_uses_transaction_tracks_method_names
+    fresh_class = Class.new
+    fresh_class.include(ActiveRecord::TestFixtures)
+    fresh_class.uses_transaction :first_without_transaction
+    assert fresh_class.uses_transaction?(:first_without_transaction)
+
+    assert_not @klass.uses_transaction?(:other_test)
+
+    @klass.uses_transaction :test_without_transaction, "test_also_without_transaction"
+    @klass.uses_transaction :test_third_without_transaction
+
+    assert @klass.uses_transaction?(:test_without_transaction)
+    assert @klass.uses_transaction?("test_also_without_transaction")
+    assert @klass.uses_transaction?(:test_third_without_transaction)
+    assert_not @klass.uses_transaction?(:other_test)
+  end
+
+  def test_fixture_accessor_fetches_single_multiple_all_reload_and_missing_records
+    fixture_class = Struct.new(:record) do
+      attr_reader :finds
+
+      def find
+        @finds = finds.to_i + 1
+        record
+      end
+    end
+    fixture_set = Struct.new(:fixtures) do
+      def [](name)
+        fixtures[name]
+      end
+    end
+    one = fixture_class.new("one record")
+    two = fixture_class.new("two record")
+    test_case = @klass.new
+    @klass.fixture_sets = { "books" => "books" }
+    test_case.instance_variable_set(:@fixture_cache, {})
+    test_case.instance_variable_set(:@loaded_fixtures, { "books" => fixture_set.new({ "one" => one, "two" => two }) })
+
+    assert_equal "one record", test_case.fixture(:books, :one)
+    assert_equal "one record", test_case.fixture(:books, "one")
+    assert_equal 1, one.finds
+    assert_equal "one record", test_case.fixture(:books, "one", :reload)
+    assert_equal 2, one.finds
+    assert_equal ["one record", "two record"], test_case.fixture(:books)
+    assert_equal ["one record", "two record"], test_case.fixture(:books, "one", "two")
+
+    assert_raises(StandardError) { test_case.fixture(:books, "missing") }
+    assert_raises(StandardError) { test_case.fixture(:unknown, "one") }
+  end
+
   unless in_memory_db?
     def test_doesnt_rely_on_active_support_test_case_specific_methods
       tmp_dir = Dir.mktmpdir
