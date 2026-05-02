@@ -1,0 +1,235 @@
+# frozen_string_literal: true
+
+require "abstract_unit"
+require "tmpdir"
+
+module ApplicationPublicContractTestNamespace
+  class Application < Rails::Application
+  end
+end
+
+class ApplicationPublicContractTest < ActiveSupport::TestCase
+  setup do
+    @old_env = Rails.env
+  end
+
+  teardown do
+    Rails.env = @old_env
+  end
+
+  test "create initializes variables evaluates block once and reports name and initialized state" do
+    routes = ActionDispatch::Routing::RouteSet.new
+    app = ApplicationPublicContractTestNamespace::Application.create(routes: routes) do
+      config.secret_key_base = "contract-secret"
+    end
+
+    assert_same routes, app.routes
+    assert_equal "application-public-contract-test-namespace", app.name
+    assert_not_predicate app, :initialized?
+    assert_same app, app.run_load_hooks!
+  end
+
+  test "find_root locates config.ru from nested paths" do
+    Dir.mktmpdir("rails-application-root") do |root|
+      File.write(File.join(root, "config.ru"), "run RackApp")
+      nested = File.join(root, "app", "models")
+      FileUtils.mkdir_p(nested)
+
+      assert_equal Pathname.new(root), Rails::Application.find_root(nested)
+    end
+  end
+
+  test "key generators message verifiers and deprecators are memoized public collaborators" do
+    app = ApplicationPublicContractTestNamespace::Application.create
+    app.config.secret_key_base = "contract-secret"
+
+    assert_same app.key_generator, app.key_generator
+    assert_not_same app.key_generator, app.key_generator("other-secret")
+    assert_same app.message_verifiers, app.message_verifiers
+    assert_same app.message_verifier(:signed), app.message_verifier(:signed)
+    assert_instance_of ActiveSupport::Deprecation::Deprecators, app.deprecators
+    assert_same Rails.deprecator, app.deprecators[:railties]
+  end
+
+  test "envs dotenvs credentials encrypted and creds expose configuration backends" do
+    app = ApplicationPublicContractTestNamespace::Application.create
+    app.config.root = Pathname.new(Dir.mktmpdir("rails-application-config"))
+    FileUtils.mkdir_p(app.config.root.join("config"))
+    app.config.credentials.content_path = app.config.root.join("config/credentials.yml.enc")
+    app.config.credentials.key_path = app.config.root.join("config/master.key")
+    app.config.require_master_key = false
+
+    assert_instance_of ActiveSupport::EnvConfiguration, app.envs
+    assert_same app.envs, app.envs
+    assert_instance_of ActiveSupport::DotEnvConfiguration, app.dotenvs(app.config.root.join(".env"))
+    assert_instance_of ActiveSupport::EncryptedConfiguration, app.credentials
+    assert_instance_of ActiveSupport::EncryptedConfiguration, app.encrypted("config/credentials.yml.enc")
+
+    Rails.env = "development"
+    app.creds = nil
+    assert_instance_of ActiveSupport::CombinedConfiguration, app.creds
+    Rails.env = "production"
+    app.creds = nil
+    assert_instance_of ActiveSupport::CombinedConfiguration, app.creds
+  ensure
+    FileUtils.rm_rf(app.config.root) if app&.config&.root&.to_s&.include?("rails-application-config")
+  end
+
+  test "config_for loads pathnames merges shared config and reports missing files" do
+    app = ApplicationPublicContractTestNamespace::Application.create
+    Dir.mktmpdir("rails-application-config-for") do |root|
+      config_dir = Pathname.new(root).join("config")
+      FileUtils.mkdir_p(config_dir)
+      config_file = config_dir.join("custom.yml")
+      config_file.write <<~YAML
+        shared:
+          nested:
+            shared: true
+        test:
+          nested:
+            env: true
+      YAML
+      app.config.paths["config"] = config_dir.to_s
+
+      config = app.config_for(config_file, env: "test")
+      assert_equal true, config.nested[:shared]
+      assert_equal true, config.nested[:env]
+
+      error = assert_raises(RuntimeError) { app.config_for(:missing, env: "test") }
+      assert_match(/Could not load configuration/, error.message)
+    end
+  end
+
+  test "config_for handles shared and non hash configuration shapes" do
+    app = ApplicationPublicContractTestNamespace::Application.create
+    Dir.mktmpdir("rails-application-config-for-shapes") do |root|
+      config_dir = Pathname.new(root).join("config")
+      FileUtils.mkdir_p(config_dir)
+      app.config.paths["config"] = config_dir.to_s
+
+      config_dir.join("shared_hash.yml").write <<~YAML
+        shared:
+          fallback: true
+      YAML
+      assert_equal true, app.config_for(:shared_hash, env: "missing").fallback
+
+      config_dir.join("shared_array.yml").write <<~YAML
+        shared:
+          - fallback
+      YAML
+      assert_equal [ "fallback" ], app.config_for(:shared_array, env: "missing")
+
+      config_dir.join("env_array.yml").write <<~YAML
+        test:
+          - env
+      YAML
+      assert_equal [ "env" ], app.config_for(:env_array, env: "test")
+
+      config_dir.join("env_string.yml").write <<~YAML
+        test: value
+      YAML
+      assert_equal "value", app.config_for(:env_string, env: "test")
+
+      config_dir.join("no_shared.yml").write <<~YAML
+        test:
+          value: true
+      YAML
+      assert_equal true, app.config_for(:no_shared, env: "test").value
+    end
+  end
+
+  test "revision uses environment file git fallback and explicit assignment" do
+    app = ApplicationPublicContractTestNamespace::Application.create
+    original_revision = ENV.delete("REVISION")
+
+    Dir.mktmpdir("rails-application-revision") do |root|
+      app.config.root = Pathname.new(root)
+
+      ENV["REVISION"] = "env-revision"
+      assert_equal "env-revision", app.revision
+      assert_equal "env-revision", app.revision
+
+      ENV.delete("REVISION")
+      app.instance_variable_set(:@revision, nil)
+      app.instance_variable_set(:@revision_initialized, false)
+      File.write(File.join(root, "REVISION"), "file-revision\n")
+      assert_equal "file-revision", app.revision
+
+      app.instance_variable_set(:@revision, nil)
+      app.instance_variable_set(:@revision_initialized, false)
+      File.delete(File.join(root, "REVISION"))
+      singleton = class << app; self; end
+      original_system = app.method(:system)
+      singleton.define_method(:system) { |*| false }
+      assert_nil app.revision
+      singleton.define_method(:system) { |*args, **kwargs, &block| original_system.call(*args, **kwargs, &block) }
+
+      app.revision = :explicit
+      assert_equal "explicit", app.revision
+    end
+  ensure
+    if original_revision
+      ENV["REVISION"] = original_revision
+    else
+      ENV.delete("REVISION")
+    end
+  end
+
+  test "reload_routes delegates to execute unless loaded or reload" do
+    app = ApplicationPublicContractTestNamespace::Application.create
+    execute_reloader = RoutesReloaderFake.new(true)
+    app.instance_variable_set(:@routes_reloader, execute_reloader)
+
+    app.reload_routes!
+
+    assert_equal false, execute_reloader.loaded
+    assert_not execute_reloader.reloaded
+
+    reload_reloader = RoutesReloaderFake.new(false)
+    app.instance_variable_set(:@routes_reloader, reload_reloader)
+
+    app.reload_routes!
+
+    assert reload_reloader.reloaded
+  end
+
+  test "callback registration helpers delegate to the application class" do
+    klass = Class.new(Rails::Application)
+    app = klass.create
+    block = proc { }
+
+    assert_nothing_raised do
+      app.rake_tasks(&block)
+      app.runner(&block)
+      app.console(&block)
+      app.generators(&block)
+      app.server(&block)
+      app.initializer(:contract_initializer, &block)
+    end
+    assert klass.initializers.has?(:contract_initializer)
+  end
+
+  test "isolate namespace delegates to the application class" do
+    mod = ApplicationPublicContractTestNamespace.const_set(:IsolatedNamespace, Module.new)
+    klass = Class.new(Rails::Application)
+    app = klass.create
+
+    app.isolate_namespace(mod)
+
+    assert_equal klass, mod.railtie_namespace
+  ensure
+    ApplicationPublicContractTestNamespace.send(:remove_const, :IsolatedNamespace) if ApplicationPublicContractTestNamespace.const_defined?(:IsolatedNamespace, false)
+  end
+
+  RoutesReloaderFake = Struct.new(:execute_result) do
+    attr_accessor :loaded, :reloaded
+
+    def execute_unless_loaded
+      execute_result
+    end
+
+    def reload!
+      self.reloaded = true
+    end
+  end
+end
