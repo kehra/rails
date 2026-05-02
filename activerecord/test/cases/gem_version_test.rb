@@ -2,6 +2,7 @@
 
 require "cases/helper"
 require "active_record/gem_version"
+require "active_record/version"
 
 class GemVersionTest < ActiveRecord::TestCase
   def test_gem_version_returns_version_string_as_gem_version
@@ -9,6 +10,10 @@ class GemVersionTest < ActiveRecord::TestCase
 
     assert_instance_of Gem::Version, version
     assert_equal ActiveRecord::VERSION::STRING, version.to_s
+  end
+
+  def test_version_returns_gem_version
+    assert_same ActiveRecord.gem_version, ActiveRecord.version
   end
 
   def test_version_string_is_built_from_version_parts
