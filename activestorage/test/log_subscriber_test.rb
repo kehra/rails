@@ -125,5 +125,15 @@ module ActiveStorage
       assert_equal 4, @logger.logged(:debug).count
       assert_match(/Mirrored file/, @logger.logged(:debug).last)
     end
+
+    test "service_mirror without checksum" do
+      event = { payload: { service: "Disk", duration_ms: 1.23, key: "avatar-key" } }
+
+      ActiveStorage::LogSubscriber.new.service_mirror(event)
+
+      assert_equal 1, @logger.logged(:debug).count
+      assert_match(/Mirrored file at key: avatar-key/, @logger.logged(:debug).last)
+      assert_no_match(/checksum:/, @logger.logged(:debug).last)
+    end
   end
 end
