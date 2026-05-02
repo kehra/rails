@@ -17,6 +17,31 @@ module ActiveRecord
       end
     end
 
+    class FakeConnection
+      attr_reader :inserted_rows, :inserted_tables, :reset_tables
+
+      def insert_fixtures_set(rows, tables)
+        @inserted_rows = rows
+        @inserted_tables = tables
+      end
+
+      def reset_column_sequences!(tables)
+        @reset_tables = tables
+      end
+    end
+
+    class FakeConnectionPool
+      attr_reader :connection
+
+      def initialize(connection = FakeConnection.new)
+        @connection = connection
+      end
+
+      def with_connection
+        yield connection
+      end
+    end
+
     def setup
       @previous_loaded_fixtures = FixtureSet.all_loaded_fixtures
       FixtureSet.all_loaded_fixtures = {}
@@ -57,6 +82,27 @@ module ActiveRecord
 
       FixtureSet.reset_cache
       assert_equal({}, FixtureSet.cache_for_connection_pool(connection_pool))
+    end
+
+    def test_create_fixtures_reads_inserts_caches_and_resets_sequences
+      connection = FakeConnection.new
+      connection_pool = FakeConnectionPool.new(connection)
+
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "fixture_contract_widgets.yml"), <<~YAML)
+          one:
+            title: Widget One
+        YAML
+
+        fixture_set = FixtureSet.create_fixtures(dir, "fixture_contract_widgets", {}, fake_config(connection_pool: connection_pool)).first
+
+        assert_instance_of FixtureSet, fixture_set
+        assert_same fixture_set, FixtureSet.fixture_is_cached?(connection_pool, "fixture_contract_widgets")
+        assert_equal [:fixture_contract_widgets], connection.inserted_tables
+        assert_equal({ "title" => "Widget One" }, connection.inserted_rows[:fixture_contract_widgets].first)
+        assert_equal [[:fixture_contract_widgets]], connection.reset_tables
+        assert_same fixture_set, FixtureSet.all_loaded_fixtures["fixture_contract_widgets"]
+      end
     end
 
     def test_instantiate_fixture_helpers
