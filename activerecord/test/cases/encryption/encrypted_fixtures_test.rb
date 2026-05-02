@@ -8,6 +8,22 @@ class ActiveRecord::Encryption::EncryptableFixtureTest < ActiveRecord::Encryptio
 
   fixtures :encrypted_books, :encrypted_book_that_ignores_cases
 
+  FixtureWithEncryptedAttributes = Class.new do
+    prepend ActiveRecord::Encryption::EncryptedFixtures
+
+    attr_reader :fixture, :model_class
+
+    def initialize(fixture, model_class)
+      @fixture = fixture
+      @model_class = model_class
+    end
+  end
+
+  ModelWithoutEncryptedAttributes = Class.new do
+    def self.encrypted_attributes
+    end
+  end
+
   test "fixtures get encrypted automatically" do
     assert encrypted_books(:awdr).encrypted_attribute?(:name)
   end
@@ -18,5 +34,23 @@ class ActiveRecord::Encryption::EncryptableFixtureTest < ActiveRecord::Encryptio
     assert_encrypted_attribute book, :name, "Ruby for Rails"
 
     assert EncryptedBookThatIgnoresCase.find_by_name("Ruby for Rails")
+  end
+
+  test "fixtures are left unchanged when there is no model class" do
+    fixture = { "name" => "Dune" }
+
+    built_fixture = FixtureWithEncryptedAttributes.new(fixture, nil)
+
+    assert_same fixture, built_fixture.fixture
+    assert_equal({ "name" => "Dune" }, fixture)
+  end
+
+  test "fixtures are left unchanged when the model class has no encrypted attributes" do
+    fixture = { "name" => "Dune" }
+
+    built_fixture = FixtureWithEncryptedAttributes.new(fixture, ModelWithoutEncryptedAttributes)
+
+    assert_same fixture, built_fixture.fixture
+    assert_equal({ "name" => "Dune" }, fixture)
   end
 end
