@@ -9,6 +9,23 @@ class ActiveRecordTest < ActiveRecord::TestCase
 
   teardown do
     ActiveRecord.db_warnings_action = :ignore
+    ActiveRecord.default_timezone = :utc
+  end
+
+  test ".default_timezone= accepts utc and local" do
+    ActiveRecord.default_timezone = :local
+    assert_equal :local, ActiveRecord.default_timezone
+
+    ActiveRecord.default_timezone = :utc
+    assert_equal :utc, ActiveRecord.default_timezone
+  end
+
+  test ".default_timezone= rejects unsupported values" do
+    error = assert_raises(ArgumentError) do
+      ActiveRecord.default_timezone = :tokyo
+    end
+
+    assert_equal "default_timezone must be either :utc (default) or :local.", error.message
   end
 
   test ".db_warnings_action= maps ignore to no action" do
