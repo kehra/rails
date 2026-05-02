@@ -4,6 +4,7 @@ require "cases/helper"
 require "models/company"
 require "models/developer"
 require "models/computer"
+require "models/category"
 require "models/owner"
 require "models/pet"
 require "models/cpk"
@@ -114,6 +115,27 @@ class IntegrationTest < ActiveRecord::TestCase
         assert_equal("1,123", Cpk::Order.new(id: [1, 123]).to_param)
         assert_equal("1;123", Cpk::Book.new(id: [1, 123]).to_param)
       end
+    end
+  end
+
+  def test_cache_key_for_new_record
+    assert_equal "developers/new", Developer.new.cache_key
+  end
+
+  def test_cache_version_raises_when_updated_at_attribute_is_missing_from_partial_select
+    with_cache_versioning do
+      developer = Developer.select(:id).first
+
+      error = assert_raises(ActiveModel::MissingAttributeError) do
+        developer.cache_version
+      end
+      assert_equal "missing attribute 'updated_at' for Developer", error.message
+    end
+  end
+
+  def test_cache_version_is_nil_for_model_without_updated_at_attribute
+    with_cache_versioning do
+      assert_nil Category.create!(name: "cacheless").cache_version
     end
   end
 
