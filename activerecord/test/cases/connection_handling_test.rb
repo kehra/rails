@@ -618,5 +618,50 @@ module ActiveRecord
     ensure
       ActiveRecord::Base.connection_specification_name = nil
     end
+
+    test "#sharded? reflects whether shard keys are configured" do
+      klass = Class.new(ActiveRecord::Base) do
+        self.abstract_class = true
+      end
+
+      klass.stub(:connection_class_for_self, klass) do
+        assert_not klass.sharded?
+
+        klass.instance_variable_set(:@shard_keys, [:default, :archive])
+        assert klass.sharded?
+      end
+    end
+
+    test "#while_preventing_writes uses current role and requested write prevention" do
+      assert_not ActiveRecord::Base.current_preventing_writes
+
+      ActiveRecord::Base.connected_to(role: :writing, shard: :custom) do
+        ActiveRecord::Base.while_preventing_writes do
+          assert_equal :writing, ActiveRecord::Base.current_role
+          assert_equal :custom, ActiveRecord::Base.current_shard
+          assert ActiveRecord::Base.current_preventing_writes
+        end
+
+        ActiveRecord::Base.while_preventing_writes(false) do
+          assert_equal :writing, ActiveRecord::Base.current_role
+          assert_not ActiveRecord::Base.current_preventing_writes
+        end
+      end
+    end
+
+    test "#with_connection delegates prevent_permanent_checkout and block to pool" do
+      yielded_block = nil
+      pool = Object.new
+      pool.define_singleton_method(:with_connection) do |prevent_permanent_checkout:, &block|
+        yielded_block = block
+        [prevent_permanent_checkout, block.call(:connection)]
+      end
+
+      ActiveRecord::Base.stub(:connection_pool, pool) do
+        assert_equal [true, :connection], ActiveRecord::Base.with_connection(prevent_permanent_checkout: true) { |connection| connection }
+      end
+
+      assert yielded_block
+    end
   end
 end
