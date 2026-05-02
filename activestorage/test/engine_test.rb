@@ -26,6 +26,11 @@ class ActiveStorage::EngineTest < ActiveSupport::TestCase
     assert_includes ActiveStorage.variable_content_types, "image/bmp"
   end
 
+  test "version returns the loaded gem version" do
+    assert_instance_of Gem::Version, ActiveStorage.version
+    assert_equal ActiveStorage.gem_version, ActiveStorage.version
+  end
+
   test "true is the default touch_attachment_records value" do
     assert_equal true, ActiveStorage.touch_attachment_records
   end
