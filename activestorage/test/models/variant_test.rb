@@ -327,6 +327,23 @@ class ActiveStorage::VariantTest < ActiveSupport::TestCase
     assert_predicate variant, :processed?
   end
 
+  test "variation wraps encoded keys and rejects unknown formats" do
+    transformations = { resize_to_limit: [100, 100], format: :png }
+    key = ActiveStorage::Variation.encode(transformations)
+
+    variation = ActiveStorage::Variation.wrap(key)
+
+    assert_equal({ resize_to_limit: [100, 100], format: "png" }, variation.transformations)
+    assert_equal key, variation.key
+    assert_equal "image/png", variation.content_type
+
+    error = assert_raises(ArgumentError) do
+      ActiveStorage::Variation.new(format: :unknown_format).format
+    end
+
+    assert_equal "Invalid variant format (:unknown_format)", error.message
+  end
+
   private
     def process_variants_with(processor)
       previous_transformer = ActiveStorage.variant_transformer
