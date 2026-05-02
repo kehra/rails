@@ -24,6 +24,7 @@ class LogSubscriberTest < ActiveRecord::TestCase
       LOCK: Regexp.escape(ActiveRecord::LogSubscriber::WHITE),
       ROLLBACK: Regexp.escape(ActiveRecord::LogSubscriber::RED),
       TRANSACTION: REGEXP_CYAN,
+      "ROLLBACK TO SAVEPOINT": Regexp.escape(ActiveRecord::LogSubscriber::RED),
       OTHER: REGEXP_MAGENTA
   }
 
@@ -65,6 +66,32 @@ class LogSubscriberTest < ActiveRecord::TestCase
     ActiveRecord::LogSubscriber.logger = @old_logger
     TestDebugLogSubscriber.logger = nil
     ActiveSupport.colorize_logging = true
+  end
+
+  def test_strict_loading_violation_logs_owner_association_and_name
+    logger = TestDebugLogSubscriber.new
+
+    logger.strict_loading_violation(payload: { owner: "Post", class: "Comment", name: :comments })
+    logger.strict_loading_violation(payload: { owner: "Post", class: nil, name: :commentable })
+
+    assert_match(/`Post` is marked for strict_loading\./, @logger.logged(:debug).first)
+    assert_match(/The Comment association named `:comments` cannot be lazily loaded\./, @logger.logged(:debug).first)
+    assert_match(/The polymorphic association named `:commentable` cannot be lazily loaded\./, @logger.logged(:debug).second)
+  end
+
+  def test_private_bind_helpers_render_public_log_values
+    logger = TestDebugLogSubscriber.new
+    binary_attribute = ActiveModel::Attribute.from_database("payload", "binary payload", ActiveRecord::Type::Binary.new)
+    string_attribute = ActiveModel::Attribute.from_database("title", "Rails", ActiveRecord::Type::Value.new)
+
+    assert_equal ["payload", "<14 bytes of binary data>"], logger.send(:render_bind, binary_attribute, "ignored")
+    assert_equal ["title", "Rails"], logger.send(:render_bind, string_attribute, "Rails")
+    bind_name = Struct.new(:name).new("id")
+    assert_equal ["id", 1], logger.send(:render_bind, [bind_name, 1], 1)
+    assert_equal [nil, 2], logger.send(:render_bind, 2, 2)
+    assert_equal [1, 2], logger.send(:type_casted_binds, -> { [1, 2] })
+    assert_equal [3, 4], logger.send(:type_casted_binds, [3, 4])
+    assert_equal ActiveRecord::Base.inspection_filter.filter_param("password", "secret"), logger.send(:filter, "password", "secret")
   end
 
   def test_schema_statements_are_ignored
@@ -239,6 +266,20 @@ class LogSubscriberTest < ActiveRecord::TestCase
     @logger.level = INFO
     Developer.all.load
     assert_equal 0, @logger.logged(:debug).size
+  end
+
+  def test_direct_sql_logging_returns_when_debug_is_disabled
+    old_base_logger = ActiveRecord::Base.logger
+    TestDebugLogSubscriber.logger = nil
+    ActiveRecord::Base.logger = nil
+    logger = TestDebugLogSubscriber.new
+
+    logger.sql({ payload: { sql: "SELECT 1", duration_ms: 0.9 } })
+
+    assert_equal 0, @logger.logged(:debug).size
+  ensure
+    ActiveRecord::Base.logger = old_base_logger
+    TestDebugLogSubscriber.logger = @logger
   end
 
   def test_cached_queries_doesnt_log_when_level_is_not_debug
