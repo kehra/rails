@@ -705,6 +705,24 @@ class ActiveStorage::OneAttachedTest < ActiveSupport::TestCase
     assert_not @user.avatar.attached?
   end
 
+  test "blank is the inverse of attached" do
+    assert_predicate @user.avatar, :blank?
+
+    @user.avatar.attach create_blob(filename: "funky.jpg")
+
+    assert_not_predicate @user.avatar, :blank?
+  end
+
+  test "with attached one eager-loads blobs with and without variant tracking" do
+    was_tracking, ActiveStorage.track_variants = ActiveStorage.track_variants, false
+    assert_not_empty User.with_attached_avatar.includes_values
+
+    ActiveStorage.track_variants = true
+    assert_not_empty User.with_attached_avatar.includes_values
+  ensure
+    ActiveStorage.track_variants = was_tracking
+  end
+
   test "overriding attached reader" do
     @user.avatar.attach create_blob(filename: "funky.jpg")
 

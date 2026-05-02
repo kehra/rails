@@ -732,6 +732,16 @@ class ActiveStorage::ManyAttachedTest < ActiveSupport::TestCase
     assert_not @user.highlights.attached?
   end
 
+  test "with attached many eager-loads blobs with and without variant tracking" do
+    was_tracking, ActiveStorage.track_variants = ActiveStorage.track_variants, false
+    assert_not_empty User.with_attached_highlights.includes_values
+
+    ActiveStorage.track_variants = true
+    assert_not_empty User.with_attached_highlights.includes_values
+  ensure
+    ActiveStorage.track_variants = was_tracking
+  end
+
   test "overriding attached reader" do
     @user.highlights.attach create_blob(filename: "funky.jpg"), create_blob(filename: "town.jpg")
 
