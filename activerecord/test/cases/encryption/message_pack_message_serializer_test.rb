@@ -15,6 +15,23 @@ class ActiveRecord::Encryption::MessagePackMessageSerializerTest < ActiveRecord:
     assert_equal message, deserialized_message
   end
 
+  test "serializes messages without headers" do
+    message = ActiveRecord::Encryption::Message.new(payload: "some payload")
+    deserialized_message = serialize_and_deserialize(message)
+
+    assert_equal message, deserialized_message
+  end
+
+  test "loads messages with no header key" do
+    deserialized_message = @serializer.load ActiveSupport::MessagePack.dump({ "p" => "some payload" })
+
+    assert_equal ActiveRecord::Encryption::Message.new(payload: "some payload"), deserialized_message
+  end
+
+  test "binary? is true" do
+    assert @serializer.binary?
+  end
+
   test "serializes messages with nested messages in their headers" do
     message = build_message
     message.headers[:other_message] = ActiveRecord::Encryption::Message.new(payload: "some other secret payload", headers: { some_header: "some other value" })
@@ -32,6 +49,12 @@ class ActiveRecord::Encryption::MessagePackMessageSerializerTest < ActiveRecord:
   test "detects random JSON hashes and raises a decryption error" do
     assert_raises ActiveRecord::Encryption::Errors::Decryption do
       @serializer.load JSON.dump({ some: "other data" })
+    end
+  end
+
+  test "detects random MessagePack hashes and raises a decryption error" do
+    assert_raises ActiveRecord::Encryption::Errors::Decryption do
+      @serializer.load ActiveSupport::MessagePack.dump({ "some" => "other data" })
     end
   end
 

@@ -14,6 +14,17 @@ class ActiveRecord::Encryption::MessageSerializerTest < ActiveRecord::Encryption
     assert_equal message, deserialized_message
   end
 
+  test "serializes messages with non string payloads and headers" do
+    message = ActiveRecord::Encryption::Message.new(headers: { numeric: 1, boolean: true, missing: nil })
+    deserialized_message = serialize_and_deserialize(message)
+
+    assert_equal message, deserialized_message
+  end
+
+  test "binary? is false" do
+    assert_not @serializer.binary?
+  end
+
   test "serializes messages with nested messages in their headers" do
     message = build_message
     message.headers[:other_message] = ActiveRecord::Encryption::Message.new(payload: "some other secret payload", headers: { some_header: "some other value" })
@@ -27,6 +38,12 @@ class ActiveRecord::Encryption::MessageSerializerTest < ActiveRecord::Encryption
 
     assert_raises(ArgumentError) { JSON.load(class_loading_payload) }
     assert_nothing_raised { @serializer.load(class_loading_payload) }
+  end
+
+  test "detects invalid JSON data and raises an encoding error" do
+    assert_raises ActiveRecord::Encryption::Errors::Encoding do
+      @serializer.load "{"
+    end
   end
 
   test "detects random JSON data and raises a decryption error" do
