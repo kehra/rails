@@ -389,6 +389,42 @@ class ActiveStorage::BlobTest < ActiveSupport::TestCase
     assert_predicate blob, :identified?
   end
 
+  test "identify persists inferred content type" do
+    blob = ActiveStorage::Blob.create_before_direct_upload!(
+      filename: "racecar.jpg",
+      byte_size: file_fixture("racecar.jpg").size,
+      checksum: OpenSSL::Digest::MD5.file(file_fixture("racecar.jpg")).base64digest,
+      content_type: "application/octet-stream"
+    )
+    blob.service.upload(blob.key, file_fixture("racecar.jpg").open, checksum: blob.checksum)
+
+    blob.identify
+
+    assert_equal "image/jpeg", blob.reload.content_type
+    assert_predicate blob, :identified?
+  end
+
+  test "identify without saving uses an empty sample for empty blobs" do
+    blob = ActiveStorage::Blob.create_before_direct_upload!(
+      filename: "empty.txt",
+      byte_size: 0,
+      checksum: OpenSSL::Digest::MD5.base64digest(""),
+      content_type: "application/octet-stream"
+    )
+    download_chunk_called = false
+    blob.service.define_singleton_method(:download_chunk) do |*|
+      download_chunk_called = true
+    end
+
+    blob.identify_without_saving
+
+    assert_not download_chunk_called
+    assert_predicate blob, :identified?
+    assert_equal "text/plain", blob.content_type
+  ensure
+    blob&.service&.singleton_class&.remove_method(:download_chunk) if blob&.service&.singleton_class&.method_defined?(:download_chunk)
+  end
+
   test "purge deletes file from external service" do
     blob = create_blob
 
