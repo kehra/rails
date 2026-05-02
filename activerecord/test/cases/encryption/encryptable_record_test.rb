@@ -133,6 +133,40 @@ class ActiveRecord::Encryption::EncryptableRecordTest < ActiveRecord::Encryption
     assert_not_equal EncryptedPost.deterministic_encrypted_attributes, EncryptedBook.deterministic_encrypted_attributes
   end
 
+  test "deterministic_encrypted_attributes returns nil when the model has no encrypted attributes" do
+    assert_nil UnencryptedBook.deterministic_encrypted_attributes
+  end
+
+  test "source_attribute_from_preserved_attribute returns original attribute names only for preserved attributes" do
+    assert_equal "name", EncryptedBookThatIgnoresCase.source_attribute_from_preserved_attribute("original_name")
+    assert_nil EncryptedBookThatIgnoresCase.source_attribute_from_preserved_attribute("name")
+  end
+
+  test "encrypts supports attributes without a database column default" do
+    encryptable_post = Class.new(ActiveRecord::Base) do
+      self.table_name = "posts"
+
+      attribute :transient_title, :string
+      encrypts :transient_title
+    end
+
+    assert_includes encryptable_post.encrypted_attributes, :transient_title
+  end
+
+  test "encrypts raises when ignore_case requires a missing original column" do
+    ActiveRecord::Encryption.config.support_unencrypted_data = false
+
+    error = assert_raises ActiveRecord::Encryption::Errors::Configuration do
+      Class.new(ActiveRecord::Base) do
+        self.table_name = "posts"
+
+        encrypts :title, deterministic: true, ignore_case: true
+      end
+    end
+
+    assert_match "original_title", error.message
+  end
+
   test "by default, encryption is not deterministic" do
     post_1 = EncryptedPost.create!(title: "the same title", body: "some body")
     post_2 = EncryptedPost.create!(title: "the same title", body: "some body")
