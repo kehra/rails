@@ -288,4 +288,21 @@ class QueryLogsTest < ActiveRecord::TestCase
       Dashboard.first
     end
   end
+
+  def test_unsupported_tags_formatter_raises
+    error = assert_raises(ArgumentError) do
+      ActiveRecord::QueryLogs.tags_formatter = :unknown
+    end
+
+    assert_equal "Formatter is unsupported: unknown", error.message
+  end
+
+  def test_query_source_location_uses_log_subscriber_backtrace_cleaner
+    cleaner = Object.new
+    cleaner.define_singleton_method(:first_clean_frame) { "/app/models/post.rb:10:in `find_post'" }
+
+    ActiveRecord::LogSubscriber.stub(:backtrace_cleaner, cleaner) do
+      assert_equal "/app/models/post.rb:10:in `find_post'", ActiveRecord::QueryLogs.query_source_location
+    end
+  end
 end
