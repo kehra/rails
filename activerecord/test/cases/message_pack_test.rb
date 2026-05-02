@@ -66,6 +66,42 @@ class ActiveRecordMessagePackTest < ActiveRecord::TestCase
     assert_equal binary.attributes, roundtrip(binary).attributes
   end
 
+  test "roundtrips arrays and nil through top-level message pack helpers" do
+    posts = [Post.create!(title: "A Title", body: "A body."), Post.create!(title: "Another", body: "body.")]
+
+    roundtripped_posts = ActiveRecord::MessagePack.load(ActiveRecord::MessagePack.dump(posts))
+    roundtripped_nil = ActiveRecord::MessagePack.load(ActiveRecord::MessagePack.dump(nil))
+
+    assert_equal posts, roundtripped_posts
+    assert_nil roundtripped_nil
+  end
+
+  test "raises when message pack format version is unknown" do
+    error = assert_raises RuntimeError do
+      ActiveRecord::MessagePack.load([999, nil, []])
+    end
+
+    assert_equal "Invalid format version: 999", error.message
+  end
+
+  test "roundtrips record with no cached association entries" do
+    post = Post.create!(title: "A Title", body: "A body.")
+
+    assert_no_queries do
+      assert_equal post, ActiveRecord::MessagePack.load(ActiveRecord::MessagePack.dump(post))
+    end
+  end
+
+  test "skips cached associations that no longer exist" do
+    post = Post.create!(title: "A Title", body: "A body.")
+    encoded = ActiveRecord::MessagePack.dump(post)
+    encoded[2][0] << :legacy_author << nil
+
+    assert_nothing_raised do
+      assert_equal post, ActiveRecord::MessagePack.load(encoded)
+    end
+  end
+
   test "raises ActiveSupport::MessagePack::MissingClassError if record class no longer exists" do
     klass = Class.new(Post)
     def klass.name; "SomeLegacyClass"; end
