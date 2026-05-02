@@ -3,6 +3,14 @@
 require "cases/encryption/helper"
 
 class ActiveRecord::Encryption::DeterministicKeyProviderTest < ActiveRecord::EncryptionTestCase
+  test "will derive a deterministic key from one password" do
+    key_provider = ActiveRecord::Encryption::DeterministicKeyProvider.new("secret")
+    key = key_provider.encryption_key
+
+    assert_equal ActiveRecord::Encryption.cipher.key_length, key.secret.bytesize
+    assert_equal [ key ], key_provider.decryption_keys(ActiveRecord::Encryption::Message.new(payload: "some secret"))
+  end
+
   test "will raise a configuration error when trying to configure multiple keys" do
     assert_raise ActiveRecord::Encryption::Errors::Configuration do
       ActiveRecord::Encryption::DeterministicKeyProvider.new([ "secret 1", "secret 2" ])
