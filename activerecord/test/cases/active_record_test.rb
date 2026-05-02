@@ -100,6 +100,16 @@ class ActiveRecordTest < ActiveRecord::TestCase
     assert_equal "db_warnings_action must be one of :ignore, :log, :raise, :report, or a custom proc.", error.message
   end
 
+  test ".disconnect_all! delegates to pool configs" do
+    called = false
+
+    ActiveRecord::ConnectionAdapters::PoolConfig.stub(:disconnect_all!, -> { called = true }) do
+      ActiveRecord.disconnect_all!
+    end
+
+    assert called
+  end
+
   unless in_memory_db?
     test ".disconnect_all! closes all connections" do
       ActiveRecord::Base.lease_connection.connect!
