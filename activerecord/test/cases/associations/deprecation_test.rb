@@ -61,6 +61,13 @@ module AssociationDeprecationTest
       assert_equal true, ActiveRecord::Associations::Deprecation.backtrace
     end
 
+    test "reader returns current mode and backtrace" do
+      ActiveRecord::Associations::Deprecation.mode = :notify
+      ActiveRecord::Associations::Deprecation.backtrace = true
+
+      assert_equal({ mode: :notify, backtrace: true }, ActiveRecord.deprecated_associations_options)
+    end
+
     test "not a hash" do
       error = assert_raises(ArgumentError) do
         ActiveRecord.deprecated_associations_options = :invalid
