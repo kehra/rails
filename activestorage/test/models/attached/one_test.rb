@@ -3,6 +3,7 @@
 require "test_helper"
 require "database/setup"
 require "active_support/testing/method_call_assertions"
+require "tempfile"
 
 class ActiveStorage::OneAttachedTest < ActiveSupport::TestCase
   include ActiveJob::TestHelper
@@ -80,6 +81,26 @@ class ActiveStorage::OneAttachedTest < ActiveSupport::TestCase
   test "attaching a new blob from an uploaded file to an existing record" do
     @user.avatar.attach fixture_file_upload("racecar.jpg")
     assert_equal "racecar.jpg", @user.avatar.filename.to_s
+  end
+
+  test "attaching a new blob from an Action Dispatch uploaded file" do
+    tempfile = Tempfile.new([ "racecar", ".jpg" ])
+    tempfile.binmode
+    tempfile.write file_fixture("racecar.jpg").binread
+    tempfile.rewind
+
+    upload = ActionDispatch::Http::UploadedFile.new(
+      tempfile: tempfile,
+      filename: "racecar.jpg",
+      type: "image/jpeg"
+    )
+
+    @user.avatar.attach upload
+
+    assert_equal "racecar.jpg", @user.avatar.filename.to_s
+    assert_equal "image/jpeg", @user.avatar.content_type
+  ensure
+    tempfile&.close!
   end
 
   test "attaching StringIO attachable to an existing record" do
@@ -826,6 +847,74 @@ class ActiveStorage::OneAttachedTest < ActiveSupport::TestCase
     assert_raises match: /Cannot configure service :unknown for .+#featured_vlog/ do
       @user.featured_vlog.attach fixture_file_upload("video.mp4")
     end
+  end
+
+  test "raises error when analyze option is unknown" do
+    extra_attached = Class.new(User) do
+      def self.name; superclass.name; end
+
+      has_one_attached :bad_analysis, analyze: :eventually
+    end
+
+    @user = @user.becomes(extra_attached)
+
+    error = assert_raises(ArgumentError) do
+      @user.bad_analysis.attach fixture_file_upload("racecar.jpg")
+      @user.valid?
+    end
+
+    assert_equal "Unknown analyze option: :eventually. Valid options are :immediately, :later, :lazily.", error.message
+  end
+
+  test "create one upload rejects unsupported attachables" do
+    change = ActiveStorage::Attached::Changes::CreateOne.allocate
+    change.instance_variable_set(:@attachable, Object.new)
+
+    error = assert_raises(ArgumentError) do
+      change.send(:open_attachable_io)
+    end
+
+    assert_match(/Could not upload: expected attachable/, error.message)
+  end
+
+  test "create one skips immediate analysis when blob is already analyzed" do
+    blob = create_file_blob(filename: "racecar.jpg", metadata: { analyzed: true })
+    change = ActiveStorage::Attached::Changes::CreateOne.new("avatar_with_immediate_analysis", @user, blob)
+    blob.local_io = StringIO.new("already-local")
+
+    blob.stub(:analyze_without_saving, -> { flunk "already analyzed blobs should not be analyzed again" }) do
+      assert_nil change.analyze
+    end
+  ensure
+    blob&.local_io = nil
+  end
+
+  test "create one handles missing attachment reflection defaults" do
+    record = Object.new
+    def record.attachment_reflections; {}; end
+
+    change = ActiveStorage::Attached::Changes::CreateOne.allocate
+    change.instance_variable_set(:@record, record)
+    change.instance_variable_set(:@name, "missing")
+
+    assert_nil change.send(:analyze_option)
+    assert_empty change.send(:named_variants)
+  end
+
+  test "create one local io does not require rewind support" do
+    blob = create_blob(filename: "racecar.jpg")
+    io = Object.new
+    yielded = false
+
+    change = ActiveStorage::Attached::Changes::CreateOne.allocate
+    change.instance_variable_set(:@attachable, { io: io })
+    change.instance_variable_set(:@blob, blob)
+
+    change.send(:with_local_io) { yielded = true }
+
+    assert yielded
+  ensure
+    blob&.local_io = nil
   end
 
   test "creating variation by variation name" do
