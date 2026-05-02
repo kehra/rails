@@ -110,6 +110,33 @@ class ActiveRecordTest < ActiveRecord::TestCase
     assert called
   end
 
+  test ".eager_load! eager loads nested Active Record namespaces" do
+    eager_loaded = []
+    namespaces = [
+      ActiveRecord::Locking,
+      ActiveRecord::Scoping,
+      ActiveRecord::Associations,
+      ActiveRecord::AttributeMethods,
+      ActiveRecord::ConnectionAdapters,
+      ActiveRecord::Encryption,
+    ]
+
+    stub = lambda do |remaining|
+      namespace = remaining.first
+      if namespace
+        namespace.stub(:eager_load!, -> { eager_loaded << namespace }) do
+          stub.call(remaining.drop(1))
+        end
+      else
+        ActiveRecord.eager_load!
+      end
+    end
+
+    stub.call(namespaces)
+
+    assert_equal namespaces, eager_loaded.last(namespaces.size)
+  end
+
   unless in_memory_db?
     test ".disconnect_all! closes all connections" do
       ActiveRecord::Base.lease_connection.connect!
