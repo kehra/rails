@@ -72,6 +72,59 @@ module ActiveRecord
           coder.load(missing_class_yaml)
         end
       end
+
+      def test_dump_uses_unsafe_load_configuration
+        coder = YAMLColumn.new("attr_name")
+
+        assert_match "--- :somesymbol", coder.dump(:somesymbol)
+      end
+
+      def test_init_with_builds_safe_coder_for_legacy_payload
+        coder = YAMLColumn.allocate
+        coder.init_with("attr_name" => "attr_name", "object_class" => Object, "permitted_classes" => [Time], "unsafe_load" => true)
+
+        assert_instance_of YAMLColumn::SafeCoder, coder.coder
+        assert_kind_of Time, coder.load(YAML.dump(Time.now))
+      end
+
+      def test_init_with_preserves_existing_coder
+        existing_coder = YAMLColumn::SafeCoder.new(unsafe_load: true)
+        coder = YAMLColumn.allocate
+        coder.init_with("attr_name" => "attr_name", "object_class" => Object, "coder" => existing_coder)
+
+        assert_same existing_coder, coder.coder
+      end
+
+      def test_coder_builds_legacy_safe_coder_from_instance_variables
+        coder = YAMLColumn.allocate
+        coder.instance_variable_set(:@attr_name, "attr_name")
+        coder.instance_variable_set(:@object_class, Object)
+        coder.instance_variable_set(:@permitted_classes, [Symbol])
+        coder.instance_variable_set(:@unsafe_load, nil)
+
+        assert_instance_of YAMLColumn::SafeCoder, coder.coder
+        assert_equal :somesymbol, coder.load(YAML.dump(:somesymbol))
+      end
+
+      def test_coder_builds_default_legacy_safe_coder_without_instance_variables
+        coder = YAMLColumn.allocate
+
+        assert_instance_of YAMLColumn::SafeCoder, coder.coder
+      end
+
+      class RequiredArgument
+        def initialize(argument)
+          @argument = argument
+        end
+      end
+
+      def test_initialize_rejects_classes_without_zero_argument_constructor
+        error = assert_raises(ArgumentError) do
+          YAMLColumn.new("attr_name", RequiredArgument)
+        end
+
+        assert_equal "Cannot serialize ActiveRecord::Coders::YAMLColumnTest::RequiredArgument. Classes passed to `serialize` must have a 0 argument constructor.", error.message
+      end
     end
 
     class YAMLColumnTestWithSafeLoad < YAMLColumnTest
@@ -147,6 +200,15 @@ module ActiveRecord
         assert_raises(Psych::DisallowedClass) do
           coder.load(time_yaml)
         end
+      end
+
+      def test_yaml_column_override_unsafe_dump_option
+        ActiveRecord.use_yaml_unsafe_load = true
+        ActiveRecord.yaml_column_permitted_classes = []
+
+        coder = YAMLColumn.new("attr_name", unsafe_load: false)
+
+        assert_equal YAML.safe_dump("safe", aliases: true), coder.dump("safe")
       end
 
       def test_load_doesnt_handle_undefined_class_or_module
