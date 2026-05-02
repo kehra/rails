@@ -100,6 +100,103 @@ module ActiveRecord
       assert_not_equal first_books, additional_books
     end
 
+    def test_partial_query_collector_add_binds
+      collector = ActiveRecord::StatementCache.partial_query_collector
+      binds = [1, 2, 3]
+
+      assert_same collector, collector.add_binds(binds)
+
+      parts, collected_binds = collector.value
+      assert_equal binds, collected_binds
+      assert_equal 5, parts.size
+      assert_equal [ActiveRecord::StatementCache::Substitute, String, ActiveRecord::StatementCache::Substitute, String, ActiveRecord::StatementCache::Substitute], parts.map(&:class)
+      assert_equal [", ", ", "], parts.select { |part| part.is_a?(String) }
+    end
+
+    def test_partial_query_collector_add_binds_with_proc
+      collector = ActiveRecord::StatementCache.partial_query_collector
+      binds = [1, 2]
+
+      collector.add_binds(binds, ->(value) { value * 10 })
+
+      parts, collected_binds = collector.value
+      assert_equal [10, 20], collected_binds
+      assert_equal 3, parts.size
+    end
+
+    def test_partial_query_quotes_plain_bind_values
+      query = ActiveRecord::StatementCache.partial_query(["id = ", ActiveRecord::StatementCache::Substitute.new], retryable: false)
+
+      assert_equal "id = 1", query.sql_for([1], ActiveRecord::Base.lease_connection)
+    end
+
+    def test_statement_cache_execute_uses_async_find_by_sql
+      query_builder = Struct.new(:retryable) do
+        def sql_for(bind_values, connection)
+          "SELECT * FROM books WHERE id = #{bind_values.first}"
+        end
+      end.new(true)
+      bind_map = Struct.new(:binds) do
+        def bind(params)
+          binds.replace(params)
+        end
+      end.new([])
+      model = Class.new do
+        class << self
+          attr_accessor :calls
+
+          def async_find_by_sql(sql, bind_values, preparable:, allow_retry:, &block)
+            self.calls = [sql, bind_values, preparable, allow_retry, block]
+            :async_result
+          end
+        end
+      end
+      cache = ActiveRecord::StatementCache.new(query_builder, bind_map, model)
+      callback = -> {}
+
+      assert_equal :async_result, cache.execute([1], ActiveRecord::Base.lease_connection, async: true, &callback)
+      assert_equal ["SELECT * FROM books WHERE id = 1", [1], true, true, callback], model.calls
+    end
+
+    def test_statement_cache_execute_returns_empty_result_on_range_error
+      query_builder = Struct.new(:retryable) do
+        def sql_for(bind_values, connection)
+          raise ::RangeError
+        end
+      end.new(false)
+      bind_map = Struct.new(:binds) do
+        def bind(params)
+          binds.replace(params)
+        end
+      end.new([])
+      model = Class.new
+      cache = ActiveRecord::StatementCache.new(query_builder, bind_map, model)
+
+      assert_equal [], cache.execute([1], ActiveRecord::Base.lease_connection)
+
+      promise_singleton = ActiveRecord::Promise.singleton_class
+      had_wrap = promise_singleton.method_defined?(:wrap)
+      original_wrap = ActiveRecord::Promise.method(:wrap) if had_wrap
+      promise_singleton.define_method(:wrap) { |value| value }
+      assert_equal [], cache.execute([1], ActiveRecord::Base.lease_connection, async: true)
+    ensure
+      if defined?(promise_singleton) && had_wrap
+        promise_singleton.define_method(:wrap, original_wrap)
+      elsif defined?(promise_singleton)
+        promise_singleton.remove_method(:wrap)
+      end
+    end
+
+    def test_statement_cache_unsupported_value_predicate
+      assert ActiveRecord::StatementCache.unsupported_value?(nil)
+      assert ActiveRecord::StatementCache.unsupported_value?([1])
+      assert ActiveRecord::StatementCache.unsupported_value?(1..2)
+      assert ActiveRecord::StatementCache.unsupported_value?({ id: 1 })
+      assert ActiveRecord::StatementCache.unsupported_value?(Book.where(id: 1))
+      assert ActiveRecord::StatementCache.unsupported_value?(Book.new)
+      assert_not ActiveRecord::StatementCache.unsupported_value?(1)
+    end
+
     def test_unprepared_statements_dont_share_a_cache_with_prepared_statements
       Book.create(name: "my book")
       Book.create(name: "my other book")
