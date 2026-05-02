@@ -822,6 +822,110 @@ class ReflectionTest < ActiveRecord::TestCase
     end
   end
 
+  def test_public_reflection_edge_contracts
+    assert_raises(RuntimeError, match: /Unsupported Macro: unsupported/) do
+      ActiveRecord::Reflection.create(:unsupported, :clients, nil, {}, Firm)
+    end
+
+    firm_clients = ActiveRecord::Reflection.create(:has_many, :clients, nil, { strict_loading: true }, Firm)
+    assert_predicate firm_clients, :strict_loading?
+    assert_includes firm_clients.strict_loading_violation_message(Firm.new), "Client association"
+    assert_includes Tagging.reflect_on_association(:taggable).strict_loading_violation_message(Tagging.new), "polymorphic association"
+
+    aggregate = ActiveRecord::Reflection::AggregateReflection.new(:balance, nil, { mapping: %w(balance cents) }, Firm)
+    assert_equal [%w(balance cents)], aggregate.mapping
+    nested_aggregate = ActiveRecord::Reflection::AggregateReflection.new(:balance, nil, { mapping: [%w(balance cents)] }, Firm)
+    assert_equal [%w(balance cents)], nested_aggregate.mapping
+
+    firm_clients.options[:foreign_key] = [:firm_id, :firm_name]
+    firm_clients.instance_variable_set(:@foreign_key, nil)
+    assert_equal %w(firm_id firm_name), firm_clients.foreign_key
+
+    assert_nil firm_clients.inverse_which_updates_counter_cache
+    assert_nil ActiveRecord::Reflection.create(:belongs_to, :firm, nil, {}, Client).inverse_which_updates_counter_cache
+
+    tagged_posts = ActiveRecord::Reflection.create(:has_many, :tagged_posts, nil, { association_foreign_key: :taggable_id }, Tag)
+    assert_equal "taggable_id", tagged_posts.association_foreign_key
+    assert_equal "client_id", ActiveRecord::Reflection.create(:has_many, :clients, nil, {}, Firm).association_foreign_key
+    assert_equal "Tag", Tag.reflect_on_association(:taggings).polymorphic_name
+  end
+
+  def test_public_reflection_query_constraint_derivation_edges
+    first_key_owner = Class.new(ActiveRecord::Base) do
+      self.table_name = "sharded_blog_posts"
+      self.primary_key = "id"
+      query_constraints :id, :blog_id
+    end
+
+    reflection = ActiveRecord::Reflection.create(:belongs_to, :parent, nil, {}, first_key_owner)
+    assert_equal ["parent_id", "blog_id"], reflection.foreign_key
+
+    uninterpretable_constraints = Object.new
+    def uninterpretable_constraints.size = 2
+    def uninterpretable_constraints.include?(key) = key == "id"
+    def uninterpretable_constraints.to_ary = ["blog_id", "blog_post_id"]
+    def uninterpretable_constraints.inspect = "[\"blog_id\", \"blog_post_id\"]"
+
+    uninterpretable = Class.new(ActiveRecord::Base) do
+      self.table_name = "sharded_blog_posts"
+      self.primary_key = "id"
+      define_singleton_method(:query_constraints_list) { uninterpretable_constraints }
+    end
+
+    reflection = ActiveRecord::Reflection.create(:belongs_to, :blog, nil, {}, uninterpretable)
+    error = assert_raises(ArgumentError) do
+      reflection.send(:derive_fk_query_constraints, "blog_id")
+    end
+    assert_match "couldn't correctly interpret the query constraints", error.message
+  end
+
+  def test_public_through_reflection_contract_edges
+    tags = Sharded::BlogPost.reflect_on_association(:tags)
+
+    assert_equal tags.source_reflection.scopes, tags.scopes
+    assert_equal ["taggable"], Tag.reflect_on_association(:tagged_posts).source_reflection_names
+    assert_equal tags.source_reflection.options, tags.source_options
+    assert_equal tags.through_reflection.options, tags.through_options
+
+    Object.send(:remove_const, :ReflectionAmbiguousTagging) if Object.const_defined?(:ReflectionAmbiguousTagging)
+    Object.send(:remove_const, :ReflectionAmbiguousTag) if Object.const_defined?(:ReflectionAmbiguousTag)
+
+    Object.const_set(:ReflectionAmbiguousTagging, Class.new(ActiveRecord::Base) do
+      self.table_name = "taggings"
+      belongs_to :tag, class_name: "Tag"
+      belongs_to :tags, class_name: "Tag"
+    end)
+    Object.const_set(:ReflectionAmbiguousTag, Class.new(ActiveRecord::Base) do
+      self.table_name = "tags"
+      has_many :reflection_ambiguous_taggings, class_name: "ReflectionAmbiguousTagging"
+      has_many :tags, through: :reflection_ambiguous_taggings
+    end)
+
+    assert_raises(ActiveRecord::AmbiguousSourceReflectionForThroughAssociation) do
+      ReflectionAmbiguousTag.reflect_on_association(:tags).source_reflection_name
+    end
+
+    Object.send(:remove_const, :ReflectionPointlessSourceType) if Object.const_defined?(:ReflectionPointlessSourceType)
+    Object.const_set(:ReflectionPointlessSourceType, Class.new(ActiveRecord::Base) do
+      self.table_name = "posts"
+      has_many :taggings
+      has_many :tags, through: :taggings, source_type: "Tag"
+    end)
+
+    assert_raises(ActiveRecord::HasManyThroughAssociationPointlessSourceTypeError) do
+      ReflectionPointlessSourceType.reflect_on_association(:tags).check_validity!
+    end
+  end
+
+  def test_public_polymorphic_reflection_join_scopes_for_through_source_type
+    polymorphic = ActiveRecord::Reflection::PolymorphicReflection.new(
+      Tagging.reflect_on_association(:taggable),
+      Tag.reflect_on_association(:taggings)
+    )
+
+    assert_not_empty polymorphic.join_scopes(Post.arel_table, nil, Post, Tag.new)
+  end
+
   private
     def assert_reflection(klass, association, options)
       assert reflection = klass.reflect_on_association(association)
