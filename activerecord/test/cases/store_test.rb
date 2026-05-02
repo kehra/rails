@@ -171,6 +171,14 @@ class StoreTest < ActiveRecord::TestCase
     assert_equal "Dallas", @john.partner_name_before_last_save
   end
 
+  test "saved changes tracking for accessors without prior save" do
+    john = Admin::User.find(@john.id)
+
+    assert_not john.saved_change_to_partner_name?
+    assert_nil john.saved_change_to_partner_name
+    assert_nil john.partner_name_before_last_save
+  end
+
   test "saved changes tracking for accessors with json column" do
     if current_adapter?(:Mysql2Adapter, :TrilogyAdapter) && ActiveRecord::Base.lease_connection.mariadb?
       skip "MariaDB doesn't support JSON store_accessor"
