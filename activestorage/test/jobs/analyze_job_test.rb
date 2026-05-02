@@ -6,6 +6,14 @@ require "database/setup"
 class ActiveStorage::AnalyzeJobTest < ActiveJob::TestCase
   setup { @blob = create_blob }
 
+  test "performs analysis" do
+    @blob.stub(:analyze, -> { @analyzed = true }) do
+      ActiveStorage::AnalyzeJob.perform_now @blob
+    end
+
+    assert @analyzed
+  end
+
   test "ignores missing blob" do
     @blob.purge
 

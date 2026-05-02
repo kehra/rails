@@ -24,4 +24,19 @@ class ActiveStorage::PreviewImageJobTest < ActiveJob::TestCase
       end
     end
   end
+
+  test "does not enqueue transform jobs for unrepresentable previews" do
+    preview = Object.new
+    def preview.processed; self; end
+
+    blob = Object.new
+    blob.define_singleton_method(:preview) { |_| preview }
+    blob.define_singleton_method(:representable?) { false }
+
+    ActiveStorage.deprecator.silence do
+      assert_no_enqueued_jobs only: ActiveStorage::TransformJob do
+        ActiveStorage::PreviewImageJob.perform_now blob, [ @transformation ]
+      end
+    end
+  end
 end
