@@ -13,6 +13,44 @@ module ActiveRecord
       assert_equal [], registry.lookup(:bar)
     end
 
+    test "a registry copy has independent registrations" do
+      registry = Type::AdapterSpecificRegistry.new
+      registry.register(:foo, ::String)
+      copy = registry.dup
+      copy.register(:bar, ::Array)
+
+      assert_equal "", registry.lookup(:foo)
+      assert_equal "", copy.lookup(:foo)
+      assert_equal [], copy.lookup(:bar)
+      assert_raises(ArgumentError) { registry.lookup(:bar) }
+    end
+
+    test "registering a class works when proc does not support ruby2_keywords" do
+      silence_warnings do
+        Proc.class_eval do
+          alias_method :respond_to_without_adapter_registry_test?, :respond_to?
+          def respond_to?(name, include_private = false)
+            return false if name == :ruby2_keywords
+            respond_to_without_adapter_registry_test?(name, include_private)
+          end
+        end
+      end
+
+      registry = Type::AdapterSpecificRegistry.new
+      registry.register(:foo, type)
+
+      assert_equal type.new(keyword: :arg), registry.lookup(:foo, keyword: :arg)
+    ensure
+      if Proc.method_defined?(:respond_to_without_adapter_registry_test?)
+        silence_warnings do
+          Proc.class_eval do
+            alias_method :respond_to?, :respond_to_without_adapter_registry_test?
+            remove_method :respond_to_without_adapter_registry_test?
+          end
+        end
+      end
+    end
+
     test "a block can be registered" do
       registry = Type::AdapterSpecificRegistry.new
       registry.register(:foo) do |*args|
