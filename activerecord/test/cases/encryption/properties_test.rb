@@ -38,6 +38,12 @@ class ActiveRecord::EncryptionPropertiesTest < ActiveRecord::EncryptionTestCase
     assert_equal "value 2", @properties[:key_2]
   end
 
+  test "to_h returns the underlying properties hash" do
+    @properties.add(key_1: "value 1", key_2: "value 2")
+
+    assert_equal({ key_1: "value 1", key_2: "value 2" }, @properties.to_h)
+  end
+
   test "validate allowed types on creation" do
     example_of_valid_values.each do |value|
       ActiveRecord::Encryption::Properties.new(some_value: value)
