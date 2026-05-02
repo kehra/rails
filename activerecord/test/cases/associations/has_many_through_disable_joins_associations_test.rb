@@ -170,6 +170,11 @@ class HasManyThroughDisableJoinsAssociationsTest < ActiveRecord::TestCase
     assert_equal @member2, assert_queries_count(3) { @author.no_joins_ordered_members.unnamed.first }
   end
 
+  def test_polymorphic_disable_joins_through_ordered_scope_first_with_limit
+    assert_equal [@member2], assert_queries_count(1) { @author.ordered_members.unnamed.first(1) }
+    assert_equal [@member2], assert_queries_count(3) { @author.no_joins_ordered_members.unnamed.first(1) }
+  end
+
   def test_order_applied_in_double_join
     assert_equal [@member2, @member], assert_queries_count(1) { @author.members.to_a }
     assert_equal [@member2, @member], assert_queries_count(3) { @author.no_joins_members.to_a }
