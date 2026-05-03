@@ -145,6 +145,31 @@ module Rails
       ensure
         @notifier.unsubscribe block_sub
       end
+
+      def test_logger_computes_symbol_tags_and_uses_rails_logger
+        tagged_logger = ActiveSupport::TaggedLogging.new(::Logger.new(StringIO.new))
+        app = lambda do |env|
+          assert_equal(["GET"], tagged_logger.formatter.current_tags)
+          [200, {}, []]
+        end
+
+        with_rails_logger(tagged_logger) do
+          body = Rails::Rack::Logger.new(app, [:request_method]).call("REQUEST_METHOD" => "GET").last
+          assert_equal(["GET"], tagged_logger.formatter.current_tags)
+          body.close
+          assert_empty tagged_logger.formatter.current_tags
+        end
+      end
+
+      private
+        def with_rails_logger(logger)
+          singleton = class << Rails; self; end
+          original_logger = Rails.method(:logger)
+          singleton.define_method(:logger) { logger }
+          yield
+        ensure
+          singleton.define_method(:logger) { |*args, **kwargs, &block| original_logger.call(*args, **kwargs, &block) }
+        end
     end
   end
 end
