@@ -56,4 +56,16 @@ class PluginBuilderPublicContractTest < ActiveSupport::TestCase
     skip_rubocop_directory_call = skip_rubocop_generator.calls.find { |name,| name == :directory }
     assert_match(/rubocop/, skip_rubocop_directory_call[1][1][:exclude_pattern].inspect)
   end
+
+  test "cifiles creates GitHub workflow templates" do
+    plugin_builder, generator = builder
+
+    plugin_builder.cifiles
+
+    assert_equal [
+      [:empty_directory, [".github/workflows"], {}],
+      [:template, ["github/ci.yml", ".github/workflows/ci.yml"], {}],
+      [:template, ["github/dependabot.yml", ".github/dependabot.yml"], {}]
+    ], generator.calls
+  end
 end
