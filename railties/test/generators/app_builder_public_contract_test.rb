@@ -4,6 +4,12 @@ require "abstract_unit"
 require "rails/generators/rails/app/app_generator"
 
 class AppBuilderPublicContractTest < ActiveSupport::TestCase
+  class RecordingShell
+    def mute
+      yield
+    end
+  end
+
   class RecordingGenerator
     attr_reader :calls, :options
 
@@ -204,6 +210,35 @@ class AppBuilderPublicContractTest < ActiveSupport::TestCase
       [:empty_directory_with_keep_file, ["test/system"], {}],
       [:template, ["test/application_system_test_case.rb"], {}]
     ], builder.instance_variable_get(:@generator).calls.reject { |name,| name.to_s.end_with?("?") }
+  end
+
+  test "env file is skipped in pretend or dummy apps" do
+    app_builder = builder
+    app_builder.env
+    assert_equal [[:template, ["env", ".env"], {}]], app_builder.instance_variable_get(:@generator).calls
+
+    pretend = builder(pretend: true)
+    assert_nil pretend.env
+    assert_empty pretend.instance_variable_get(:@generator).calls
+
+    dummy = builder(dummy_app: true)
+    assert_nil dummy.env
+    assert_empty dummy.instance_variable_get(:@generator).calls
+  end
+
+  test "credentials diff enrollment runs unless explicitly skipped" do
+    shell = RecordingShell.new
+    app_builder = builder({}, shell: shell)
+
+    app_builder.credentials_diff_enroll
+
+    assert_includes app_builder.instance_variable_get(:@generator).calls, [:rails_command, ["credentials:diff --enroll"], { inline: true, shell: shell }]
+
+    [:skip_decrypted_diffs, :dummy_app, :pretend].each do |option|
+      skipped = builder({ option => true }, shell: shell)
+      assert_nil skipped.credentials_diff_enroll
+      refute_includes skipped.instance_variable_get(:@generator).calls, [:rails_command, ["credentials:diff --enroll"], { inline: true, shell: shell }]
+    end
   end
 
   test "system test files are skipped when devcontainer does not need system tests" do
