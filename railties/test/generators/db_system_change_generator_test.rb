@@ -218,6 +218,103 @@ module Rails
               assert_not_includes compose_config.keys, "volumes"
             end
           end
+
+          test "change to database with service replaces existing devcontainer db host" do
+            devcontainer_path = File.join(destination_root, ".devcontainer/devcontainer.json")
+            json = JSON.parse(File.read(devcontainer_path))
+            json["containerEnv"]["DB_HOST"] = "old-db"
+            File.write(devcontainer_path, JSON.pretty_generate(json))
+
+            run_generator ["--to", "postgresql"]
+
+            assert_devcontainer_json_file do |content|
+              assert_equal "postgres", content["containerEnv"]["DB_HOST"]
+            end
+          end
+
+          test "docker package replacement supports databases without extra packages" do
+            null_database = Database::Null.new
+            generator = self.generator([], to: "sqlite3")
+            generator.define_singleton_method(:database) { null_database }
+
+            assert_equal "curl libjemalloc2 libvips", generator.send(:docker_base_packages, nil)
+            assert_equal "build-essential git", generator.send(:docker_build_packages, nil)
+          end
+
+          test "change without dockerfile skips dockerfile edits" do
+            FileUtils.rm_f(File.join(destination_root, "Dockerfile"))
+
+            run_generator ["--to", "sqlite3"]
+
+            assert_no_file "Dockerfile"
+          end
+
+          test "change without devcontainer skips devcontainer edits" do
+            FileUtils.rm_rf(File.join(destination_root, ".devcontainer"))
+
+            run_generator ["--to", "sqlite3"]
+
+            assert_no_file ".devcontainer/devcontainer.json"
+            assert_no_file ".devcontainer/compose.yaml"
+          end
+
+          test "devcontainer directory without files is ignored" do
+            FileUtils.rm_f(File.join(destination_root, ".devcontainer/devcontainer.json"))
+            FileUtils.rm_f(File.join(destination_root, ".devcontainer/compose.yaml"))
+
+            run_generator ["--to", "sqlite3"]
+
+            assert_no_file ".devcontainer/devcontainer.json"
+            assert_no_file ".devcontainer/compose.yaml"
+          end
+
+          test "compose edit preserves unrelated volumes and dependencies" do
+            compose_path = File.join(destination_root, ".devcontainer/compose.yaml")
+            File.write(compose_path, {
+              "services" => {
+                "rails-app" => { "depends_on" => ["redis"] },
+                "redis" => { "image" => "redis" }
+              },
+              "volumes" => { "redis-data" => nil }
+            }.to_yaml)
+
+            run_generator ["--to", "sqlite3"]
+
+            assert_compose_file do |compose_config|
+              assert_equal ["redis"], compose_config["services"]["rails-app"]["depends_on"]
+              assert_equal({ "redis-data" => nil }, compose_config["volumes"])
+            end
+          end
+
+          test "compose edit tolerates missing volumes and dependencies" do
+            compose_path = File.join(destination_root, ".devcontainer/compose.yaml")
+            File.write(compose_path, {
+              "services" => {
+                "rails-app" => {},
+                "redis" => { "image" => "redis" }
+              }
+            }.to_yaml)
+
+            run_generator ["--to", "sqlite3"]
+
+            assert_compose_file do |compose_config|
+              assert_not_includes compose_config, "volumes"
+              assert_not_includes compose_config["services"]["rails-app"], "depends_on"
+            end
+          end
+
+          test "default generator root returns path only when present" do
+            klass = ChangeGenerator
+            root_path = File.expand_path(File.join(klass.base_name, "app"), klass.base_root)
+
+            File.stub(:exist?, ->(path) { path == root_path }) do
+              assert_equal root_path, klass.default_generator_root
+            end
+
+            File.stub(:exist?, false) do
+              assert_nil klass.default_generator_root
+            end
+          end
         end
       end
     end
