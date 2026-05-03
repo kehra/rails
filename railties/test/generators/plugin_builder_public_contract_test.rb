@@ -251,4 +251,38 @@ class PluginBuilderPublicContractTest < ActiveSupport::TestCase
     assert_not_includes api_engine_generator.calls, [:empty_directory_with_keep_file, ["test/helpers"], {}]
     assert_includes api_engine_generator.calls, [:template, ["test/integration/navigation_test.rb"], {}]
   end
+
+  test "test dummy config customizes boot routes and helper configuration" do
+    mountable_builder, mountable_generator = builder({}, dummy_path: "test/dummy", mountable?: true, engine?: true, api?: false)
+    mountable_builder.test_dummy_config
+
+    assert_includes mountable_generator.calls, [:template, ["rails/boot.rb", "test/dummy/config/boot.rb"], { force: true }]
+    assert_includes mountable_generator.calls, [:template, ["rails/routes.rb", "test/dummy/config/routes.rb"], { force: true }]
+    assert_equal 1, mountable_generator.calls.count { |name,| name == :insert_into_file }
+
+    api_engine_builder, api_engine_generator = builder({}, dummy_path: "test/dummy", mountable?: false, engine?: true, api?: true)
+    api_engine_builder.test_dummy_config
+
+    assert_includes api_engine_generator.calls, [:template, ["rails/boot.rb", "test/dummy/config/boot.rb"], { force: true }]
+    assert_not_includes api_engine_generator.calls, [:template, ["rails/routes.rb", "test/dummy/config/routes.rb"], { force: true }]
+    assert_empty api_engine_generator.calls.select { |name,| name == :insert_into_file }
+  end
+
+  test "test dummy assets and cleanup touch dummy application paths" do
+    plugin_builder, generator = builder({}, dummy_path: "test/dummy")
+
+    plugin_builder.test_dummy_assets
+    plugin_builder.test_dummy_clean
+
+    assert_includes generator.calls, [:template, ["rails/stylesheets.css", "test/dummy/app/assets/stylesheets/application.css"], { force: true }]
+    assert_includes generator.calls, [:inside, ["test/dummy"], {}]
+    assert_includes generator.calls, [:remove_file, [".ruby-version"], {}]
+    assert_includes generator.calls, [:remove_dir, ["db"], {}]
+    assert_includes generator.calls, [:remove_file, ["Gemfile"], {}]
+    assert_includes generator.calls, [:remove_dir, ["lib"], {}]
+    assert_includes generator.calls, [:remove_file, ["public/robots.txt"], {}]
+    assert_includes generator.calls, [:remove_file, ["README.md"], {}]
+    assert_includes generator.calls, [:remove_file, ["test"], {}]
+    assert_includes generator.calls, [:remove_file, ["vendor"], {}]
+  end
 end
