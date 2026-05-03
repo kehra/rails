@@ -119,6 +119,15 @@ class ModelGeneratorTest < Rails::Generators::TestCase
     assert_match(/\[WARNING\] The model name 'accounts' was recognized as a plural, using the singular 'account' instead\. Override with --force-plural or setup custom inflection rules for this noun before running the generator\./, content)
   end
 
+  def test_plural_names_are_singularized_without_repeating_warning_after_first_model_helper_warning
+    Rails::Generators::ModelHelpers.skip_warn = true
+
+    content = run_generator ["accounts"]
+
+    assert_file "app/models/account.rb", /class Account < ApplicationRecord/
+    assert_no_match(/\[WARNING\] The model name 'accounts'/, content)
+  end
+
   def test_unknown_inflection_rule_are_warned
     content = run_generator ["porsche"]
     assert_match("[WARNING] Rails cannot recover singular form from its plural form 'porsches'.\nPlease setup custom inflection rules for this noun before running the generator in config/initializers/inflections.rb.", content)
