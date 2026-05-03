@@ -2,11 +2,33 @@
 
 require "abstract_unit"
 require "rails/generators/rails/app/app_generator"
+require "rails/generators/rails/master_key/master_key_generator"
+require "rails/generators/rails/credentials/credentials_generator"
 
 class AppBuilderPublicContractTest < ActiveSupport::TestCase
   class RecordingShell
     def mute
       yield
+    end
+  end
+
+  class RecordingGeneratedCommand
+    attr_reader :calls
+
+    def initialize
+      @calls = []
+    end
+
+    def add_master_key_file_silently
+      calls << :add_master_key_file_silently
+    end
+
+    def add_credentials_file
+      calls << :add_credentials_file
+    end
+
+    def invoke_all
+      calls << :invoke_all
     end
   end
 
@@ -212,6 +234,30 @@ class AppBuilderPublicContractTest < ActiveSupport::TestCase
     ], builder.instance_variable_get(:@generator).calls.reject { |name,| name.to_s.end_with?("?") }
   end
 
+  test "master key and credentials generators are skipped in pretend or dummy apps" do
+    master_key = RecordingGeneratedCommand.new
+    with_singleton_method(Rails::Generators::MasterKeyGenerator, :new, ->(*) { master_key }) do
+      app_builder = builder(quiet: true, force: true)
+      app_builder.master_key
+
+      assert_equal [:add_master_key_file_silently], master_key.calls
+    end
+
+    credentials = RecordingGeneratedCommand.new
+    with_singleton_method(Rails::Generators::CredentialsGenerator, :new, ->(*) { credentials }) do
+      app_builder = builder
+      app_builder.credentials
+
+      assert_equal [:add_credentials_file], credentials.calls
+    end
+
+    [:pretend, :dummy_app].each do |option|
+      skipped = builder(option => true)
+      assert_nil skipped.master_key
+      assert_nil skipped.credentials
+    end
+  end
+
   test "env file is skipped in pretend or dummy apps" do
     app_builder = builder
     app_builder.env
@@ -241,6 +287,58 @@ class AppBuilderPublicContractTest < ActiveSupport::TestCase
     end
   end
 
+  test "devcontainer passes application options to the devcontainer generator" do
+    devcontainer = RecordingGeneratedCommand.new
+    captured = nil
+
+    with_singleton_method(Rails::Generators::DevcontainerGenerator, :new, ->(args, options) { captured = [args, options]; devcontainer }) do
+      app_builder = builder({ database: "sqlite3", skip_solid: true, skip_action_cable: false, skip_active_job: true, skip_kamal: false, skip_active_storage: false, dev: true, pretend: true },
+        depends_on_system_test?: true,
+        using_node?: true,
+        app_name: "blog",
+        app_path: "/tmp/blog")
+
+      app_builder.devcontainer
+    end
+
+    assert_equal [], captured.first
+    assert_equal({
+      database: "sqlite3",
+      redis: true,
+      kamal: true,
+      system_test: true,
+      active_storage: true,
+      dev: true,
+      node: true,
+      app_name: "blog",
+      app_folder: "blog",
+      skip_solid: true,
+      pretend: true
+    }, captured.last)
+    assert_equal [:invoke_all], devcontainer.calls
+  end
+
+  test "devcontainer skips redis when solid, action cable, and active job are all skipped" do
+    devcontainer = RecordingGeneratedCommand.new
+    captured = nil
+
+    with_singleton_method(Rails::Generators::DevcontainerGenerator, :new, ->(args, options) { captured = options; devcontainer }) do
+      app_builder = builder({ database: "sqlite3", skip_solid: true, skip_action_cable: true, skip_active_job: true, skip_kamal: true, skip_active_storage: true, dev: false, pretend: false },
+        depends_on_system_test?: false,
+        using_node?: false,
+        app_name: "api",
+        app_path: "/tmp/api")
+
+      app_builder.devcontainer
+    end
+
+    assert_equal false, captured[:redis]
+    assert_equal false, captured[:kamal]
+    assert_equal false, captured[:system_test]
+    assert_equal false, captured[:active_storage]
+    assert_equal false, captured[:node]
+  end
+
   test "system test files are skipped when devcontainer does not need system tests" do
     builder = builder({}, devcontainer?: false, depends_on_system_test?: true)
 
@@ -251,4 +349,14 @@ class AppBuilderPublicContractTest < ActiveSupport::TestCase
   test "config target version falls back to the current rails version" do
     assert_equal Rails::VERSION::STRING.to_f, builder.config_target_version
   end
+
+  private
+    def with_singleton_method(object, name, replacement)
+      singleton = object.singleton_class
+      original = object.method(name)
+      singleton.define_method(name, &replacement)
+      yield
+    ensure
+      singleton.define_method(name) { |*args, **kwargs, &block| original.call(*args, **kwargs, &block) }
+    end
 end
