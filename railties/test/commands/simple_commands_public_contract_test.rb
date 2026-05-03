@@ -5,6 +5,9 @@ require "rails/command"
 require "rails/commands/destroy/destroy_command"
 require "rails/commands/dev/dev_command"
 require "rails/commands/devcontainer/devcontainer_command"
+require "rails/commands/gem_help/gem_help_command"
+require "rails/commands/generate/generate_command"
+require "rails/commands/help/help_command"
 
 class SimpleCommandsPublicContractTest < ActiveSupport::TestCase
   setup do
@@ -141,6 +144,70 @@ class SimpleCommandsPublicContractTest < ActiveSupport::TestCase
         end
       end
     end
+  end
+
+  test "gem help command prints hidden usage" do
+    command = Rails::Command::GemHelpCommand.new([], [])
+    with_singleton_method(Rails::Command::GemHelpCommand, :class_usage, -> { "gem usage" }) do
+      assert_equal "gem usage\n", capture(:stdout) { command.perform }
+    end
+  end
+
+  test "generate help boots application loads generators and prints generator help" do
+    command = Rails::Command::GenerateCommand.new([], [])
+    calls = []
+    command.define_singleton_method(:boot_application!) { calls << :boot_application }
+    command.define_singleton_method(:load_generators) { calls << :load_generators }
+
+    with_singleton_method(Rails::Generators, :help, ->(name) { calls << [ :help, name ] }) do
+      command.help
+    end
+
+    assert_equal [ :boot_application, :load_generators, [ :help, "generate" ] ], calls
+  end
+
+  test "generate perform shows help without generator and invokes named generator with remaining args" do
+    help_command = Rails::Command::GenerateCommand.new([], [])
+    help_command.define_singleton_method(:help) { :helped }
+
+    assert_equal :helped, help_command.perform
+
+    original_argv = ARGV.dup
+    command = Rails::Command::GenerateCommand.new(["model", "Post", "title:string"], [])
+    calls = []
+    command.define_singleton_method(:boot_application!) { calls << :boot_application }
+    command.define_singleton_method(:load_generators) { calls << :load_generators }
+
+    with_singleton_method(Rails::Command, :root, -> { Pathname.new("/tmp/app") }) do
+      with_singleton_method(Rails::Generators, :invoke, ->(*args, **options) { calls << [ args, options ] }) do
+        command.perform
+      end
+    end
+
+    assert_equal ["Post", "title:string"], ARGV
+    assert_equal :boot_application, calls[0]
+    assert_equal :load_generators, calls[1]
+    assert_equal [["model", ["Post", "title:string"]], { behavior: :invoke, destination_root: Pathname.new("/tmp/app") }], calls[2]
+  ensure
+    ARGV.replace(original_argv) if original_argv
+  end
+
+  test "help command prints usage and extended command table excluding commands already in usage" do
+    command = Rails::Command::HelpCommand.new([], [])
+    printed_table = nil
+    command.define_singleton_method(:print_table) do |rows, options|
+      printed_table = [ rows, options ]
+    end
+
+    with_singleton_method(Rails::Command::HelpCommand, :class_usage, -> { "core usage" }) do
+      with_singleton_method(Rails::Command, :printing_commands, -> { [["server", "skip"], ["routes", "Routes"], ["about", "About"]] }) do
+        output = capture(:stdout) { command.help_extended }
+        assert_includes output, "core usage"
+        assert_includes output, "In addition to those commands"
+      end
+    end
+
+    assert_equal [[ ["about", "About"], ["routes", "Routes"] ], { truncate: true }], printed_table
   end
 
   private
