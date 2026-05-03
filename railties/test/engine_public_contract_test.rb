@@ -53,6 +53,52 @@ class EnginePublicContractTest < ActiveSupport::TestCase
     assert_nil engine.eager_load!
   end
 
+  test "configuration initializes defaults and memoized paths and yields generators" do
+    engine = build_engine_class.instance
+    config = engine.config
+
+    assert_equal @root.realpath, config.root
+    assert_kind_of Rails::Configuration::Generators, config.generators
+    assert_kind_of Rails::Configuration::MiddlewareStackProxy, config.middleware
+    assert_equal "javascript", config.javascript_path
+    assert_equal ActionDispatch::Routing::RouteSet, config.route_set_class
+    assert_nil config.default_scope
+    assert_empty config.autoload_paths
+    assert_empty config.autoload_once_paths
+    assert_empty config.eager_load_paths
+
+    yielded = nil
+    generators = config.generators do |g|
+      yielded = g
+      g.orm :sequel
+    end
+
+    assert_same generators, yielded
+    assert_same generators, config.generators
+    assert_equal :sequel, generators.orm
+
+    FileUtils.mkdir_p(@root.join("app/models"))
+    paths = config.paths
+    assert_same paths, config.paths
+    assert_equal @root.realpath, paths.path
+    assert_equal [ @root.join("app/models").to_s ], paths["app/models"].existent
+
+    new_root = @root.join("nested")
+    FileUtils.mkdir_p(new_root)
+    config.root = new_root
+
+    assert_equal new_root.realpath, config.root
+    assert_equal new_root.realpath, config.paths.path
+
+    config.autoload_paths << "custom/autoload"
+    config.autoload_once_paths << "custom/once"
+    config.eager_load_paths << "custom/eager"
+
+    assert_includes config.send(:all_autoload_paths), "custom/autoload"
+    assert_includes config.send(:all_autoload_once_paths), "custom/once"
+    assert_includes config.send(:all_eager_load_paths), "custom/eager"
+  end
+
   test "routes appends blocks and helpers paths report existing helper directories" do
     engine = build_engine_class.instance
     helper_dir = @root.join("app/helpers")
