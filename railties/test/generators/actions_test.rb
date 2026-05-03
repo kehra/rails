@@ -116,6 +116,15 @@ class ActionsTest < Rails::Generators::TestCase
     assert_file "Gemfile", /gem "rspec", github: "dchelimsky\/rspec", tag: "1\.2\.9\.rc1"/
   end
 
+  def test_gem_should_log_git_source_as_message
+    run_generator
+
+    output = action :gem, "rails", git: "https://github.com/rails/rails"
+
+    assert_match(/gemfile  https:\/\/github\.com\/rails\/rails/, output)
+    assert_file "Gemfile", /gem "rails", git: "https:\/\/github\.com\/rails\/rails"/
+  end
+
   def test_gem_should_put_the_comment_before_gem_declaration
     run_generator
 
@@ -170,6 +179,16 @@ class ActionsTest < Rails::Generators::TestCase
     end
 
     assert_file "Gemfile", /\n\ngroup :development, :test do\n  gem "rspec-rails"\nend\n\ngroup :test do\n  gem "fakeweb"\nend\n\z/
+  end
+
+  def test_gem_group_should_include_options
+    run_generator
+
+    action :gem_group, :development, optional: true do
+      gem "debug"
+    end
+
+    assert_file "Gemfile", /\n\ngroup :development, optional: true do\n  gem "debug"\nend\n\z/
   end
 
   def test_gem_group_should_indent_comments
@@ -655,6 +674,22 @@ class ActionsTest < Rails::Generators::TestCase
         end
       end
     ROUTING_CODE
+  end
+
+  test "route with namespace option falls back to the route file draw block when namespace is absent" do
+    run_generator
+    injected = []
+    inject = ->(path, code, options) { injected << [path, code, options] }
+
+    generator.stub(:match_file, nil) do
+      generator.stub(:inject_into_file, inject) do
+        action :route, "get 'foo'", namespace: :admin
+      end
+    end
+
+    assert_equal "config/routes.rb", injected.first[0]
+    assert_equal "namespace :admin do\n  get 'foo'\nend", injected.first[1]
+    assert_includes injected.first[2][:after].source, "routes\\.draw"
   end
 
   test "route with namespace option revokes route without breaking existing namespace blocks" do
