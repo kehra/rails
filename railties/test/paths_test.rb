@@ -100,6 +100,78 @@ class PathsTest < ActiveSupport::TestCase
     assert_equal ["/foo/bar/app2", "/foo/bar/app"], @root["app"].to_a
   end
 
+  test "path exposes first last paths and each over expanded physical paths" do
+    @root.add "app", with: ["app/models", "app/controllers"]
+
+    assert_equal "/foo/bar/app/models", @root["app"].first
+    assert_equal "/foo/bar/app/controllers", @root["app"].last
+    assert_equal [Pathname.new("/foo/bar/app/models"), Pathname.new("/foo/bar/app/controllers")], @root["app"].paths
+    assert_equal ["app/models", "app/controllers"], @root["app"].each.to_a
+  end
+
+  test "path paths raises without a configured root" do
+    root = Rails::Paths::Root.new(nil)
+    root.add "app"
+
+    error = assert_raises(RuntimeError) { root["app"].paths }
+    assert_equal "You need to set a path root", error.message
+  end
+
+  test "expanded expands globbed directories with exclusions" do
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p("#{dir}/config/routes")
+      File.write("#{dir}/config/routes/admin.rb", "")
+      File.write("#{dir}/config/routes/internal.rb", "")
+      File.write("#{dir}/config/routes/readme.txt", "")
+
+      root = Rails::Paths::Root.new(dir)
+      root.add "config/routes", glob: "*.{rb}", exclude: ["internal.rb"]
+
+      assert_equal ["rb"], root["config/routes"].extensions
+      assert_equal ["#{dir}/config/routes/admin.rb"], root["config/routes"].expanded
+      assert_equal ["#{dir}/config/routes/admin.rb"], root["config/routes"].existent
+    end
+  end
+
+  test "expanded glob without exclusions includes matched files and plain glob has no extensions" do
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p("#{dir}/config/initializers")
+      File.write("#{dir}/config/initializers/a.rb", "")
+      File.write("#{dir}/config/initializers/b.yml", "")
+
+      root = Rails::Paths::Root.new(dir)
+      root.add "config/initializers", glob: "*"
+
+      assert_nil root["config/initializers"].extensions
+      assert_equal ["#{dir}/config/initializers/a.rb", "#{dir}/config/initializers/b.yml"], root["config/initializers"].expanded
+
+      root.add "config", with: "config/initializers"
+      assert_equal ["#{dir}/config/initializers"], root["config"].existent_directories
+    end
+  end
+
+  test "children returns nested paths and filtering keeps children with the same flag" do
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p("#{dir}/app/models")
+      root = Rails::Paths::Root.new(dir)
+      root.add "app", autoload: true
+      root.add "app/models", autoload: true
+
+      assert_equal [root["app/models"]], root["app"].children
+      assert_equal ["#{dir}/app", "#{dir}/app/models"], root.autoload_paths
+    end
+  end
+
+  test "existent returns existing files" do
+    Dir.mktmpdir do |dir|
+      File.write("#{dir}/database.yml", "")
+      root = Rails::Paths::Root.new(dir)
+      root.add "database.yml"
+
+      assert_equal ["#{dir}/database.yml"], root["database.yml"].existent
+    end
+  end
+
   test "it is possible to add a path that should be autoloaded only once" do
     File.stub(:directory?, true) do
       @root.add "app", with: "/app"
