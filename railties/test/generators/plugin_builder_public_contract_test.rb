@@ -285,4 +285,24 @@ class PluginBuilderPublicContractTest < ActiveSupport::TestCase
     assert_includes generator.calls, [:remove_file, ["test"], {}]
     assert_includes generator.calls, [:remove_file, ["vendor"], {}]
   end
+
+  test "version_control initializes git only when not skipped or pretending" do
+    plugin_builder, generator = builder({ skip_git: false, pretend: false, quiet: true }, git_init_command: "git init --initial-branch=main")
+    plugin_builder.version_control
+
+    assert_equal [
+      [:git_init_command, [], {}],
+      [:run, ["git init --initial-branch=main"], { capture: true, abort_on_failure: false }]
+    ], generator.calls
+
+    skipped_builder, skipped_generator = builder({ skip_git: true, pretend: false })
+    skipped_builder.version_control
+
+    assert_empty skipped_generator.calls
+
+    pretend_builder, pretend_generator = builder({ skip_git: false, pretend: true })
+    pretend_builder.version_control
+
+    assert_empty pretend_generator.calls
+  end
 end
