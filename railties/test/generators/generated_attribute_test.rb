@@ -209,6 +209,40 @@ class GeneratedAttributeTest < Rails::Generators::TestCase
     assert_equal "post_id", create_generated_attribute("belongs_to", "post").column_name
   end
 
+  def test_name_helpers_strip_foreign_key_suffix
+    att = create_generated_attribute("integer", "category_id")
+
+    assert_equal "categories", att.plural_name
+    assert_equal "category", att.singular_name
+    assert_predicate att, :foreign_key?
+  end
+
+  def test_virtual_attribute_predicates
+    assert_predicate create_generated_attribute("digest", "password"), :password_digest?
+    assert_predicate create_generated_attribute("token", "auth_token"), :token?
+    assert_predicate create_generated_attribute("rich_text", "body"), :rich_text?
+    assert_predicate create_generated_attribute("attachment", "avatar"), :attachment?
+    assert_predicate create_generated_attribute("attachments", "photos"), :attachments?
+    assert_predicate create_generated_attribute("rich_text", "body"), :virtual?
+    assert_predicate create_generated_attribute("attachment", "avatar"), :virtual?
+    assert_predicate create_generated_attribute("attachments", "photos"), :virtual?
+    assert_not_predicate create_generated_attribute("string", "title"), :virtual?
+  end
+
+  def test_migration_options_adds_required_and_foreign_key_for_non_polymorphic_references
+    att = create_generated_attribute("references", "supplier")
+
+    assert_equal({ null: false, foreign_key: true }, att.options_for_migration)
+    assert_equal ", null: false, foreign_key: true", att.inject_options
+    assert_equal "", att.inject_index_options
+  end
+
+  def test_migration_options_skip_foreign_key_for_polymorphic_references
+    att = create_generated_attribute("references{polymorphic}", "imageable")
+
+    assert_equal({ polymorphic: true, null: false }, att.options_for_migration)
+  end
+
   def test_parse_works_with_adapter_specific_types
     att = Rails::Generators::GeneratedAttribute.parse("document:json")
     assert_equal "document", att.name
@@ -221,6 +255,22 @@ class GeneratedAttributeTest < Rails::Generators::TestCase
     assert_equal :references, att.type
     assert_predicate att, :has_index?
     assert_predicate att, :required?
+  end
+
+  def test_parse_reference_with_uniq_index_adds_unique_index_options
+    att = Rails::Generators::GeneratedAttribute.parse("supplier:references:uniq")
+
+    assert_equal({ index: { unique: true } }, att.attr_options)
+    assert_predicate att, :has_uniq_index?
+    assert_equal ", unique: true", att.inject_index_options
+  end
+
+  def test_parse_bang_type_marks_attribute_not_null
+    att = Rails::Generators::GeneratedAttribute.parse("title:string!")
+
+    assert_equal({ null: false }, att.attr_options)
+    assert_equal ", null: false", att.inject_options
+    assert_equal "title:string{null}", att.to_s
   end
 
   def test_parse_required_attribute_with_index_false_when_belongs_to_required_by_default_global_config_is_false
