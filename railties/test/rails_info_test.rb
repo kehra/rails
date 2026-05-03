@@ -31,6 +31,24 @@ class InfoTest < ActiveSupport::TestCase
       File.read(File.realpath("../../RAILS_VERSION", __dir__)).chomp
   end
 
+  def test_value_for_returns_nil_when_property_is_absent
+    assert_nil properties.value_for("Missing property")
+  end
+
+  def test_to_s_formats_scalar_and_array_properties
+    Rails::Info.module_eval do
+      property "Contract scalar", "one"
+      property "Contract array", ["two", "three"]
+    end
+
+    info = Rails::Info.to_s
+
+    assert_includes info, "About your application's environment"
+    assert_match(/^Contract scalar\s+one$/, info)
+    assert_match(/^Contract array\s+two, three$/, info)
+    assert_equal info, Rails::Info.inspect
+  end
+
   def test_html_includes_middleware
     Rails::Info.module_eval do
       property "Middleware", ["Rack::Lock", "Rack::Static"]
