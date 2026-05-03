@@ -7,15 +7,16 @@ class AppBuilderPublicContractTest < ActiveSupport::TestCase
   class RecordingGenerator
     attr_reader :calls, :options
 
-    def initialize(options = {})
+    def initialize(options = {}, responses = {})
       @options = options
+      @responses = responses
       @calls = []
     end
 
     def method_missing(name, *args, **kwargs, &block)
       calls << [name, args, kwargs]
       block.call("content") if block
-      nil
+      @responses[name]
     end
 
     def respond_to_missing?(name, include_private = false)
@@ -23,9 +24,9 @@ class AppBuilderPublicContractTest < ActiveSupport::TestCase
     end
   end
 
-  def builder(options = {})
+  def builder(options = {}, responses = {})
     Rails::AppBuilder.include(Rails::ActionMethods)
-    Rails::AppBuilder.new(RecordingGenerator.new(options))
+    Rails::AppBuilder.new(RecordingGenerator.new(options, responses))
   end
 
   test "root file helpers delegate to the expected template and copy actions" do
@@ -90,6 +91,126 @@ class AppBuilderPublicContractTest < ActiveSupport::TestCase
       [:empty_directory_with_keep_file, ["tmp/pids"], {}],
       [:empty_directory_with_keep_file, ["vendor"], {}]
     ], builder.instance_variable_get(:@generator).calls
+  end
+
+  test "bin and docker helpers generate executable-aware files" do
+    builder = builder()
+
+    builder.bin
+    builder.bin_when_updating
+    builder.dockerfiles
+
+    calls = builder.instance_variable_get(:@generator).calls
+    actions = calls.reject { |name,| name.to_s.end_with?("?") || name == :shebang }
+
+    assert_equal :directory, actions[0].first
+    assert_equal ["bin", { exclude_pattern: Regexp.union([]) }], actions[0][1]
+    assert_equal [:chmod, ["bin", 0755 & ~File.umask], { verbose: false }], actions[1]
+    assert_equal :directory, actions[2].first
+    assert_equal [:chmod, ["bin", 0755 & ~File.umask], { verbose: false }], actions[3]
+    assert_includes calls, [:template, ["Dockerfile"], {}]
+    assert_includes calls, [:template, ["dockerignore", ".dockerignore"], {}]
+    assert_includes calls, [:template, ["docker-entrypoint", "bin/docker-entrypoint"], {}]
+    assert_includes calls, [:chmod, ["bin/docker-entrypoint", 0755 & ~File.umask], { verbose: false }]
+  end
+
+  test "bin excludes optional executables when their features are skipped" do
+    builder = builder({}, skip_thruster?: true, skip_rubocop?: true, skip_brakeman?: true, skip_bundler_audit?: true)
+
+    builder.bin
+
+    directory_call = builder.instance_variable_get(:@generator).calls.find { |name,| name == :directory }
+    pattern = directory_call[1][1][:exclude_pattern]
+    assert_match pattern, "thrust"
+    assert_match pattern, "rubocop"
+    assert_match pattern, "brakeman"
+    assert_match pattern, "bundler-audit"
+  end
+
+  test "cifiles creates workflow directory and templates" do
+    builder = builder()
+
+    builder.cifiles
+
+    assert_equal [
+      [:empty_directory, [".github/workflows"], {}],
+      [:template, ["github/ci.yml", ".github/workflows/ci.yml"], {}],
+      [:template, ["github/dependabot.yml", ".github/dependabot.yml"], {}]
+    ], builder.instance_variable_get(:@generator).calls
+  end
+
+  test "version control runs git init unless skipped or pretending" do
+    builder = builder({}, git_init_command: "git init")
+    builder.version_control
+
+    assert_includes builder.instance_variable_get(:@generator).calls, [:run, ["git init"], { capture: nil, abort_on_failure: false }]
+
+    skipped = builder(skip_git: true, git_init_command: "git init")
+    skipped.version_control
+    assert_empty skipped.instance_variable_get(:@generator).calls.grep([:run, ["git init"], { capture: nil, abort_on_failure: false }])
+  end
+
+  test "config skips update-sensitive templates when updating with skipped frameworks" do
+    builder = builder({ update: true }, skip_bundler_audit?: true, skip_action_cable?: true, skip_active_storage?: true)
+
+    builder.config
+
+    calls = builder.instance_variable_get(:@generator).calls
+    refute_includes calls, [:template, ["routes.rb"], {}]
+    refute_includes calls, [:template, ["bundler-audit.yml"], {}]
+    refute_includes calls, [:template, ["cable.yml"], {}]
+    refute_includes calls, [:template, ["storage.yml"], {}]
+    refute_includes calls, [:directory, ["locales"], {}]
+  end
+
+  test "config-related helpers delegate conditional templates and removals" do
+    database = Struct.new(:template).new("config/databases/sqlite3.yml")
+    builder = builder({}, database: database)
+
+    builder.config
+    builder.database_yml
+    builder.public_directory
+
+    calls = builder.instance_variable_get(:@generator).calls
+    assert_includes calls, [:empty_directory, ["config"], {}]
+    assert_includes calls, [:template, ["routes.rb"], {}]
+    assert_includes calls, [:template, ["application.rb"], {}]
+    assert_includes calls, [:template, ["environment.rb"], {}]
+    assert_includes calls, [:template, ["bundler-audit.yml"], {}]
+    assert_includes calls, [:template, ["cable.yml"], {}]
+    assert_includes calls, [:template, ["ci.rb"], {}]
+    assert_includes calls, [:template, ["puma.rb"], {}]
+    assert_includes calls, [:template, ["storage.yml"], {}]
+    assert_includes calls, [:directory, ["environments"], {}]
+    assert_includes calls, [:directory, ["initializers"], {}]
+    assert_includes calls, [:directory, ["locales"], {}]
+    assert_includes calls, [:template, ["config/databases/sqlite3.yml", "config/database.yml"], {}]
+    assert_includes calls, [:directory, ["public", "public"], { recursive: false }]
+  end
+
+  test "public directory is skipped for api updates" do
+    builder = builder(update: true, api: true)
+
+    assert_nil builder.public_directory
+    assert_empty builder.instance_variable_get(:@generator).calls
+  end
+
+  test "system test files are created only when devcontainer needs system tests" do
+    builder = builder({}, devcontainer?: true, depends_on_system_test?: true)
+
+    builder.system_test
+
+    assert_equal [
+      [:empty_directory_with_keep_file, ["test/system"], {}],
+      [:template, ["test/application_system_test_case.rb"], {}]
+    ], builder.instance_variable_get(:@generator).calls.reject { |name,| name.to_s.end_with?("?") }
+  end
+
+  test "system test files are skipped when devcontainer does not need system tests" do
+    builder = builder({}, devcontainer?: false, depends_on_system_test?: true)
+
+    assert_nil builder.system_test
+    assert_equal [[:devcontainer?, [], {}]], builder.instance_variable_get(:@generator).calls
   end
 
   test "config target version falls back to the current rails version" do
