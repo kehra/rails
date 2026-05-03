@@ -136,4 +136,35 @@ class PluginBuilderPublicContractTest < ActiveSupport::TestCase
       [:template, ["lib/%namespaced_name%/engine.rb"], {}]
     ], engine_generator.calls
   end
+
+  test "generate_test_dummy invokes app generator with plugin-specific defaults" do
+    options = {
+      "dev" => true,
+      "edge" => true,
+      "database" => "sqlite3",
+      "skip_git" => false,
+      "template" => "ignored.rb"
+    }
+    plugin_builder, generator = builder(options, dummy_path: "test/dummy", destination_root: "/plugin/root")
+
+    plugin_builder.generate_test_dummy(true)
+
+    invoke_call = generator.calls.find { |name,| name == :invoke }
+    assert_equal Rails::Generators::AppGenerator, invoke_call[1][0]
+    assert_equal ["/plugin/root/test/dummy"], invoke_call[1][1]
+
+    invoke_options = invoke_call[1][2]
+    assert_equal "sqlite3", invoke_options[:database]
+    assert_equal true, invoke_options[:force]
+    assert_equal true, invoke_options[:dummy_app]
+    assert_equal true, invoke_options[:skip_bundle]
+    assert_equal true, invoke_options[:skip_ci]
+    assert_equal true, invoke_options[:skip_git]
+    assert_equal true, invoke_options[:skip_hotwire]
+    assert_equal true, invoke_options[:skip_rubocop]
+    assert_equal true, invoke_options[:skip_thruster]
+    assert_not invoke_options.key?(:dev)
+    assert_not invoke_options.key?(:edge)
+    assert_not invoke_options.key?(:template)
+  end
 end
