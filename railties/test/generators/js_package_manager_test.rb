@@ -15,6 +15,10 @@ class JsPackageManagerTest < Rails::Generators::TestCase
     end
   end
 
+  class CurrentDirectoryGenerator
+    include Rails::Generators::JsPackageManager
+  end
+
   setup :prepare_destination
 
   test "detects bun from bun.lockb" do
@@ -93,6 +97,28 @@ class JsPackageManagerTest < Rails::Generators::TestCase
       FileUtils.touch(File.join(destination_root, "package.json"))
       FileUtils.touch(File.join(destination_root, lockfile))
       assert_equal expected, generator.package_lockfile
+    end
+  end
+
+  test "using_js_runtime reflects package json presence" do
+    generator = DummyGenerator.new(destination_root)
+
+    assert_not generator.using_js_runtime?
+
+    FileUtils.touch(File.join(destination_root, "package.json"))
+    generator = DummyGenerator.new(destination_root)
+
+    assert generator.using_js_runtime?
+  end
+
+  test "project root falls back to current directory when destination root is unavailable" do
+    prepare_destination
+    Dir.chdir(destination_root) do
+      FileUtils.touch("package-lock.json")
+      generator = CurrentDirectoryGenerator.new
+
+      assert_equal :npm, generator.package_manager
+      assert_equal "package-lock.json", generator.package_lockfile
     end
   end
 end
