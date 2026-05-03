@@ -48,6 +48,8 @@ class TestParserTestFixture < ActiveSupport::TestCase
 end
 
 class TestParserTest < ActiveSupport::TestCase
+  FakeMethod = Struct.new(:source_location)
+
   def test_parser
     actual =
       TestParserTestFixture
@@ -69,5 +71,11 @@ class TestParserTest < ActiveSupport::TestCase
     ]
 
     assert_equal expected, actual
+  end
+
+  def test_definition_for_returns_nil_when_start_line_is_not_a_test_definition
+    method = FakeMethod.new([__FILE__, 1])
+
+    assert_nil Rails::TestUnit::TestParser.definition_for(method)
   end
 end
