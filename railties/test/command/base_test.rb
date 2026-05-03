@@ -3,6 +3,7 @@
 require "abstract_unit"
 require "rails/command"
 require "rails/commands/generate/generate_command"
+require "rails/commands/test/test_command"
 require "rails/commands/notes/notes_command"
 require "rails/commands/credentials/credentials_command"
 require "rails/commands/db/system/change/change_command"
@@ -92,6 +93,42 @@ class Rails::Command::BaseTest < ActiveSupport::TestCase
     end
 
     assert_equal "FOO custom_bin", Rails::Command::CustomBinCommand.executable
+  end
+
+  test "public class helpers expose names usage roots banners and hidden commands" do
+    assert_equal "bin/test", Rails::Command::TestCommand.banner
+    assert_equal "rails", Rails::Command::TestCommand.base_name
+    assert_equal "test", Rails::Command::TestCommand.command_name
+    assert_equal File.expand_path("../../lib/rails/commands/test", __dir__), Rails::Command::TestCommand.default_command_root
+    assert_equal File.expand_path("../../lib/rails/commands/test", __dir__), Rails::Command::TestCommand.default_command_root
+    assert_equal File.expand_path("../../lib/rails/commands/test/USAGE", __dir__), Rails::Command::TestCommand.usage_path
+    assert_includes Rails::Command::TestCommand.desc, "You can run a single test"
+
+    anonymous = Class.new(Rails::Command::Base)
+    anonymous.define_singleton_method(:name) { nil }
+    assert_nil anonymous.base_name
+    assert_nil anonymous.command_name
+
+    class Rails::Command::ManualNamespaceCommand < Rails::Command::Base
+      namespace "manual:namespace"
+      desc "visible", "Visible command"
+      def visible; end
+    end
+    assert_equal "manual:namespace", Rails::Command::ManualNamespaceCommand.namespace
+    assert_equal "bin/rails manual:namespace:visible", Rails::Command::ManualNamespaceCommand.executable(:visible)
+
+    hidden_size = Rails::Command.hidden_commands.size
+    Rails::Command::ManualNamespaceCommand.hide_command!
+    assert_equal hidden_size + 1, Rails::Command.hidden_commands.size
+    assert_includes Rails::Command.hidden_commands, Rails::Command::ManualNamespaceCommand
+
+    begin
+      Object.const_set(:ENGINE_ROOT, "/tmp/engine")
+      assert Rails::Command::Base.engine?
+    ensure
+      Object.send(:remove_const, :ENGINE_ROOT) if Object.const_defined?(:ENGINE_ROOT)
+    end
+    assert_not Rails::Command::Base.engine?
   end
 
   test "#current_subcommand reflects current subcommand" do
