@@ -112,4 +112,28 @@ class PluginBuilderPublicContractTest < ActiveSupport::TestCase
 
     assert_equal [[:inside_application?, [], {}]], inside_app_generator.calls
   end
+
+  test "lib creates railtie or engine entrypoint based on plugin type" do
+    plugin_builder, generator = builder({}, engine?: false)
+    plugin_builder.lib
+
+    assert_equal [
+      [:template, ["lib/%namespaced_name%.rb"], {}],
+      [:template, ["lib/tasks/%namespaced_name%_tasks.rake"], {}],
+      [:template, ["lib/%namespaced_name%/version.rb"], {}],
+      [:engine?, [], {}],
+      [:template, ["lib/%namespaced_name%/railtie.rb"], {}]
+    ], generator.calls
+
+    engine_builder, engine_generator = builder({}, engine?: true)
+    engine_builder.lib
+
+    assert_equal [
+      [:template, ["lib/%namespaced_name%.rb"], {}],
+      [:template, ["lib/tasks/%namespaced_name%_tasks.rake"], {}],
+      [:template, ["lib/%namespaced_name%/version.rb"], {}],
+      [:engine?, [], {}],
+      [:template, ["lib/%namespaced_name%/engine.rb"], {}]
+    ], engine_generator.calls
+  end
 end
