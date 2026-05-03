@@ -217,4 +217,38 @@ class PluginBuilderPublicContractTest < ActiveSupport::TestCase
 
     assert_equal [[:mountable?, [], {}], [:full?, [], {}]], plain_generator.calls
   end
+
+  test "test helper creates common test files and engine-only directories" do
+    plain_builder, plain_generator = builder({}, engine?: false)
+    plain_builder.test
+
+    assert_equal [
+      [:template, ["test/test_helper.rb"], {}],
+      [:template, ["test/%namespaced_name%_test.rb"], {}],
+      [:engine?, [], {}]
+    ], plain_generator.calls
+
+    engine_builder, engine_generator = builder({}, engine?: true, api?: false)
+    engine_builder.test
+
+    assert_equal [
+      [:template, ["test/test_helper.rb"], {}],
+      [:template, ["test/%namespaced_name%_test.rb"], {}],
+      [:engine?, [], {}],
+      [:empty_directory_with_keep_file, ["test/fixtures/files"], {}],
+      [:empty_directory_with_keep_file, ["test/controllers"], {}],
+      [:empty_directory_with_keep_file, ["test/mailers"], {}],
+      [:empty_directory_with_keep_file, ["test/models"], {}],
+      [:empty_directory_with_keep_file, ["test/integration"], {}],
+      [:api?, [], {}],
+      [:empty_directory_with_keep_file, ["test/helpers"], {}],
+      [:template, ["test/integration/navigation_test.rb"], {}]
+    ], engine_generator.calls
+
+    api_engine_builder, api_engine_generator = builder({}, engine?: true, api?: true)
+    api_engine_builder.test
+
+    assert_not_includes api_engine_generator.calls, [:empty_directory_with_keep_file, ["test/helpers"], {}]
+    assert_includes api_engine_generator.calls, [:template, ["test/integration/navigation_test.rb"], {}]
+  end
 end
