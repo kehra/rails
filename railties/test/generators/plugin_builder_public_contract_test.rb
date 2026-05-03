@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "abstract_unit"
+require "tmpdir"
 require "rails/generators/rails/plugin/plugin_generator"
 
 class PluginBuilderPublicContractTest < ActiveSupport::TestCase
@@ -166,5 +167,28 @@ class PluginBuilderPublicContractTest < ActiveSupport::TestCase
     assert_not invoke_options.key?(:dev)
     assert_not invoke_options.key?(:edge)
     assert_not invoke_options.key?(:template)
+  end
+
+  test "gemfile_entry appends a path entry only inside an application with a Gemfile" do
+    Dir.mktmpdir do |app_path|
+      File.write(File.join(app_path, "Gemfile"), "source \"https://rubygems.org\"\n")
+      plugin_builder, generator = builder({}, inside_application?: true, rails_app_path: app_path, name: "bukkits", relative_path: "plugins/bukkits")
+
+      plugin_builder.gemfile_entry
+
+      assert_includes generator.calls, [:append_file, [File.join(app_path, "Gemfile"), "\ngem \"bukkits\", path: \"plugins/bukkits\""], {}]
+    end
+
+    outside_builder, outside_generator = builder({}, inside_application?: false)
+    outside_builder.gemfile_entry
+
+    assert_equal [[:inside_application?, [], {}]], outside_generator.calls
+
+    Dir.mktmpdir do |app_path|
+      missing_gemfile_builder, missing_gemfile_generator = builder({}, inside_application?: true, rails_app_path: app_path)
+      missing_gemfile_builder.gemfile_entry
+
+      assert_equal [[:inside_application?, [], {}], [:rails_app_path, [], {}]], missing_gemfile_generator.calls
+    end
   end
 end
