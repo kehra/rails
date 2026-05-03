@@ -53,6 +53,22 @@ class EnginePublicContractTest < ActiveSupport::TestCase
     assert_nil engine.eager_load!
   end
 
+  test "railties collection combines railtie and engine instances and behaves like enumerable" do
+    railtie_instance = Object.new
+    engine_instance = Object.new
+    other = Object.new
+    railtie_class = Struct.new(:instance).new(railtie_instance)
+    engine_class = Struct.new(:instance).new(engine_instance)
+
+    with_railtie_and_engine_subclasses([ railtie_class ], [ engine_class ]) do
+      railties = Rails::Engine::Railties.new
+
+      assert_equal [ railtie_instance, engine_instance ], railties._all
+      assert_equal [ railtie_instance, engine_instance ], railties.each.to_a
+      assert_equal [ engine_instance ], railties - [ railtie_instance, other ]
+    end
+  end
+
   test "configuration initializes defaults and memoized paths and yields generators" do
     engine = build_engine_class.instance
     config = engine.config
@@ -243,12 +259,31 @@ class EnginePublicContractTest < ActiveSupport::TestCase
     end
 
     def with_engine_subclasses(subclasses)
-      singleton = class << Rails::Engine; self; end
-      original = Rails::Engine.method(:subclasses)
-      singleton.define_method(:subclasses) { subclasses }
+      with_singleton_method(Rails::Engine, :subclasses, -> { subclasses }) do
+        yield
+      end
+    end
+
+    def with_railtie_and_engine_subclasses(railtie_subclasses, engine_subclasses)
+      with_singleton_method(Rails::Railtie, :subclasses, -> { railtie_subclasses }) do
+        with_singleton_method(Rails::Engine, :subclasses, -> { engine_subclasses }) do
+          yield
+        end
+      end
+    end
+
+    def with_singleton_method(object, method_name, replacement)
+      singleton = class << object; self; end
+      had_method = singleton.method_defined?(method_name) || singleton.private_method_defined?(method_name)
+      original = singleton.instance_method(method_name) if had_method
+      singleton.define_method(method_name, &replacement)
       yield
     ensure
-      singleton.define_method(:subclasses) { |*args, **kwargs, &block| original.call(*args, **kwargs, &block) }
+      if had_method
+        singleton.define_method(method_name, original)
+      else
+        singleton.remove_method(method_name)
+      end
     end
 
     def with_active_record_base_prefix(prefix)
