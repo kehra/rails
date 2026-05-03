@@ -14,6 +14,8 @@ require "rails/commands/notes/notes_command"
 require "rails/commands/plugin/plugin_command"
 require "rails/commands/restart/restart_command"
 require "rails/commands/secret/secret_command"
+require "rails/commands/stats/stats_command"
+require "rails/commands/version/version_command"
 
 class SimpleCommandsPublicContractTest < ActiveSupport::TestCase
   setup do
@@ -347,6 +349,31 @@ class SimpleCommandsPublicContractTest < ActiveSupport::TestCase
     end
   end
 
+  test "stats command boots application filters existing directories and returns code statistics" do
+    root = Pathname.new(Dir.mktmpdir)
+    FileUtils.mkdir_p(root.join("app/models"))
+    command = Rails::Command::StatsCommand.new([], [])
+    booted = false
+    command.define_singleton_method(:boot_application!) { booted = true }
+    output = with_singleton_method(Rails::Command, :application_root, -> { root }) do
+      capture(:stdout) { command.perform }
+    end
+
+    assert booted
+    assert_includes output, "Models"
+  ensure
+    FileUtils.rm_rf(root) if root
+  end
+
+  test "version command delegates to application version" do
+    invoked = []
+    with_singleton_method(Rails::Command, :invoke, ->(name, args) { invoked << [name, args] }) do
+      Rails::Command::VersionCommand.new([], []).perform
+    end
+
+    assert_equal [[:application, ["--version"]]], invoked
+  end
+
   private
     def fake_application(railtie_name, adapter)
       Struct.new(:railtie_name, :adapter) do
@@ -409,6 +436,19 @@ class SimpleCommandsPublicContractTest < ActiveSupport::TestCase
     ensure
       File.singleton_class.send(:remove_method, :exist?) if File.singleton_class.method_defined?(:exist?)
       File.singleton_class.define_method(:exist?) { |*args, **kwargs, &block| original.call(*args, **kwargs, &block) }
+    end
+
+    def replace_constant_path(path, value)
+      names = path.split("::")
+      parent = names[0...-1].inject(Object) { |mod, name| mod.const_get(name) }
+      name = names.last.to_sym
+      original = parent.const_get(name) if parent.const_defined?(name, false)
+      parent.send(:remove_const, name) if parent.const_defined?(name, false)
+      parent.const_set(name, value)
+      yield
+    ensure
+      parent.send(:remove_const, name) if parent&.const_defined?(name, false)
+      parent.const_set(name, original) if defined?(original) && original
     end
 
     def replace_constant(name, value)
