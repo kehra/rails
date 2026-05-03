@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "abstract_unit"
+require "rails/deprecator"
 
 class RailsModuleTest < ActiveSupport::TestCase
   setup do
@@ -25,11 +26,13 @@ class RailsModuleTest < ActiveSupport::TestCase
     assert_equal Pathname.new(Rails.application.paths["public"].first), Rails.public_path
   end
 
-  test "backtrace cleaner error and event reporters are memoized global collaborators" do
+  test "backtrace cleaner error event reporters and deprecator are memoized global collaborators" do
     assert_instance_of Rails::BacktraceCleaner, Rails.backtrace_cleaner
     assert_same Rails.backtrace_cleaner, Rails.backtrace_cleaner
     assert_same ActiveSupport.error_reporter, Rails.error
     assert_same ActiveSupport.event_reporter, Rails.event
+    assert_instance_of ActiveSupport::Deprecation, Rails.deprecator
+    assert_same Rails.deprecator, Rails.deprecator
   end
 
   test "environment setter and groups include defaults env variables and dependency groups" do
