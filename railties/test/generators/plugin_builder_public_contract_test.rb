@@ -68,4 +68,16 @@ class PluginBuilderPublicContractTest < ActiveSupport::TestCase
       [:template, ["github/dependabot.yml", ".github/dependabot.yml"], {}]
     ], generator.calls
   end
+
+  test "config creates routes only for engines" do
+    engine_builder, engine_generator = builder({}, engine?: true)
+    engine_builder.config
+
+    assert_equal [[:engine?, [], {}], [:template, ["config/routes.rb"], {}]], engine_generator.calls
+
+    plugin_builder, plugin_generator = builder({}, engine?: false)
+    plugin_builder.config
+
+    assert_equal [[:engine?, [], {}]], plugin_generator.calls
+  end
 end
