@@ -60,6 +60,13 @@ class CreateMigrationTest < Rails::Generators::TestCase
     assert_no_file @migration.destination
   end
 
+  def test_invoke_with_verbose_false_suppresses_status_output
+    create_migration(default_destination_path, verbose: false)
+
+    assert_empty invoke!
+    assert_file @migration.destination
+  end
+
   def test_invoke_when_exists
     migration_exists!
     create_migration
