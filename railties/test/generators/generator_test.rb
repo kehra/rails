@@ -43,6 +43,20 @@ module Rails
         assert_equal "~> 5.0.0.beta1", specifier_for["5.0.0.beta1"]
       end
 
+      def test_shared_options_default_skip_javascript_for_plugins
+        plugin = Class.new(AppBase) { add_shared_options_for "plugin" }
+        application = Class.new(AppBase) { add_shared_options_for "application" }
+
+        assert_equal true, plugin.class_options[:skip_javascript].default
+        assert_nil application.class_options[:skip_javascript].default
+      end
+
+      def test_edge_branch_uses_stable_branch_for_released_rails_versions
+        Rails.stub(:gem_version, Gem::Version.new("8.1.0")) do
+          assert_equal "8-1-stable", AppBase.edge_branch
+        end
+      end
+
       def test_version_manager_ruby_version_with_rbenv_env_var
         klass = make_builder_class
         generator = klass.start(["new", "blah"])
