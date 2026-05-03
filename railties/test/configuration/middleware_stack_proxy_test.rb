@@ -58,6 +58,23 @@ module Rails
         assert_playback :move_after, :foo
       end
 
+      def test_playback_unshift
+        @stack.unshift :foo
+        assert_playback :unshift, :foo
+      end
+
+      def test_combining_proxies_preserves_regular_and_delete_operations
+        other = MiddlewareStackProxy.new
+        @stack.use :foo
+        @stack.delete :bar
+        other.unshift :baz
+        other.move_after :qux
+
+        combined = @stack + other
+
+        assert_playback([:use, :unshift, :delete, :move_after], [:foo, :baz, :bar, :qux], combined)
+      end
+
       def test_order
         @stack.swap :foo
         @stack.delete :foo
@@ -66,13 +83,15 @@ module Rails
       end
 
       private
-        def assert_playback(msg_names, args)
+        def assert_playback(msg_names, args, stack = @stack)
           self.assertions += 1
           mock = Minitest::Mock.new
-          Array(msg_names).each do |msg_name|
-            mock.expect msg_name, nil, [args]
+          args = Array(args)
+          args *= Array(msg_names).length if args.length == 1
+          Array(msg_names).zip(args).each do |msg_name, arg|
+            mock.expect msg_name, nil, [arg]
           end
-          @stack.merge_into(mock)
+          stack.merge_into(mock)
           mock.verify
         end
     end
