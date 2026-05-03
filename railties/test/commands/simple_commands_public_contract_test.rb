@@ -10,6 +10,7 @@ require "rails/commands/generate/generate_command"
 require "rails/commands/help/help_command"
 require "rails/commands/initializers/initializers_command"
 require "rails/commands/middleware/middleware_command"
+require "rails/commands/new/new_command"
 require "rails/commands/notes/notes_command"
 require "rails/commands/plugin/plugin_command"
 require "rails/commands/restart/restart_command"
@@ -255,6 +256,22 @@ class SimpleCommandsPublicContractTest < ActiveSupport::TestCase
     assert_includes output, "use MiddlewareOne"
     assert_includes output, "use MiddlewareTwo"
     assert_includes output, "run Demo::Application.routes"
+  end
+
+  test "new command help delegates to application help and perform exits inside existing app" do
+    invoked = []
+    with_singleton_method(Rails::Command, :invoke, ->(name, args) { invoked << [name, args] }) do
+      Rails::Command::NewCommand.new([], []).help
+    end
+
+    assert_equal [[:application, ["--help"]]], invoked
+
+    output = capture(:stdout) do
+      error = assert_raises(SystemExit) { Rails::Command::NewCommand.new([], []).perform }
+      assert_equal 1, error.status
+    end
+    assert_includes output, "Can't initialize a new Rails application within the directory of another"
+    assert_includes output, "Type 'rails' for help."
   end
 
   test "notes command boots and enumerates default and explicit annotation tags" do
