@@ -80,4 +80,36 @@ class PluginBuilderPublicContractTest < ActiveSupport::TestCase
 
     assert_equal [[:engine?, [], {}]], plugin_generator.calls
   end
+
+  test "root file helpers delegate to plugin templates" do
+    plugin_builder, generator = builder
+
+    plugin_builder.rakefile
+    plugin_builder.readme
+    plugin_builder.gemfile
+    plugin_builder.gemspec
+    plugin_builder.gitignore
+    plugin_builder.rubocop
+
+    assert_equal [
+      [:template, ["Rakefile"], {}],
+      [:template, ["README.md"], {}],
+      [:template, ["Gemfile"], {}],
+      [:template, ["%name%.gemspec"], {}],
+      [:template, ["gitignore", ".gitignore"], {}],
+      [:template, ["rubocop.yml", ".rubocop.yml"], {}]
+    ], generator.calls
+  end
+
+  test "license is skipped when generated inside an application" do
+    plugin_builder, generator = builder({}, inside_application?: false)
+    plugin_builder.license
+
+    assert_equal [[:inside_application?, [], {}], [:template, ["MIT-LICENSE"], {}]], generator.calls
+
+    inside_app_builder, inside_app_generator = builder({}, inside_application?: true)
+    inside_app_builder.license
+
+    assert_equal [[:inside_application?, [], {}]], inside_app_generator.calls
+  end
 end
