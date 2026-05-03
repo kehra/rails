@@ -346,11 +346,69 @@ class AppBuilderPublicContractTest < ActiveSupport::TestCase
     assert_equal [[:devcontainer?, [], {}]], builder.instance_variable_get(:@generator).calls
   end
 
+  test "config when updating preserves existing update-sensitive files and restores missing defaults" do
+    app = Struct.new(:config).new(Struct.new(:loaded_config_version).new("7.1"))
+
+    Dir.mktmpdir("app-builder-config-update") do |root|
+      Dir.chdir(root) do
+        with_rails_application(app) do
+          missing_defaults = builder({ update: true, api: true }, skip_asset_pipeline?: true)
+          missing_defaults.config_when_updating
+
+          missing_calls = missing_defaults.instance_variable_get(:@generator).calls
+          assert_includes missing_calls, [:template, ["config/cable.yml"], {}]
+          assert_includes missing_calls, [:template, ["config/storage.yml"], {}]
+          assert_includes missing_calls, [:template, ["config/ci.rb"], {}]
+          assert_includes missing_calls, [:remove_file, ["config/initializers/assets.rb"], {}]
+          assert_includes missing_calls, [:remove_file, ["app/assets/stylesheets/application.css"], {}]
+          assert_includes missing_calls, [:remove_file, ["config/initializers/cors.rb"], {}]
+          assert_includes missing_calls, [:template, ["config/bundler-audit.yml"], {}]
+          assert_includes missing_calls, [:remove_file, ["config/initializers/content_security_policy.rb"], {}]
+          assert_equal "7.1", missing_defaults.instance_variable_get(:@config_target_version)
+
+          %w[
+            config/cable.yml config/storage.yml config/ci.rb config/bundler-audit.yml
+            config/initializers/cors.rb config/initializers/assets.rb
+            app/assets/stylesheets/application.css config/initializers/content_security_policy.rb
+          ].each do |path|
+            FileUtils.mkdir_p(File.dirname(path))
+            File.write(path, "existing")
+          end
+
+          existing_files = builder({ update: true, api: true }, skip_asset_pipeline?: true)
+          existing_files.config_when_updating
+          existing_calls = existing_files.instance_variable_get(:@generator).calls
+          refute_includes existing_calls, [:template, ["config/cable.yml"], {}]
+          refute_includes existing_calls, [:template, ["config/storage.yml"], {}]
+          refute_includes existing_calls, [:template, ["config/ci.rb"], {}]
+          refute_includes existing_calls, [:remove_file, ["config/initializers/assets.rb"], {}]
+          refute_includes existing_calls, [:remove_file, ["app/assets/stylesheets/application.css"], {}]
+          refute_includes existing_calls, [:remove_file, ["config/initializers/cors.rb"], {}]
+          refute_includes existing_calls, [:template, ["config/bundler-audit.yml"], {}]
+          refute_includes existing_calls, [:remove_file, ["config/initializers/content_security_policy.rb"], {}]
+
+          non_api = builder({ update: true, api: false }, skip_asset_pipeline?: true)
+          non_api.config_when_updating
+          refute_includes non_api.instance_variable_get(:@generator).calls, [:remove_file, ["config/initializers/content_security_policy.rb"], {}]
+        end
+      end
+    end
+  end
+
   test "config target version falls back to the current rails version" do
     assert_equal Rails::VERSION::STRING.to_f, builder.config_target_version
   end
 
   private
+    def with_rails_application(application)
+      singleton = class << Rails; self; end
+      original = Rails.method(:application)
+      singleton.define_method(:application) { application }
+      yield
+    ensure
+      singleton.define_method(:application) { |*args, **kwargs, &block| original.call(*args, **kwargs, &block) }
+    end
+
     def with_singleton_method(object, name, replacement)
       singleton = object.singleton_class
       original = object.method(name)
