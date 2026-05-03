@@ -191,4 +191,30 @@ class PluginBuilderPublicContractTest < ActiveSupport::TestCase
       assert_equal [[:inside_application?, [], {}], [:rails_app_path, [], {}]], missing_gemfile_generator.calls
     end
   end
+
+  test "stylesheets creates mountable asset file or full engine asset directory" do
+    mountable_builder, mountable_generator = builder({}, mountable?: true, full?: false, namespaced_name: "bukkits")
+    mountable_builder.stylesheets
+
+    assert_equal [
+      [:mountable?, [], {}],
+      [:namespaced_name, [], {}],
+      [:copy_file, ["rails/stylesheets.css", "app/assets/stylesheets/bukkits/application.css"], {}]
+    ], mountable_generator.calls
+
+    full_builder, full_generator = builder({}, mountable?: false, full?: true, namespaced_name: "bukkits")
+    full_builder.stylesheets
+
+    assert_equal [
+      [:mountable?, [], {}],
+      [:full?, [], {}],
+      [:namespaced_name, [], {}],
+      [:empty_directory_with_keep_file, ["app/assets/stylesheets/bukkits"], {}]
+    ], full_generator.calls
+
+    plain_builder, plain_generator = builder({}, mountable?: false, full?: false)
+    plain_builder.stylesheets
+
+    assert_equal [[:mountable?, [], {}], [:full?, [], {}]], plain_generator.calls
+  end
 end
