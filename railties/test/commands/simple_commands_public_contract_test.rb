@@ -8,6 +8,9 @@ require "rails/commands/devcontainer/devcontainer_command"
 require "rails/commands/gem_help/gem_help_command"
 require "rails/commands/generate/generate_command"
 require "rails/commands/help/help_command"
+require "rails/commands/initializers/initializers_command"
+require "rails/commands/middleware/middleware_command"
+require "rails/commands/notes/notes_command"
 
 class SimpleCommandsPublicContractTest < ActiveSupport::TestCase
   setup do
@@ -208,6 +211,71 @@ class SimpleCommandsPublicContractTest < ActiveSupport::TestCase
     end
 
     assert_equal [[ ["about", "About"], ["routes", "Routes"] ], { truncate: true }], printed_table
+  end
+
+  test "initializers command boots and prints tsorted initializers" do
+    initializer = Struct.new(:context_class, :name).new("Demo::Application", "load_config")
+    initializers = Object.new
+    initializers.define_singleton_method(:tsort_each) { |&block| block.call(initializer) }
+    app = Object.new
+    app.define_singleton_method(:initializers) { initializers }
+    command = Rails::Command::InitializersCommand.new([], [])
+    booted = false
+    command.define_singleton_method(:boot_application!) { booted = true }
+
+    output = with_rails_application(app) { capture(:stdout) { command.perform } }
+
+    assert booted
+    assert_equal "Demo::Application.load_config\n", output
+  end
+
+  test "middleware command boots and prints middleware stack and app routes" do
+    middleware = [ Struct.new(:inspect).new("MiddlewareOne"), Struct.new(:inspect).new("MiddlewareTwo") ]
+    config = Object.new
+    config.define_singleton_method(:middleware) { middleware }
+    app_class = Class.new
+    app_class.singleton_class.define_method(:name) { "Demo::Application" }
+    app = app_class.new
+    command = Rails::Command::MiddlewareCommand.new([], [])
+    booted = false
+    command.define_singleton_method(:boot_application!) { booted = true }
+
+    output = with_rails_application(app) do
+      with_singleton_method(Rails, :configuration, -> { config }) do
+        capture(:stdout) { command.perform }
+      end
+    end
+
+    assert booted
+    assert_includes output, "use MiddlewareOne"
+    assert_includes output, "use MiddlewareTwo"
+    assert_includes output, "run Demo::Application.routes"
+  end
+
+  test "notes command boots and enumerates default and explicit annotation tags" do
+    calls = []
+    command = Rails::Command::NotesCommand.new([], [])
+    command.define_singleton_method(:boot_application!) { calls << :boot_application }
+
+    annotation = Rails::SourceAnnotationExtractor::Annotation
+    with_singleton_method(annotation, :tags, -> { ["FIXME", "TODO"] }) do
+      with_singleton_method(annotation, :directories, -> { ["app", "test"] }) do
+        with_singleton_method(Rails::SourceAnnotationExtractor, :enumerate, ->(pattern, **options) { calls << [pattern, options] }) do
+          command.perform
+        end
+      end
+    end
+
+    assert_equal [ :boot_application, ["FIXME|TODO", { tag: true, dirs: ["app", "test"] }] ], calls
+
+    calls.clear
+    command = Rails::Command::NotesCommand.new([], ["--annotations=OPTIMIZE"])
+    command.define_singleton_method(:boot_application!) { calls << :boot_application }
+    with_singleton_method(Rails::SourceAnnotationExtractor, :enumerate, ->(pattern, **options) { calls << [pattern, options] }) do
+      command.perform
+    end
+
+    assert_equal [ :boot_application, ["OPTIMIZE", { tag: false, dirs: Rails::SourceAnnotationExtractor::Annotation.directories }] ], calls
   end
 
   private
