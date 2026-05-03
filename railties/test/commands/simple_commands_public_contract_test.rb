@@ -11,6 +11,9 @@ require "rails/commands/help/help_command"
 require "rails/commands/initializers/initializers_command"
 require "rails/commands/middleware/middleware_command"
 require "rails/commands/notes/notes_command"
+require "rails/commands/plugin/plugin_command"
+require "rails/commands/restart/restart_command"
+require "rails/commands/secret/secret_command"
 
 class SimpleCommandsPublicContractTest < ActiveSupport::TestCase
   setup do
@@ -276,6 +279,72 @@ class SimpleCommandsPublicContractTest < ActiveSupport::TestCase
     end
 
     assert_equal [ :boot_application, ["OPTIMIZE", { tag: false, dirs: Rails::SourceAnnotationExtractor::Annotation.directories }] ], calls
+  end
+
+  test "plugin command banner help rc merging and generator delegation" do
+    assert_equal "rails plugin new [options]", Rails::Command::PluginCommand.banner
+
+    command = Rails::Command::PluginCommand.new([], [])
+    generator_args = []
+    command.define_singleton_method(:run_plugin_generator) { |args| generator_args << args }
+    command.help
+    assert_equal [["--help"]], generator_args
+
+    railsrc = Tempfile.new("railsrc")
+    railsrc.write("--skip-action-mailer\n--skip-active-job --dummy-path spec/dummy\n")
+    railsrc.close
+
+    command = Rails::Command::PluginCommand.new([], ["--rc=#{railsrc.path}"])
+    generator_args.clear
+    command.define_singleton_method(:run_plugin_generator) { |args| generator_args << args }
+    output = capture(:stdout) { command.perform("new", "demo") }
+
+    assert_includes output, "Using --skip-action-mailer --skip-active-job --dummy-path spec/dummy from #{railsrc.path}"
+    assert_equal [["demo", "--skip-action-mailer", "--skip-active-job", "--dummy-path", "spec/dummy"]], generator_args
+
+    command = Rails::Command::PluginCommand.new([], ["--no-rc"])
+    generator_args.clear
+    command.define_singleton_method(:run_plugin_generator) { |args| generator_args << args }
+    command.perform("help", "demo")
+    assert_equal [["demo", "--help"]], generator_args
+
+    missing_rc = File.join(Dir.tmpdir, "missing-railsrc-#{$$}")
+    command = Rails::Command::PluginCommand.new([], ["--rc=#{missing_rc}"])
+    generator_args.clear
+    command.define_singleton_method(:run_plugin_generator) { |args| generator_args << args }
+    command.perform("new", "empty")
+    assert_equal [["empty"]], generator_args
+  ensure
+    railsrc&.unlink
+  end
+
+  test "plugin private runner starts plugin generator" do
+    require "rails/generators/rails/plugin/plugin_generator"
+    calls = []
+    with_singleton_method(Rails::Generators::PluginGenerator, :start, ->(args) { calls << args }) do
+      command = Rails::Command::PluginCommand.new([], [])
+      command.send(:run_plugin_generator, ["demo"])
+    end
+
+    assert_equal [["demo"]], calls
+  end
+
+  test "restart command creates tmp directory and touches restart file" do
+    root = Pathname.new(Dir.mktmpdir)
+    with_singleton_method(Rails::Command, :application_root, -> { root }) do
+      Rails::Command::RestartCommand.new([], []).perform
+    end
+
+    assert File.directory?(root.join("tmp"))
+    assert File.file?(root.join("tmp/restart.txt"))
+  ensure
+    FileUtils.rm_rf(root) if root
+  end
+
+  test "secret command prints secure random hex" do
+    with_singleton_method(SecureRandom, :hex, ->(length) { "x" * length }) do
+      assert_equal "#{'x' * 64}\n", capture(:stdout) { Rails::Command::SecretCommand.new([], []).perform }
+    end
   end
 
   private
