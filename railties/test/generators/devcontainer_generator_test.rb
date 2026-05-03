@@ -358,6 +358,18 @@ module Rails
         end
       end
 
+      def test_configuration_helpers_cache_computed_values
+        generator = self.generator([], database: "sqlite3", redis: true, active_storage: true, node: true, kamal: true)
+
+        features = generator.send(:features)
+        forward_ports = generator.send(:forward_ports)
+
+        assert_same features, generator.send(:features)
+        assert_same forward_ports, generator.send(:forward_ports)
+        assert_includes features.keys, "ghcr.io/rails/devcontainer/features/sqlite3"
+        assert_includes forward_ports, 6379
+      end
+
       private
         def test_common_config
           test_common_config_with_folder("rails_app")
