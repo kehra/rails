@@ -360,3 +360,218 @@ class AppBuilderPublicContractTest < ActiveSupport::TestCase
       singleton.define_method(name) { |*args, **kwargs, &block| original.call(*args, **kwargs, &block) }
     end
 end
+
+class AppGeneratorPublicContractTest < ActiveSupport::TestCase
+  def app_generator(options = {}, responses = {})
+    generator = Rails::Generators::AppGenerator.allocate
+    calls = []
+    generator.instance_variable_set(:@after_bundle_callbacks, [])
+    generator.define_singleton_method(:calls) { calls }
+    generator.define_singleton_method(:options) { options }
+    generator.define_singleton_method(:build) { |name, *args| calls << [:build, name, args] }
+    generator.define_singleton_method(:template) { |*args, **kwargs| calls << [:template, args, kwargs] }
+    generator.define_singleton_method(:remove_dir) { |*args| calls << [:remove_dir, args] }
+    generator.define_singleton_method(:remove_file) { |*args| calls << [:remove_file, args] }
+    generator.define_singleton_method(:create_file) { |*args| calls << [:create_file, args] }
+    generator.define_singleton_method(:rails_command) { |*args, **kwargs| calls << [:rails_command, args, kwargs] }
+
+    %i[
+      using_node? skip_active_storage? skip_docker? skip_rubocop? skip_ci?
+      skip_storage? skip_devcontainer? skip_asset_pipeline?
+    ].each do |predicate|
+      generator.define_singleton_method(predicate) { responses.fetch(predicate, false) }
+    end
+
+    generator
+  end
+
+  test "initialize applies implied options and prepares after bundle callbacks" do
+    destination = Dir.mktmpdir("app-generator-initialize")
+    generator = Rails::Generators::AppGenerator.new([destination], { minimal: true }, destination_root: destination)
+
+    assert_equal [], generator.instance_variable_get(:@after_bundle_callbacks)
+    assert_equal true, generator.options[:skip_action_cable]
+  ensure
+    FileUtils.rm_rf(destination) if destination
+  end
+
+  test "create root files builds root-level pieces with option gates" do
+    generator = app_generator({ skip_git: false }, using_node?: true)
+
+    generator.create_root_files
+
+    assert_equal [
+      [:build, :readme, []],
+      [:build, :rakefile, []],
+      [:build, :node_version, []],
+      [:build, :ruby_version, []],
+      [:build, :configru, []],
+      [:build, :gitignore, []],
+      [:build, :gitattributes, []],
+      [:build, :gemfile, []],
+      [:build, :version_control, []]
+    ], generator.calls
+
+    skipped = app_generator({ skip_git: true }, using_node?: false)
+    skipped.create_root_files
+    refute_includes skipped.calls, [:build, :node_version, []]
+    refute_includes skipped.calls, [:build, :gitignore, []]
+    refute_includes skipped.calls, [:build, :gitattributes, []]
+  end
+
+  test "create methods delegate to matching app builder steps" do
+    generator = app_generator({}, skip_active_storage?: false, skip_docker?: false, skip_rubocop?: false, skip_ci?: false, skip_storage?: false, skip_devcontainer?: false)
+
+    generator.create_app_files
+    generator.create_bin_files
+    generator.update_bin_files
+    generator.update_active_storage
+    generator.create_dockerfiles
+    generator.create_rubocop_file
+    generator.create_cifiles
+    generator.create_config_files
+    generator.update_config_files
+    generator.create_master_key
+    generator.create_creds
+    generator.create_boot_file
+    generator.create_active_record_files
+    generator.create_db_files
+    generator.create_lib_files
+    generator.create_log_files
+    generator.create_public_files
+    generator.create_script_folder
+    generator.create_tmp_files
+    generator.create_vendor_files
+    generator.create_test_files
+    generator.create_system_test_files
+    generator.create_storage_files
+    generator.create_devcontainer_files
+    generator.finish_template
+
+    assert_includes generator.calls, [:build, :app, []]
+    assert_includes generator.calls, [:build, :bin, []]
+    assert_includes generator.calls, [:build, :bin_when_updating, []]
+    assert_includes generator.calls, [:rails_command, ["active_storage:update"], { inline: true }]
+    assert_includes generator.calls, [:build, :dockerfiles, []]
+    assert_includes generator.calls, [:build, :rubocop, []]
+    assert_includes generator.calls, [:build, :cifiles, []]
+    assert_includes generator.calls, [:build, :config, []]
+    assert_includes generator.calls, [:build, :config_when_updating, []]
+    assert_includes generator.calls, [:build, :master_key, []]
+    assert_includes generator.calls, [:build, :env, []]
+    assert_includes generator.calls, [:build, :credentials, []]
+    assert_includes generator.calls, [:build, :credentials_diff_enroll, []]
+    assert_includes generator.calls, [:build, :database_yml, []]
+    assert_includes generator.calls, [:build, :db, []]
+    assert_includes generator.calls, [:build, :lib, []]
+    assert_includes generator.calls, [:build, :log, []]
+    assert_includes generator.calls, [:build, :public_directory, []]
+    assert_includes generator.calls, [:build, :script, []]
+    assert_includes generator.calls, [:build, :tmp, []]
+    assert_includes generator.calls, [:build, :vendor, []]
+    assert_includes generator.calls, [:build, :test, []]
+    assert_includes generator.calls, [:build, :system_test, []]
+    assert_includes generator.calls, [:build, :storage, []]
+    assert_includes generator.calls, [:build, :devcontainer, []]
+    assert_includes generator.calls, [:build, :leftovers, []]
+    assert_includes generator.calls, [:template, ["config/boot.rb"], {}]
+  end
+
+  test "create methods honor skip options" do
+    generator = app_generator({ skip_active_record: true, skip_test: true, dummy_app: true },
+      skip_active_storage?: true, skip_docker?: true, skip_rubocop?: true, skip_ci?: true, skip_storage?: true, skip_devcontainer?: true)
+
+    generator.update_active_storage
+    generator.create_dockerfiles
+    generator.create_rubocop_file
+    generator.create_cifiles
+    generator.create_active_record_files
+    generator.create_db_files
+    generator.create_script_folder
+    generator.create_test_files
+    generator.create_storage_files
+    generator.create_devcontainer_files
+
+    assert_empty generator.calls
+  end
+
+  test "delete methods remove files only when matching options are enabled" do
+    generator = app_generator({ api: true, skip_action_mailer: true, skip_active_record: true, skip_active_job: true, skip_action_cable: true, update: false },
+      skip_asset_pipeline?: true)
+
+    generator.delete_app_assets_if_api_option
+    generator.delete_app_helpers_if_api_option
+    generator.delete_app_views_if_api_option
+    generator.delete_public_files_if_api_option
+    generator.delete_assets_initializer_skipping_asset_pipeline
+    generator.delete_application_record_skipping_active_record
+    generator.delete_active_job_folder_if_skipping_active_job
+    generator.delete_action_mailer_files_skipping_action_mailer
+    generator.delete_action_cable_files_skipping_action_cable
+    generator.delete_non_api_initializers_if_api_option
+    generator.delete_api_initializers
+    generator.delete_new_framework_defaults
+
+    assert_includes generator.calls, [:remove_dir, ["app/assets"]]
+    assert_includes generator.calls, [:remove_dir, ["app/helpers"]]
+    assert_includes generator.calls, [:remove_dir, ["test/helpers"]]
+    assert_includes generator.calls, [:remove_dir, ["app/views"]]
+    assert_includes generator.calls, [:remove_file, ["public/400.html"]]
+    assert_includes generator.calls, [:remove_file, ["config/initializers/assets.rb"]]
+    assert_includes generator.calls, [:remove_file, ["app/models/application_record.rb"]]
+    assert_includes generator.calls, [:remove_dir, ["app/jobs"]]
+    assert_includes generator.calls, [:remove_dir, ["app/mailers"]]
+    assert_includes generator.calls, [:remove_dir, ["app/javascript/channels"]]
+    assert_includes generator.calls, [:remove_file, ["config/initializers/content_security_policy.rb"]]
+    refute_includes generator.calls, [:remove_file, ["config/initializers/cors.rb"]]
+    assert generator.calls.any? { |call| call == [:remove_file, ["config/initializers/new_framework_defaults_#{Rails::VERSION::MAJOR}_#{Rails::VERSION::MINOR}.rb"]] }
+  end
+
+  test "delete methods are no-ops when matching options are disabled" do
+    generator = app_generator({ api: false, skip_active_record: false, skip_active_job: false, skip_action_mailer: false, skip_action_cable: false, update: true },
+      skip_asset_pipeline?: false)
+
+    generator.delete_app_assets_if_api_option
+    generator.delete_app_helpers_if_api_option
+    generator.delete_app_views_if_api_option
+    generator.delete_public_files_if_api_option
+    generator.delete_assets_initializer_skipping_asset_pipeline
+    generator.delete_application_record_skipping_active_record
+    generator.delete_active_job_folder_if_skipping_active_job
+    generator.delete_action_mailer_files_skipping_action_mailer
+    generator.delete_action_cable_files_skipping_action_cable
+    generator.delete_non_api_initializers_if_api_option
+
+    assert_empty generator.calls
+  end
+
+  test "delete app views keeps mailer layout when api app keeps action mailer" do
+    generator = app_generator({ api: true, skip_action_mailer: false, update: true, skip_active_record: false, skip_active_job: false },
+      skip_asset_pipeline?: true)
+
+    generator.delete_app_views_if_api_option
+    generator.delete_new_framework_defaults
+
+    assert_includes generator.calls, [:remove_file, ["app/views/layouts/application.html.erb"]]
+    assert_includes generator.calls, [:remove_dir, ["app/views/pwa"]]
+    refute generator.calls.any? { |call| call == [:remove_file, ["config/initializers/new_framework_defaults_#{Rails::VERSION::MAJOR}_#{Rails::VERSION::MINOR}.rb"]] }
+
+    non_api = app_generator({ api: false }, skip_asset_pipeline?: true)
+    non_api.delete_assets_initializer_skipping_asset_pipeline
+    non_api.delete_api_initializers
+
+    assert_includes non_api.calls, [:create_file, ["app/assets/stylesheets/application.css", "/* Application styles */\n"]]
+    assert_includes non_api.calls, [:remove_file, ["config/initializers/cors.rb"]]
+  end
+
+  test "callbacks and banner expose public app generator contract" do
+    generator = app_generator
+    ran = false
+    generator.instance_variable_set(:@after_bundle_callbacks, [-> { ran = true }])
+
+    generator.run_after_bundle_callbacks
+
+    assert ran
+    assert_match(/rails new APP_PATH \[options\]/, Rails::Generators::AppGenerator.banner)
+  end
+end
