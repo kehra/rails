@@ -6,6 +6,12 @@ require "database/setup"
 require "active_storage/analyzer/video_analyzer"
 
 class ActiveStorage::Analyzer::VideoAnalyzerTest < ActiveSupport::TestCase
+  setup do
+    if !ENV["BUILDKITE"] && !system("command", "-v", ActiveStorage.paths[:ffprobe] || "ffprobe")
+      skip("ffprobe isn't available")
+    end
+  end
+
   test "accepts video blobs" do
     assert ActiveStorage::Analyzer::VideoAnalyzer.accept?(create_blob(content_type: "video/mp4"))
     assert_not ActiveStorage::Analyzer::VideoAnalyzer.accept?(create_blob(content_type: "text/plain"))

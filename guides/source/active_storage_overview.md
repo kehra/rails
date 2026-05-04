@@ -579,6 +579,8 @@ There is an additional parameter `key` that can be used to specify folders/sub-f
 in your S3 Bucket. AWS S3 otherwise uses a random key to name your files. This
 approach is helpful if you want to organize your S3 Bucket files better.
 
+NOTE: The `key` parameter is treated as trusted. Using untrusted user input as the key may result in unexpected behavior.
+
 ```ruby
 @message.images.attach(
   io: File.open("/path/to/file"),
@@ -692,10 +694,10 @@ Serving Files
 
 Active Storage supports two ways to serve files: redirecting and proxying.
 
-WARNING: All Active Storage controllers are publicly accessible by default. The
-generated URLs are hard to guess, but permanent by design. If your files
-require a higher level of protection consider implementing
-[Authenticated Controllers](#authenticated-controllers).
+WARNING: All Active Storage controllers are publicly accessible by default.
+Anyone who knows the URL can access the file, even if the rest of your
+application requires authentication. If your files require access control
+consider implementing [Authenticated Controllers](#authenticated-controllers).
 
 ### Redirect Mode
 

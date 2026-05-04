@@ -127,6 +127,15 @@ class CounterCacheTest < ActiveRecord::TestCase
     end
   end
 
+  test "reset counters with string id" do
+    assert @topic.replies_count > 0, "Must have replies"
+    Topic.increment_counter("replies_count", @topic.id)
+
+    assert_difference "@topic.reload.replies_count", -1 do
+      Topic.reset_counters(@topic.id.to_s, :replies)
+    end
+  end
+
   test "reset counters with modularized and camelized classnames" do
     special = SpecialTopic.create!(title: "Special")
     SpecialTopic.increment_counter(:replies_count, special.id)
@@ -197,6 +206,19 @@ class CounterCacheTest < ActiveRecord::TestCase
 
     assert_difference [-> { order1.reload.books_count }, -> { order2.reload.books_count }], -1 do
       Cpk::Order.reset_counters([order1.id, order2.id], :books)
+    end
+  end
+
+  test "reset counters for cpk model with string ids" do
+    order = cpk_orders(:cpk_book_order_1)
+    assert order.books_count > 0, "Must have books"
+
+    Cpk::Order.increment_counter(:books_count, order.id)
+
+    # check that it gets reset
+    assert_difference -> { order.reload.books_count }, -1 do
+      string_id = order.id.map(&:to_s)
+      Cpk::Order.reset_counters(string_id, :books)
     end
   end
 
