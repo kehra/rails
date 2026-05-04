@@ -772,7 +772,13 @@ class AppGeneratorTest < Rails::Generators::TestCase
     generator [destination_root]
     run_generator_instance
 
-    assert_file "config/bootsnap.rb"
+    assert_file "config/bootsnap.rb" do |content|
+      assert_match(/Bootsnap\.enable_frozen_string_literal\(app_only: true\)/, content)
+    end
+    assert_file "config/boot.rb" do |content|
+      assert_match(/require "bootsnap\/setup"/, content)
+      assert_match(/require_relative "bootsnap"/, content)
+    end
   end
 
   def test_kamal_files_are_skipped_if_required
@@ -1205,11 +1211,13 @@ class AppGeneratorTest < Rails::Generators::TestCase
       assert_gem "bootsnap"
       assert_file "config/boot.rb" do |content|
         assert_match(/require "bootsnap\/setup"/, content)
+        assert_match(/require_relative "bootsnap"/, content)
       end
     else
       assert_no_gem "bootsnap"
       assert_file "config/boot.rb" do |content|
         assert_no_match(/require "bootsnap\/setup"/, content)
+        assert_no_match(/require_relative "bootsnap"/, content)
       end
     end
   end
@@ -1220,6 +1228,7 @@ class AppGeneratorTest < Rails::Generators::TestCase
     assert_no_gem "bootsnap"
     assert_file "config/boot.rb" do |content|
       assert_no_match(/require "bootsnap\/setup"/, content)
+      assert_no_match(/require_relative "bootsnap"/, content)
     end
   end
 
@@ -1229,6 +1238,7 @@ class AppGeneratorTest < Rails::Generators::TestCase
     assert_no_gem "bootsnap"
     assert_file "config/boot.rb" do |content|
       assert_no_match(/require "bootsnap\/setup"/, content)
+      assert_no_match(/require_relative "bootsnap"/, content)
     end
   end
 
