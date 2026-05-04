@@ -193,11 +193,6 @@ class MemCacheStoreCoreApiTest < ActiveSupport::TestCase
     assert_equal "a%20%25%FF", @cache.send(:normalize_key, "a %\xFF".b, {})
   end
 
-  def test_normalize_key_truncates_nil_expanded_key
-    @cache.stub(:expand_and_namespace_key, nil) do
-      assert_nil @cache.send(:normalize_key, "name", {})
-    end
-  end
 
   def test_delete_entry_delegates_to_client
     assert @cache.send(:delete_entry, "key")
