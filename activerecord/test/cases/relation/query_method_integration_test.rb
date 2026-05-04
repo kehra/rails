@@ -547,6 +547,27 @@ module ActiveRecord
       assert_match(/aliased_posts/, relation.to_sql)
     end
 
+    test "from aliases arel set operations" do
+      left = Post.where(id: posts(:welcome).id).arel
+      right = Post.where(id: posts(:thinking).id).arel
+
+      union = Post.from(Arel::Nodes::Union.new(left, right), :posts).order(:id)
+      assert_match(/UNION/i, union.to_sql)
+      assert_match(/AS posts/i, union.to_sql)
+
+      union_all = Post.from(Arel::Nodes::UnionAll.new(left, right), :posts)
+      assert_match(/UNION ALL/i, union_all.to_sql)
+      assert_match(/AS posts/i, union_all.to_sql)
+
+      intersection = Post.from(Arel::Nodes::Intersect.new(left, left), :posts)
+      assert_match(/INTERSECT/i, intersection.to_sql)
+      assert_match(/AS posts/i, intersection.to_sql)
+
+      except = Post.from(Arel::Nodes::Except.new(left, right), :posts)
+      assert_match(/EXCEPT/i, except.to_sql)
+      assert_match(/AS posts/i, except.to_sql)
+    end
+
     test "lock joins and where keep lock intent after relation composition" do
       author = authors(:david)
       relation = Post.lock.joins(:author).where("authors.id = ?", author.id).order(:id)

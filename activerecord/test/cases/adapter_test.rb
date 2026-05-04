@@ -15,6 +15,32 @@ module ActiveRecord
       @connection.materialize_transactions
     end
 
+    def test_postgresql_schema_order_config_deprecation_without_connection
+      require "active_record/connection_adapters/postgresql_adapter"
+
+      adapter_class = Class.new(ActiveRecord::ConnectionAdapters::PostgreSQLAdapter) do
+        attr_reader :assigned_schema_search_path
+
+        def check_version = nil
+        def internal_set_config(*) = nil
+        def add_pg_encoders = nil
+        def add_pg_decoders = nil
+        def schema_search_path = @assigned_schema_search_path
+        def schema_search_path=(value)
+          @assigned_schema_search_path = value
+        end
+        def reload_type_map = nil
+      end
+
+      adapter = adapter_class.allocate
+      adapter.instance_variable_set(:@config, { schema_order: "public" })
+
+      assert_deprecated(ActiveRecord.deprecator) do
+        adapter.send(:configure_connection)
+      end
+      assert_equal "public", adapter.assigned_schema_search_path
+    end
+
     def test_type_map_is_ractor_shareable
       # This is testing internals. Please feel free to remove this test
       # or change it when internals change. The point is to make sure
@@ -695,7 +721,13 @@ module ActiveRecord
       adapter = adapter_class.new({ prepared_statements: false })
 
       assert adapter.strict_mode?
-      refute adapter_class.new({ prepared_statements: false, strict: "false" }).strict_mode?
+      strict_adapter = adapter_class.new({ prepared_statements: false, strict: "false" })
+      assert_deprecated(ActiveRecord.deprecator) do
+        refute strict_adapter.strict_mode?
+      end
+      assert_not_deprecated(ActiveRecord.deprecator) do
+        refute strict_adapter.strict_mode?
+      end
       assert adapter.supports_bulk_alter?
       assert adapter.supports_advisory_locks?
       assert adapter.supports_foreign_keys?
