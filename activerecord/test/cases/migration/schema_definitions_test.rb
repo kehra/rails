@@ -281,6 +281,11 @@ module ActiveRecord
             sql
           end
 
+          def execute_batch(statements, *)
+            statements.each { |statement| execute(statement) }
+            statements.last
+          end
+
           def query_values(sql)
             case sql
             when /BASE TABLE/ then ["posts"]
@@ -340,14 +345,49 @@ module ActiveRecord
         assert connection.index_exists?(:posts, :title)
         assert_equal "id", connection.primary_key(:posts)
 
-        create_sql = connection.create_table(:schema_statement_posts, if_not_exists: true) { |t| t.string :title, index: true }
-        assert_match(/CREATE TABLE IF NOT EXISTS/, create_sql)
+        connection.create_table(:schema_statement_posts, if_not_exists: true) { |t| t.string :title, index: true }
+        assert connection.executed_sql.any? { |sql| sql.match?(/CREATE TABLE IF NOT EXISTS/) }
         assert_includes connection.schema_cache.cleared, "schema_statement_posts"
         assert_includes connection.executed_sql.last, "CREATE INDEX IF NOT EXISTS"
 
         forced_sql = connection.create_table(:forced_schema_statement_posts, force: true) { |t| t.string :title }
         assert_match(/CREATE TABLE/, forced_sql)
         assert connection.executed_sql.any? { |sql| sql.include?(%Q(DROP TABLE IF EXISTS "forced_schema_statement_posts")) }
+
+        commented_connection_class = Class.new(connection_class) do
+          attr_reader :executed_batches
+
+          def initialize
+            super
+            @executed_batches = []
+          end
+
+          def execute_batch(statements, *)
+            @executed_batches << statements
+            statements.each { |statement| execute(statement) }
+            statements.last
+          end
+
+          def supports_comments? = true
+          def change_table_comment_sql(table_name, comment) = "COMMENT ON TABLE #{quote_table_name(table_name)} IS #{quote(comment)}"
+          def change_column_comment_sql(table_name, column_name, comment) = "COMMENT ON COLUMN #{quote_table_name(table_name)}.#{quote_column_name(column_name)} IS #{quote(comment)}"
+          def change_index_comment_sql(index) = "COMMENT ON INDEX #{quote_table_name(index.name)} IS #{quote(index.comment)}"
+        end
+
+        commented_connection = commented_connection_class.new
+        commented_connection.create_table(:commented_schema_statement_posts, comment: "table note", force: true) do |t|
+          t.string :title, comment: "column note", index: { comment: "index note" }
+        end
+
+        assert_equal 1, commented_connection.executed_batches.length
+        batch = commented_connection.executed_batches.first
+        assert_includes batch[0], %Q(DROP TABLE IF EXISTS "commented_schema_statement_posts")
+        assert_includes batch[1], %Q(CREATE TABLE "commented_schema_statement_posts")
+        assert_includes batch[2], %Q(CREATE INDEX "index_commented_schema_statement_posts_on_title")
+        assert_includes batch[3], %Q(COMMENT ON INDEX "index_commented_schema_statement_posts_on_title" IS "index note")
+        assert_includes batch[4], %Q(COMMENT ON TABLE "commented_schema_statement_posts" IS "table note")
+        assert_includes batch[5], %Q(COMMENT ON COLUMN "commented_schema_statement_posts"."title" IS "column note")
+
         force_error = assert_raises(ArgumentError) { connection.create_table(:bad_options, force: true, if_not_exists: true) }
         assert_match(/cannot be used simultaneously/, force_error.message)
 
@@ -728,6 +768,11 @@ module ActiveRecord
             sql
           end
 
+          def execute_batch(statements, *)
+            statements.each { |statement| execute(statement) }
+            statements.last
+          end
+
           def query_values(_sql) = []
           def quote(value) = value.inspect
           def quote_table_name(name) = %Q("#{name}")
@@ -779,6 +824,14 @@ module ActiveRecord
           def change_column_comment(table_name, column_name, comment)
             @column_comments << [table_name, column_name, comment]
           end
+          def change_table_comment_sql(table_name, comment)
+            change_table_comment(table_name, comment)
+            "COMMENT ON TABLE #{quote_table_name(table_name)} IS #{quote(comment)}"
+          end
+          def change_column_comment_sql(table_name, column_name, comment)
+            change_column_comment(table_name, column_name, comment)
+            "COMMENT ON COLUMN #{quote_table_name(table_name)}.#{quote_column_name(column_name)} IS #{quote(comment)}"
+          end
         end
 
         connection = connection_class.new
@@ -788,8 +841,8 @@ module ActiveRecord
         assert_nil connection.add_check_constraint(:posts, "price > 0")
         assert_nil connection.remove_check_constraint(:posts, name: "missing")
 
-        comment_sql = connection.create_table(:comments, _uses_legacy_table_name: true, comment: "table note") { |t| t.string :title, comment: "column note" }
-        assert_match(/CREATE TABLE/, comment_sql)
+        connection.create_table(:comments, _uses_legacy_table_name: true, comment: "table note") { |t| t.string :title, comment: "column note" }
+        assert connection.executed_sql.any? { |sql| sql.match?(/CREATE TABLE/) }
         assert_equal [[:comments, "table note"]], connection.table_comments
         assert_equal [[:comments, "title", "column note"]], connection.column_comments
         assert connection.executed_sql.none? { |sql| sql.include?("CREATE INDEX") }
