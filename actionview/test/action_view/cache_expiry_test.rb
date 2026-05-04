@@ -15,17 +15,19 @@ class ActionViewCacheExpiryTest < ActiveSupport::TestCase
     self.updated = false
 
     attr_reader :files, :dirs
+    attr_writer :updated
 
     def initialize(files, dirs, &block)
       @files = files
       @dirs = dirs
       @block = block
+      @updated = self.class.updated
       @executed = false
       self.class.instances << self
     end
 
     def updated?
-      self.class.updated
+      @updated
     end
 
     def execute
@@ -65,10 +67,11 @@ class ActionViewCacheExpiryTest < ActiveSupport::TestCase
       ActionView::PathRegistry.cast_file_system_resolvers(old_dir)
       assert_not @reloader.updated?
 
-      Watcher.updated = true
+      Watcher.instances.last.updated = true
       Dir.mktmpdir("view-reloader-new") do |new_dir|
         ActionView::PathRegistry.cast_file_system_resolvers(new_dir)
         Watcher.updated = false
+        @reloader.rebuild_watcher
 
         assert @reloader.updated?
         assert_equal 2, Watcher.instances.length
