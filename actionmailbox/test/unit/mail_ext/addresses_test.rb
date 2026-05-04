@@ -51,6 +51,14 @@ module MailExt
       assert_equal "example.com", @mail.x_forwarded_to_addresses.first.domain
     end
 
+    test "standard address helpers use parsed field elements" do
+      assert_same @mail.header[:from].element.addresses.first, @mail.from_address
+      assert_same @mail.header[:reply_to].element.addresses.first, @mail.reply_to_address
+      assert_equal @mail.header[:to].element.addresses, @mail.to_addresses
+      assert_equal @mail.header[:cc].element.addresses, @mail.cc_addresses
+      assert_equal @mail.header[:bcc].element.addresses, @mail.bcc_addresses
+    end
+
     test "missing address headers return empty address collections" do
       mail = Mail.new
 
@@ -60,14 +68,6 @@ module MailExt
       assert_empty mail.cc_addresses
       assert_empty mail.bcc_addresses
       assert_empty mail.recipients_addresses
-    end
-
-    test "address list supports older mail fields" do
-      address_list = Struct.new(:addresses).new([ Mail::Address.new("legacy@example.com") ])
-      field = Struct.new(:address_list).new(address_list)
-      mail = Mail.new
-
-      assert_equal address_list, mail.send(:address_list, field)
     end
   end
 end
