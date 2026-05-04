@@ -209,6 +209,32 @@ module Notifications
 
       assert_equal [Float, Float], [class_of_started, class_of_finished]
     end
+
+    def test_subscribe_with_string_pattern_can_prepend
+      event_name = "foo"
+      calls = []
+
+      ActiveSupport::Notifications.subscribe(event_name) { calls << :first }
+      ActiveSupport::Notifications.subscribe(event_name) { calls << :second }
+      ActiveSupport::Notifications.subscribe(event_name, prepend: true) { calls << :prepended }
+
+      ActiveSupport::Notifications.instrument(event_name)
+
+      assert_equal [:prepended, :first, :second], calls
+    end
+
+    def test_monotonic_subscribe_with_string_pattern_can_prepend
+      event_name = "foo"
+      calls = []
+
+      ActiveSupport::Notifications.monotonic_subscribe(event_name) { calls << :first }
+      ActiveSupport::Notifications.monotonic_subscribe(event_name) { calls << :second }
+      ActiveSupport::Notifications.monotonic_subscribe(event_name, prepend: true) { calls << :prepended }
+
+      ActiveSupport::Notifications.instrument(event_name)
+
+      assert_equal [:prepended, :first, :second], calls
+    end
   end
 
   class BuildHandleTest < TestCase
