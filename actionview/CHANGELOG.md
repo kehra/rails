@@ -1,3 +1,9 @@
+*   `ViewReloader#deactivate` removes the `file_system_resolver_hooks` callback
+    so forked processes that clear reloaders no longer trigger filesystem scans
+    on every `prepend_view_path`.
+
+    *Dave Ariens*
+
 *   Defer the View watcher build until view paths are actually registered.
 
     *Hugo Vacher*

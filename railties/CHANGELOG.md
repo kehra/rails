@@ -1,3 +1,9 @@
+*   `app.reloaders` is now a `ReloadersCollection` that calls `deactivate`
+    on each reloader when `clear` or `delete` is called, giving reloaders a
+    chance to clean up external state.
+
+    *Dave Ariens*
+
 *   Enable Ruby `frozen_string_literal` by default.
 
     New Rails apps now include a `config/bootsnap.rb` file that enables frozen string
