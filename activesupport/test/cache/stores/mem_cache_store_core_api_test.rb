@@ -130,6 +130,15 @@ class MemCacheStoreCoreApiTest < ActiveSupport::TestCase
     end
   end
 
+  def test_initialize_rejects_dalli_client_first_address
+    client = Dalli::Client.allocate
+
+    error = assert_raises(ArgumentError) do
+      build_store(client)
+    end
+    assert_equal "First argument must be an empty array, address, or array of addresses.", error.message
+  end
+
   def test_increment_and_decrement_delegate_to_client
     assert_equal 10, @cache.increment("counter", 3, expires_in: 7)
     assert_equal 2, @cache.decrement("counter", 4, expires_in: 8)
