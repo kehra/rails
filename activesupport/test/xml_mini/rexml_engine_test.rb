@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "xml_mini_engine_test"
+require "rexml/document"
 
 class REXMLEngineTest < XMLMiniEngineTest
   def test_default_is_rexml

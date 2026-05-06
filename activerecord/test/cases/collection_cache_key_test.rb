@@ -292,11 +292,11 @@ module ActiveRecord
     end
 
     def with_collection_cache_versioning(value = true)
-      @old_collection_cache_versioning = ActiveRecord::Base.collection_cache_versioning
-      ActiveRecord::Base.collection_cache_versioning = value
+      old_values = [ActiveRecord::Base, Developer].to_h { |model| [model, model.collection_cache_versioning] }
+      old_values.each_key { |model| model.collection_cache_versioning = value }
       yield
     ensure
-      ActiveRecord::Base.collection_cache_versioning = @old_collection_cache_versioning
+      old_values.each { |model, old_value| model.collection_cache_versioning = old_value }
     end
   end
 end

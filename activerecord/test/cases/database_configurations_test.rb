@@ -46,25 +46,25 @@ class DatabaseConfigurationsTest < ActiveRecord::TestCase
   end
 
   def test_configs_for_getter_with_name
-    previous_env, ENV["RAILS_ENV"] = ENV["RAILS_ENV"], "arunit2"
+    env_name = "arunit2"
 
-    config = ActiveRecord::Base.configurations.configs_for(name: "primary")
+    ActiveRecord::ConnectionHandling::RAILS_ENV.stub(:call, env_name) do
+      config = ActiveRecord::Base.configurations.configs_for(name: "primary")
 
-    assert_equal "arunit2", config.env_name
-    assert_equal "primary", config.name
-  ensure
-    ENV["RAILS_ENV"] = previous_env
+      assert_equal env_name, config.env_name
+      assert_equal "primary", config.name
+    end
   end
 
   def test_configs_for_with_name_symbol
-    previous_env, ENV["RAILS_ENV"] = ENV["RAILS_ENV"], "arunit2"
+    env_name = "arunit2"
 
-    config = ActiveRecord::Base.configurations.configs_for(name: :primary)
+    ActiveRecord::ConnectionHandling::RAILS_ENV.stub(:call, env_name) do
+      config = ActiveRecord::Base.configurations.configs_for(name: :primary)
 
-    assert_equal "arunit2", config.env_name
-    assert_equal "primary", config.name
-  ensure
-    ENV["RAILS_ENV"] = previous_env
+      assert_equal env_name, config.env_name
+      assert_equal "primary", config.name
+    end
   end
 
   def test_configs_for_getter_with_env_and_name
@@ -249,19 +249,19 @@ class DatabaseConfigurationsTest < ActiveRecord::TestCase
 
   def test_initialize_merges_database_url_for_current_environment
     previous_database_url = ENV["DATABASE_URL"]
-    previous_env = ENV["RAILS_ENV"]
     ENV["DATABASE_URL"] = "sqlite3:///tmp/env-url.sqlite3"
-    ENV["RAILS_ENV"] = "env_url"
+    env_name = "env_url"
 
-    configurations = ActiveRecord::DatabaseConfigurations.new(
-      "env_url" => { "primary" => { "adapter" => "sqlite3", "database" => "db/from_hash.sqlite3" } }
-    )
+    ActiveRecord::ConnectionHandling::RAILS_ENV.stub(:call, env_name) do
+      configurations = ActiveRecord::DatabaseConfigurations.new(
+        env_name => { "primary" => { "adapter" => "sqlite3", "database" => "db/from_hash.sqlite3" } }
+      )
 
-    assert_instance_of ActiveRecord::DatabaseConfigurations::UrlConfig, configurations.configs_for(env_name: "env_url", name: "primary", include_hidden: true)
-    assert_equal "/tmp/env-url.sqlite3", configurations.configs_for(env_name: "env_url", name: "primary", include_hidden: true).database
+      assert_instance_of ActiveRecord::DatabaseConfigurations::UrlConfig, configurations.configs_for(env_name: env_name, name: "primary", include_hidden: true)
+      assert_equal "/tmp/env-url.sqlite3", configurations.configs_for(env_name: env_name, name: "primary", include_hidden: true).database
+    end
   ensure
     ENV["DATABASE_URL"] = previous_database_url
-    ENV["RAILS_ENV"] = previous_env
   end
 
   def test_configs_for_without_env_name_returns_all_visible_configs

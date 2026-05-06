@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "abstract_unit"
+require "active_support/core_ext/class/subclasses"
 require "rails/engine"
 
 class EnginePublicContractTest < ActiveSupport::TestCase
@@ -292,6 +293,7 @@ class EnginePublicContractTest < ActiveSupport::TestCase
       active_record = Module.new
       base = Class.new
       base.define_singleton_method(:table_name_prefix) { prefix }
+      base.define_singleton_method(:descendants) { [] }
       active_record.const_set(:Base, base)
       Object.const_set(:ActiveRecord, active_record)
       yield

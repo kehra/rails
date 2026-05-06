@@ -315,6 +315,7 @@ module ApplicationTests
       asset_path = assets["assets"]["application.css"]
 
       app_file "app/assets/images/rails.png", "p { url: change }"
+      FileUtils.touch "#{app_path}/app/assets/images/rails.png", mtime: Time.now + 1
 
       precompile!
 

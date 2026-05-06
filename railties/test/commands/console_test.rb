@@ -71,22 +71,22 @@ class Rails::ConsoleTest < ActiveSupport::TestCase
   def test_prompt_env_colorization
     app = build_app(nil)
     irb_console = Rails::Console.new(app).console
-    red = "\e[31m"
-    blue = "\e[34m"
-    magenta = "\e[35m"
-    clear = "\e[0m"
+    original_colorize = IRB::Color.method(:colorize)
+    IRB::Color.define_singleton_method(:colorize) { |text, colors| "#{colors.join("+")}:#{text}" }
 
-    Rails.env = "development"
-    assert_equal("#{blue}dev#{clear}", irb_console.colorized_env)
+      Rails.env = "development"
+      assert_equal("BLUE:dev", irb_console.colorized_env)
 
-    Rails.env = "test"
-    assert_equal("#{blue}test#{clear}", irb_console.colorized_env)
+      Rails.env = "test"
+      assert_equal("BLUE:test", irb_console.colorized_env)
 
-    Rails.env = "production"
-    assert_equal("#{red}prod#{clear}", irb_console.colorized_env)
+      Rails.env = "production"
+      assert_equal("RED:prod", irb_console.colorized_env)
 
-    Rails.env = "custom_env"
-    assert_equal("#{magenta}custom_env#{clear}", irb_console.colorized_env)
+      Rails.env = "custom_env"
+      assert_equal("MAGENTA:custom_env", irb_console.colorized_env)
+  ensure
+    IRB::Color.define_singleton_method(:colorize, original_colorize) if original_colorize
   end
 
   def test_default_environment_with_no_rails_env

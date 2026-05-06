@@ -24,17 +24,19 @@ module ActiveRecord
         original_rack_env  = ENV["RACK_ENV"]
         ENV["RAILS_ENV"]   = ENV["RACK_ENV"] = ""
 
+        rails = Object.send(:remove_const, :Rails) if defined?(Rails)
         assert_equal "default_env", ActiveRecord::ConnectionHandling::DEFAULT_ENV.call
       ensure
+        Object.const_set(:Rails, rails) if rails
         ENV["RAILS_ENV"] = original_rails_env
         ENV["RACK_ENV"]  = original_rack_env
       end
 
       def test_establish_connection_using_3_levels_config
-        previous_env, ENV["RAILS_ENV"] = ENV["RAILS_ENV"], "default_env"
+        env_name = "default_env"
 
         config = {
-          "default_env" => {
+          env_name => {
             "readonly" => { "adapter" => "sqlite3", "database" => "test/db/readonly.sqlite3" },
             "primary"  => { "adapter" => "sqlite3", "database" => "test/db/primary.sqlite3" }
           },
@@ -46,9 +48,11 @@ module ActiveRecord
         }
         @prev_configs, ActiveRecord::Base.configurations = ActiveRecord::Base.configurations, config
 
-        @handler.establish_connection(:common)
-        @handler.establish_connection(:primary)
-        @handler.establish_connection(:readonly)
+        ActiveRecord::ConnectionHandling::RAILS_ENV.stub(:call, env_name) do
+          @handler.establish_connection(:common)
+          @handler.establish_connection(:primary)
+          @handler.establish_connection(:readonly)
+        end
 
         assert_not_nil pool = @handler.retrieve_connection_pool("readonly")
         assert_equal "test/db/readonly.sqlite3", pool.db_config.database
@@ -60,7 +64,6 @@ module ActiveRecord
         assert_equal "test/db/common.sqlite3", pool.db_config.database
       ensure
         ActiveRecord::Base.configurations = @prev_configs
-        ENV["RAILS_ENV"] = previous_env
       end
 
       def test_validates_db_configuration_and_raises_on_invalid_adapter

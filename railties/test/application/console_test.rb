@@ -269,8 +269,8 @@ class FullStackConsoleTest < ActiveSupport::TestCase
   def test_reload_command_resets_executor
     spawn_console("-e development")
 
-    write_prompt "key = Rails.application.executor.active_key; nil"
-    write_prompt "old_executor_id = ActiveSupport::IsolatedExecutionState[key].object_id; nil"
+    write_prompt "key = Rails.application.executor.active_key; nil", "=> nil"
+    write_prompt "old_executor_id = ActiveSupport::IsolatedExecutionState[key].object_id; nil", "=> nil"
     write_prompt "reload!", "Reloading...\r\n"
     write_prompt "ActiveSupport::IsolatedExecutionState[key].object_id != old_executor_id", "=> true"
   end

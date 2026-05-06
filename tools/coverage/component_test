@@ -40,14 +40,16 @@ fi
 
 cd "$root/$component"
 
-if [ "$component" = "railties" ] && [ "$#" -eq 0 ]; then
+case "$component:$#" in
+  railties:0|activesupport:0|actionview:0)
   status=0
   while IFS= read -r test_file; do
-    echo "==> railties/$test_file"
-    SIMPLECOV_COMMAND_NAME="railties:$test_file" bin/test "$test_file" || status=$?
-  done < <(find test -type f -name "*_test.rb" | sort)
+    echo "==> $component/$test_file"
+    SIMPLECOV_COMMAND_NAME="$component:$test_file" bin/test "$test_file" || status=$?
+  done < <(find test -path "test/fixtures/tmp" -prune -o -type f -name "*_test.rb" -print | sort)
   exit "$status"
-fi
+    ;;
+esac
 
 export SIMPLECOV_COMMAND_NAME="${SIMPLECOV_COMMAND_NAME:-$component}"
 exec bin/test "$@"

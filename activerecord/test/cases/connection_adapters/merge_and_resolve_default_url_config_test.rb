@@ -11,6 +11,7 @@ module ActiveRecord
         @previous_rails_env = ENV.delete("RAILS_ENV")
         @adapters_was = ActiveRecord::ConnectionAdapters.instance_variable_get(:@adapters).dup
         @protocol_adapters = ActiveRecord.protocol_adapters.dup
+        @rails_const = Object.send(:remove_const, :Rails) if defined?(Rails)
       end
 
       teardown do
@@ -19,6 +20,7 @@ module ActiveRecord
         ENV["RAILS_ENV"] = @previous_rails_env
         ActiveRecord::ConnectionAdapters.instance_variable_set(:@adapters, @adapters_was)
         ActiveRecord.protocol_adapters = @protocol_adapters
+        Object.const_set(:Rails, @rails_const) if @rails_const
       end
 
       def resolve_config(config, env_name = ActiveRecord::ConnectionHandling::DEFAULT_ENV.call)

@@ -935,13 +935,20 @@ module ActiveRecord
       end
 
       def test_check_schema_file_message_with_rails_root
-        Rails.define_singleton_method(:root) { "/rails-root" } unless Rails.respond_to?(:root)
+        had_root = Rails.respond_to?(:root)
+        root_method = Rails.method(:root) if had_root
+        Rails.singleton_class.remove_method(:root) if had_root
+        Rails.define_singleton_method(:root) { "/rails-root" }
+
         error = assert_raises(RuntimeError) do
           Kernel.stub(:abort, ->(message) { raise message }) do
             @tasks.check_schema_file("/tmp/missing-database-tasks-unit-schema")
           end
         end
         assert_includes error.message, "/rails-root/config/application.rb"
+      ensure
+        Rails.singleton_class.remove_method(:root) if Rails.respond_to?(:root)
+        Rails.define_singleton_method(:root) { root_method.call } if had_root
       end
 
       def test_check_schema_file_message_without_rails_root

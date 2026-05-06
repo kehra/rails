@@ -20,10 +20,10 @@ module ActiveRecord
 
     def setup
       ActiveRecord::Base.instance_variable_set(:@shard_keys, nil)
-      @previous_env, ENV["RAILS_ENV"] = ENV["RAILS_ENV"], "default_env"
+      @env_name = ActiveRecord::ConnectionHandling::DEFAULT_ENV.call
 
       config = {
-        "default_env" => {
+        @env_name => {
           "primary" => {
             adapter: "sqlite3",
             database: ":memory:"
@@ -61,7 +61,6 @@ module ActiveRecord
       clean_up_connection_handler
       ActiveRecord::Base.configurations = @prev_configs
       ActiveRecord::Base.establish_connection(:arunit)
-      ENV["RAILS_ENV"] = @previous_env
     end
 
     def test_connects_to_sets_shard_keys

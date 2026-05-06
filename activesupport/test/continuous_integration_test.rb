@@ -2,6 +2,7 @@
 
 require_relative "abstract_unit"
 require "active_support/continuous_integration"
+require "pty"
 
 class ContinuousIntegrationTest < ActiveSupport::TestCase
   setup { @CI = ActiveSupport::ContinuousIntegration.new }

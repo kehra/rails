@@ -144,6 +144,8 @@ class UrlHelperTest < ActiveSupport::TestCase
   end
 
   def test_routing_url_for_routes_context_is_controller
+    @controller = Struct.new(:request).new(nil)
+
     assert_same controller, __send__(:_routes_context)
     assert_equal true, ActionView::RoutingUrlFor.instance_method(:_generate_paths_by_default).bind(self).call
   end
