@@ -1,3 +1,7 @@
+*   Skip `CreateUsers` migration when the User model already exists in the authentication generator.
+
+    *John Topley*
+
 *   `app.reloaders` is now a `ReloadersCollection` that calls `deactivate`
     on each reloader when `clear` or `delete` is called, giving reloaders a
     chance to clean up external state.

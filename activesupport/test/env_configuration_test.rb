@@ -94,7 +94,7 @@ class EnvConfigurationTest < ActiveSupport::TestCase
       @config.reload
       yield
     ensure
-      attributes.keys.each do |key|
+      attributes.each_key do |key|
         ENV.delete(key)
       end
     end
