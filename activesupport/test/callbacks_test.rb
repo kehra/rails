@@ -1361,8 +1361,8 @@ module CallbacksTest
         include ActiveSupport::Callbacks
         define_callbacks :save
       end
-      klass.singleton_class.define_method(:__class_attr__callbacks) { }
-      klass.singleton_class.send(:private, :__class_attr__callbacks)
+      klass.singleton_class.define_method(:__class_attr__callbacks_owner) { }
+      klass.singleton_class.send(:private, :__class_attr__callbacks_owner)
 
       assert_same klass.__callbacks, klass.send(:set_callbacks, :save, klass.send(:get_callbacks, :save).dup)
     end

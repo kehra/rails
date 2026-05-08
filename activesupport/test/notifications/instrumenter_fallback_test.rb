@@ -40,9 +40,13 @@ class NotificationsInstrumenterFallbackTest < ActiveSupport::TestCase
     GC.define_singleton_method(:respond_to?, ORIGINAL_GC_RESPOND_TO)
     GC.define_singleton_method(:stat, ORIGINAL_GC_STAT)
 
-    Coverage.suspend
-    load INSTRUMENTER_PATH
-    Coverage.resume
+    if defined?(Coverage)
+      Coverage.suspend
+      load INSTRUMENTER_PATH
+      Coverage.resume
+    else
+      load INSTRUMENTER_PATH
+    end
     $VERBOSE = verbose
   end
 end
