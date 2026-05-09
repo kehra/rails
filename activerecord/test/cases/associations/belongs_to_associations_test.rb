@@ -1931,7 +1931,7 @@ class BelongsToWithForeignKeyTest < ActiveRecord::TestCase
 end
 
 class AsyncBelongsToAssociationsTest < ActiveRecord::TestCase
-  include WaitForAsyncTestHelper
+  include WaitForTestHelper
 
   self.use_transactional_tests = false
 
