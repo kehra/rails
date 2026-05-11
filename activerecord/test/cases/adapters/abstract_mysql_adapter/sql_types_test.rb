@@ -10,6 +10,15 @@ class SqlTypesTest < ActiveRecord::AbstractMysqlTestCase
     assert_equal "blob", type_to_sql(:binary)
   end
 
+  def test_native_database_types_can_be_extended
+    native_database_types = ActiveRecord::ConnectionAdapters::AbstractMysqlAdapter::NATIVE_DATABASE_TYPES
+    native_database_types[:vector] = { name: "vector" }
+
+    assert_equal({ name: "vector" }, native_database_types[:vector])
+  ensure
+    native_database_types.delete(:vector) if native_database_types
+  end
+
   def type_to_sql(type, limit = nil)
     ActiveRecord::Base.lease_connection.type_to_sql(type, limit: limit)
   end

@@ -42,7 +42,11 @@ class ActionMailbox::Base::StateTest < ActiveSupport::TestCase
 
     assert_same @inbound_email, mailbox.inbound_email
     assert_equal "I was processed", mailbox.mail.subject
-    assert_same ActionMailbox.logger, mailbox.logger
+    if ActionMailbox.logger
+      assert_same ActionMailbox.logger, mailbox.logger
+    else
+      assert_nil mailbox.logger
+    end
     assert_nil mailbox.process
 
     mailbox.delivered!
