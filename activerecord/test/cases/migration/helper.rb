@@ -19,7 +19,7 @@ module ActiveRecord
       def setup
         super
         @connection = ActiveRecord::Base.lease_connection
-        connection.create_table :test_models do |t|
+        connection.create_table :test_models, force: true do |t|
           t.timestamps null: true
         end
 

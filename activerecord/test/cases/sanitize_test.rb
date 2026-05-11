@@ -81,7 +81,7 @@ class SanitizeTest < ActiveRecord::TestCase
 
     order = Binary.sanitize_sql_for_order([Arel.sql("field(id, ?)"), [1, 3, 2]])
     assert_instance_of Arel::Nodes::SqlLiteral, order
-    assert_equal "field(id, 1,3,2)", order.to_s
+    assert_equal sanitized_field_order_sql, order.to_s
   end
 
   class PermittedSqlStringSubclass < String
@@ -98,7 +98,7 @@ class SanitizeTest < ActiveRecord::TestCase
       order = Binary.sanitize_sql_for_order(["field(id, ?)", [1, 3, 2]])
 
       assert_instance_of Arel::Nodes::SqlLiteral, order
-      assert_equal "field(id, 1,3,2)", order.to_s
+      assert_equal sanitized_field_order_sql, order.to_s
     end
   end
 
@@ -113,7 +113,7 @@ class SanitizeTest < ActiveRecord::TestCase
       order = Binary.sanitize_sql_for_order([PermittedSqlStringSubclass.new("field(id, ?)"), [1, 3, 2]])
 
       assert_instance_of Arel::Nodes::SqlLiteral, order
-      assert_equal "field(id, 1,3,2)", order.to_s
+      assert_equal sanitized_field_order_sql, order.to_s
     end
   end
 
@@ -295,6 +295,11 @@ class SanitizeTest < ActiveRecord::TestCase
   end
 
   private
+    def sanitized_field_order_sql
+      quoted_values = current_adapter?(:Mysql2Adapter, :TrilogyAdapter) ? "'1','3','2'" : "1,3,2"
+      "field(id, #{quoted_values})"
+    end
+
     def bind(statement, *vars)
       if vars.first.is_a?(Hash)
         ActiveRecord::Base.with_connection do |c|

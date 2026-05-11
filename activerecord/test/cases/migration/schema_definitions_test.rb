@@ -64,6 +64,8 @@ module ActiveRecord
       end
 
       def test_sqlite_table_definition_change_column_preserves_existing_options_except_precision
+        skip unless defined?(ActiveRecord::ConnectionAdapters::SQLite3::TableDefinition)
+
         table = ActiveRecord::ConnectionAdapters::SQLite3::TableDefinition.new(connection, "sqlite_schema_definition_posts")
         table.column :amount, :decimal, precision: 8, scale: 2, null: false, default: "1.25"
 
@@ -78,6 +80,8 @@ module ActiveRecord
       end
 
       def test_sqlite_table_definition_change_column_adds_missing_column
+        skip unless defined?(ActiveRecord::ConnectionAdapters::SQLite3::TableDefinition)
+
         table = ActiveRecord::ConnectionAdapters::SQLite3::TableDefinition.new(connection, "sqlite_schema_definition_posts")
 
         table.change_column :title, :string, limit: 120
@@ -88,6 +92,8 @@ module ActiveRecord
       end
 
       def test_sqlite_table_definition_references_default_to_integer
+        skip unless defined?(ActiveRecord::ConnectionAdapters::SQLite3::TableDefinition)
+
         table = ActiveRecord::ConnectionAdapters::SQLite3::TableDefinition.new(connection, "sqlite_schema_definition_posts")
 
         table.references :author, index: true

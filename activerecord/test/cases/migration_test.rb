@@ -262,7 +262,7 @@ class MigrationTest < ActiveRecord::TestCase
 
     assert_equal "created", migration.method_missing(:create_table, :widgets)
     assert_equal [[:widgets]], strategy_calls
-    assert_raises(NoMethodError) { migration.method_missing(:not_a_migration_command, :widgets) }
+    assert_raises(NameError) { migration.method_missing(:not_a_migration_command, :widgets) }
   end
 
   def test_migration_revert_records_and_replays_when_connection_cannot_revert

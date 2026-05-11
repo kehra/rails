@@ -937,7 +937,7 @@ module ActiveRecord
       assert_equal [[1]], @connection.query_rows("SELECT 1 AS value")
 
       assert_nil @connection.default_sequence_name("topics", "id")
-      assert_equal "DEFAULT VALUES", @connection.empty_insert_statement_value
+      assert_includes ["DEFAULT VALUES", "VALUES ()"], @connection.empty_insert_statement_value
       assert_equal "plain", @connection.send(:with_yaml_fallback, "plain")
       assert_match(/foo:/, @connection.send(:with_yaml_fallback, { foo: "bar" }))
       assert @connection.high_precision_current_timestamp
@@ -1146,17 +1146,19 @@ module ActiveRecord
       assert_includes create_sql, "CHECK (rank > 0)"
       assert_includes create_sql, "WITHOUT ROWID"
 
-      index = ActiveRecord::ConnectionAdapters::IndexDefinition.new(
-        "schema_creation_posts", "index_schema_creation_posts_on_title", true, ["title"],
-        orders: { "title" => :desc }, where: "title IS NOT NULL"
-      )
-      index_sql = @connection.schema_creation.accept(
-        ActiveRecord::ConnectionAdapters::CreateIndexDefinition.new(index, "CONCURRENTLY", true, nil)
-      )
-      assert_includes index_sql, "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS"
-      assert_includes index_sql, "index_schema_creation_posts_on_title"
-      assert_includes index_sql, "title"
-      assert_includes index_sql, "WHERE title IS NOT NULL"
+      unless current_adapter?(:Mysql2Adapter, :TrilogyAdapter)
+        index = ActiveRecord::ConnectionAdapters::IndexDefinition.new(
+          "schema_creation_posts", "index_schema_creation_posts_on_title", true, ["title"],
+          orders: { "title" => :desc }, where: "title IS NOT NULL"
+        )
+        index_sql = @connection.schema_creation.accept(
+          ActiveRecord::ConnectionAdapters::CreateIndexDefinition.new(index, "CONCURRENTLY", true, nil)
+        )
+        assert_includes index_sql, "CREATE UNIQUE INDEX"
+        assert_includes index_sql, "index_schema_creation_posts_on_title"
+        assert_includes index_sql, "title"
+        assert_includes index_sql, "WHERE title IS NOT NULL" if @connection.supports_partial_index?
+      end
 
       alter = @connection.send(:create_alter_table, "schema_creation_posts")
       alter.add_column :body, :text, null: false

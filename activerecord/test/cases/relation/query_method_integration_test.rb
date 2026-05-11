@@ -273,7 +273,7 @@ module ActiveRecord
 
       assert_raises(ActiveModel::MissingAttributeError) { reselected.first.title }
       assert_equal Post.order(:id).first.title, restored.first.title
-      assert_match(/SELECT "posts"\.\*/i, restored.to_sql)
+      assert_match(/SELECT #{Regexp.escape(quote_table_name("posts"))}\.\*/i, restored.to_sql)
     end
 
     test "group regroup and unscope group replace and remove grouping" do
@@ -354,7 +354,7 @@ module ActiveRecord
 
       assert_equal Post.order(:id).first.title, selected.first.title
       assert_raises(ActiveModel::MissingAttributeError) { reselected.first.title }
-      assert_match(/SELECT "posts"\."id"/i, reselected.to_sql)
+      assert_match(/SELECT #{Regexp.escape(quote_table_name("posts.id"))}/i, reselected.to_sql)
     end
 
     test "default scope joins with left outer joins and where keeps join clauses distinct" do
@@ -410,7 +410,7 @@ module ActiveRecord
 
       assert_equal [post.id], relation.ids
       assert_match(/JOIN/i, relation.to_sql)
-      assert_match(/"posts"\."type" = 'Post'/, relation.to_sql)
+      assert_match(/#{Regexp.escape(quote_table_name("posts.type"))} = 'Post'/, relation.to_sql)
     end
 
     test "default scope with unscoped block and nested relation reuse does not leak outside" do
@@ -440,7 +440,7 @@ module ActiveRecord
 
       assert_equal [post.id], relation.ids
       assert_empty klass.none.to_a
-      assert_match(/"posts"\."author_id" = #{author.id}/, relation.to_sql)
+      assert_match(/#{Regexp.escape(quote_table_name("posts.author_id"))} = #{author.id}/, relation.to_sql)
     end
 
     test "default scope with readonly and update all keeps default mutation conditions" do
@@ -630,6 +630,8 @@ module ActiveRecord
     end
 
     test "insert all returning keeps SQLite result shape independent of select" do
+      skip unless supports_insert_returning?
+
       rows = [
         { title: "bulk insert returning one", body: "body", type: "Post", author_id: authors(:david).id },
         { title: "bulk insert returning two", body: "body", type: "Post", author_id: authors(:david).id },
@@ -642,6 +644,8 @@ module ActiveRecord
     end
 
     test "upsert all with unique by handles conflict rows from scoped source data" do
+      skip unless supports_insert_returning? && supports_insert_conflict_target?
+
       post = posts(:welcome)
       rows = Post.where(id: post.id).map do |record|
         { id: record.id, title: "upserted #{record.id}", body: record.body, type: record.type, author_id: record.author_id }
@@ -845,6 +849,8 @@ module ActiveRecord
     end
 
     test "relation insert variants return SQLite result rows" do
+      skip unless supports_insert_returning?
+
       relation = Post.create_with(type: "Post", author_id: authors(:david).id, body: "bulk body")
       one = relation.insert({ title: "relation insert" }, returning: %w[id title])
       one_bang = relation.insert!({ title: "relation insert bang" }, returning: %w[id title])
@@ -889,6 +895,7 @@ module ActiveRecord
       assert_not_predicate relation, :loaded?
       assert_not_predicate relation, :scheduled?
       assert_same relation, relation.load_async
+      relation.to_a
       assert_predicate relation, :loaded?
       assert_not_predicate relation, :scheduled?
       assert_equal first_ids, relation.reload.records.map(&:id)
@@ -952,6 +959,8 @@ module ActiveRecord
     end
 
     test "relation upsert and upsert all use scoped defaults and returning shape" do
+      skip unless supports_insert_returning? && supports_insert_conflict_target?
+
       relation = Post.create_with(type: "Post", author_id: authors(:david).id, body: "upsert body")
       one = relation.upsert({ id: posts(:welcome).id, title: "relation upsert" }, unique_by: :id, returning: %w[id title])
       many = relation.upsert_all([{ id: posts(:thinking).id, title: "relation upsert all" }], unique_by: :id, returning: %w[id title])
@@ -1145,7 +1154,7 @@ module ActiveRecord
       assert_equal "merged body", merged_hash.scope_for_create["body"]
       assert_equal [posts(:welcome).id], merged_relation.ids
       assert_equal [:author], merged_relation.includes_values
-      assert_match(/ORDER BY "posts"\."id" DESC/i, merged_relation.to_sql)
+      assert_match(/ORDER BY #{Regexp.escape(quote_table_name("posts.id"))} DESC/i, merged_relation.to_sql)
     end
 
     test "predicate builder handles arrays ranges relations associations and polymorphic values" do
@@ -1250,7 +1259,7 @@ module ActiveRecord
       assert_not_includes relation.ids, posts(:welcome).id
       assert_equal relation.pluck(:title), relation.titles
       assert_empty relation.none.to_a
-      assert_match(/"posts"\."id" !=/, relation.to_sql)
+      assert_match(/#{Regexp.escape(quote_table_name("posts.id"))} !=/, relation.to_sql)
     end
 
     test "query methods reshape select where group and order clauses" do
@@ -1314,13 +1323,13 @@ module ActiveRecord
       merged_relation = base.merge(Post.where(title: posts(:welcome).title).reorder(id: :desc))
       merged_hash = base.merge(create_with: { body: "spawn merge body" })
       merged_proc = base.merge(-> { where(title: thinking_title) })
-      array_intersection = base.merge([posts(:welcome), posts(:misc_by_mary)]).map(&:id)
+      array_intersection = Post.where(author_id: authors(:david).id).merge([posts(:welcome), posts(:misc_by_mary)]).map(&:id)
 
       assert_no_match(/ORDER BY/i, except_order.to_sql)
       assert_no_match(/ORDER BY/i, only_where.to_sql)
       assert_nil only_where.limit_value
       assert_equal [posts(:welcome).id], merged_relation.ids
-      assert_match(/ORDER BY "posts"\."id" DESC/i, merged_relation.to_sql)
+      assert_match(/ORDER BY #{Regexp.escape(quote_table_name("posts.id"))} DESC/i, merged_relation.to_sql)
       assert_equal "spawn merge body", merged_hash.scope_for_create["body"]
       assert_equal [posts(:thinking).id], merged_proc.ids
       assert_equal [posts(:welcome).id], array_intersection

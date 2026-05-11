@@ -1480,7 +1480,7 @@ class PreloaderTest < ActiveRecord::TestCase
     source_type_loader.instance_variable_set(:@preload_scope, nil)
     source_type_loader.instance_variable_set(:@reflection_scope, Tagging.all)
 
-    assert_match(/"taggings"\."taggable_type" = 'Post'/, source_type_loader.__send__(:through_scope).to_sql)
+    assert_match(/#{Regexp.escape(quote_table_name("taggings.taggable_type"))} = 'Post'/, source_type_loader.__send__(:through_scope).to_sql)
   end
 
   def test_preload_makes_correct_number_of_queries_on_array

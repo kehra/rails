@@ -9,7 +9,8 @@ class PooledConnectionsTest < ActiveRecord::TestCase
     self.use_transactional_tests = false
 
     def setup
-      @connection = ActiveRecord::Base.remove_connection.configuration_hash
+      @connection = ActiveRecord::Base.connection_db_config.configuration_hash
+      ActiveRecord::Base.remove_connection
     end
 
     def teardown

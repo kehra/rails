@@ -17,6 +17,9 @@ require "support/encryption_config"
 
 ARTest::GlobalConfig.apply
 
+ActiveRecord::ConnectionHandling.send(:remove_const, :RAILS_ENV)
+ActiveRecord::ConnectionHandling.const_set(:RAILS_ENV, -> { ENV["RAILS_ENV"].presence || (Rails.env if defined?(Rails.env)) || ENV["RACK_ENV"].presence })
+
 class ActiveRecord::TestCase
   class SQLSubscriber
     attr_reader :logged

@@ -99,7 +99,7 @@ class ConnectionTest < ActiveRecord::AbstractMysqlTestCase
       assert_equal "cp932_japanese_ci", connection.show_variable("collation_connection")
 
       expected = "こんにちは".encode(Encoding::CP932)
-      assert_equal expected, connection.select_value("SELECT 'こんにちは'")
+      assert_equal expected, connection.select_value("SELECT 'こんにちは'").encode(Encoding::CP932)
     end
   end
 

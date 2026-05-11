@@ -1,9 +1,15 @@
 # frozen_string_literal: true
 
 require "cases/helper"
+
+RAILS_DEFINED_BEFORE_ACTIVE_RECORD_RAILTIE_TEST = Object.const_defined?(:Rails)
 require "active_record/railtie"
 
 class ActiveRecordRailtieTest < ActiveRecord::TestCase
+  teardown do
+    Object.send(:remove_const, :Rails) if !RAILS_DEFINED_BEFORE_ACTIVE_RECORD_RAILTIE_TEST && Object.const_defined?(:Rails)
+  end
+
   def test_railtie_default_configuration
     config = ActiveRecord::Railtie.config.active_record
 
