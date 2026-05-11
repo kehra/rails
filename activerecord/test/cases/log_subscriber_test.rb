@@ -26,7 +26,7 @@ class LogSubscriberTest < ActiveRecord::TestCase
       TRANSACTION: REGEXP_CYAN,
       "ROLLBACK TO SAVEPOINT": Regexp.escape(ActiveRecord::LogSubscriber::RED),
       OTHER: REGEXP_MAGENTA
-  }
+  }.freeze
 
   class TestDebugLogSubscriber < ActiveRecord::LogSubscriber
     attr_reader :debugs
