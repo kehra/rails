@@ -13,10 +13,13 @@ class SqlTypesTest < ActiveRecord::AbstractMysqlTestCase
   def test_native_database_types_can_be_extended
     native_database_types = ActiveRecord::ConnectionAdapters::AbstractMysqlAdapter::NATIVE_DATABASE_TYPES
     native_database_types[:vector] = { name: "vector" }
+    native_database_types[:custom_mysql_type] = { name: "mediumtext" }
 
     assert_equal({ name: "vector" }, native_database_types[:vector])
+    assert_equal "mediumtext", type_to_sql(:custom_mysql_type)
   ensure
     native_database_types.delete(:vector) if native_database_types
+    native_database_types.delete(:custom_mysql_type) if native_database_types
   end
 
   def type_to_sql(type, limit = nil)

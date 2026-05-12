@@ -8,9 +8,12 @@ class TemplateWrapperPublicApiTest < ActiveSupport::TestCase
   class Renderable
     attr_reader :context
 
-    def render_in(context)
+    attr_reader :locals
+
+    def render_in(context, locals: {})
       @context = context
-      "rendered"
+      @locals = locals
+      "rendered #{locals.fetch(:name, "world")}"
     end
 
     def format
@@ -19,8 +22,9 @@ class TemplateWrapperPublicApiTest < ActiveSupport::TestCase
   end
 
   class MissingRenderIn
-    def render_in(_context)
-      raise NoMethodError, "missing implementation"
+    def method(name)
+      raise NameError, "missing implementation" if name == :render_in
+      super
     end
 
     def respond_to?(name, include_private = false)
@@ -30,7 +34,7 @@ class TemplateWrapperPublicApiTest < ActiveSupport::TestCase
   end
 
   class BrokenRenderable
-    def render_in(_context)
+    def render_in(_context, **)
       raise NoMethodError, "internal failure"
     end
   end
@@ -68,13 +72,14 @@ class TemplateWrapperPublicApiTest < ActiveSupport::TestCase
 
     assert_equal "TemplateWrapperPublicApiTest::Renderable", template.identifier
     assert_equal :html, template.format
-    assert_equal "rendered", template.render(context)
+    assert_equal "rendered local", template.render(context, { name: "local" })
     assert_same context, renderable.context
+    assert_equal({ name: "local" }, renderable.locals)
   end
 
   test "renderable template reports missing render_in as argument error" do
     error = assert_raises(ArgumentError) do
-      ActionView::Template::Renderable.new(MissingRenderIn.new).render(Object.new)
+      ActionView::Template::Renderable.new(MissingRenderIn.new).render(Object.new, {})
     end
 
     assert_match "is not a renderable object", error.message
@@ -82,7 +87,7 @@ class TemplateWrapperPublicApiTest < ActiveSupport::TestCase
 
   test "renderable template reraises internal render_in no method errors" do
     assert_raises(NoMethodError) do
-      ActionView::Template::Renderable.new(BrokenRenderable.new).render(Object.new)
+      ActionView::Template::Renderable.new(BrokenRenderable.new).render(Object.new, {})
     end
   end
 
