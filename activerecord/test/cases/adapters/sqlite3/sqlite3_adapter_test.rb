@@ -1676,6 +1676,20 @@ module ActiveRecord
         assert_not_equal auto_increment_column, rowid_column
         assert_not_equal stored_column, virtual_column
         refute_equal auto_increment_column, Object.new
+      def test_native_database_types_is_mutable
+        assert_not_predicate SQLite3Adapter::NATIVE_DATABASE_TYPES, :frozen?
+      end
+
+      def test_native_database_types_allows_custom_type
+        original = SQLite3Adapter::NATIVE_DATABASE_TYPES.dup
+
+        assert_nothing_raised do
+          SQLite3Adapter::NATIVE_DATABASE_TYPES[:vector] = { name: "F32_BLOB" }
+        end
+
+        assert_equal({ name: "F32_BLOB" }, SQLite3Adapter::NATIVE_DATABASE_TYPES[:vector])
+      ensure
+        SQLite3Adapter::NATIVE_DATABASE_TYPES.replace(original)
       end
 
       def test_sqlite_extensions_are_constantized_for_the_client_constructor
