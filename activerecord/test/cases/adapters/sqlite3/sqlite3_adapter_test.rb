@@ -1676,6 +1676,8 @@ module ActiveRecord
         assert_not_equal auto_increment_column, rowid_column
         assert_not_equal stored_column, virtual_column
         refute_equal auto_increment_column, Object.new
+      end
+
       def test_native_database_types_is_mutable
         assert_not_predicate SQLite3Adapter::NATIVE_DATABASE_TYPES, :frozen?
       end
