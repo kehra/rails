@@ -406,6 +406,7 @@ module ActiveRecord
         _run_commit_callbacks
       end
     ensure
+      remove_instance_variable(:@_locking_column_before_last_update) if defined?(@_locking_column_before_last_update)
       @_committed_already_called = @_trigger_update_callback = @_trigger_destroy_callback = false
     end
 
@@ -469,7 +470,7 @@ module ActiveRecord
           new_record: @new_record,
           previously_new_record: @previously_new_record,
           destroyed: @destroyed,
-          attributes: @attributes,
+          attributes: @attributes.deep_dup,
           frozen?: frozen?,
           level: 0
         }
@@ -499,15 +500,12 @@ module ActiveRecord
             locking_column = self.class.locking_column if self.class.locking_enabled?
             @attributes = restore_state[:attributes].map do |attr|
               if attr.name == locking_column
-                # The locking column is bumped by `_update_row` itself, not the caller, and
-                # `_update_row` writes the new value into the same `@attributes` object that
-                # the snapshot is holding a reference to (because the snapshot wraps the
-                # `AttributeSet` rather than deep-duping it). After a successful save,
-                # `forget_attribute_assignments` reassigns `@attributes`, so subsequent
-                # operations see a clean attribute, but the snapshot retains the dirty one.
-                # Forcibly rebuild the locking column attribute from its (still-correct)
-                # original value so the next save uses the pristine value in the WHERE
-                # clause and doesn't raise `StaleObjectError` after a rollback.
+                # The locking column is bumped by `_update_row` itself, not the
+                # caller. Rebuild it from the snapshot's original database value
+                # so a rolled-back save can be retried with the same instance.
+                if defined?(@_locking_column_before_last_update)
+                  next attr.with_value_from_database(@_locking_column_before_last_update)
+                end
                 next attr.with_value_from_database(attr.original_value)
               end
               value = @attributes.fetch_value(attr.name)
@@ -528,6 +526,7 @@ module ActiveRecord
               end
             end
             freeze if restore_state[:frozen?]
+            remove_instance_variable(:@_locking_column_before_last_update) if defined?(@_locking_column_before_last_update)
           end
         end
       end

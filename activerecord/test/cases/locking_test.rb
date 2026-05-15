@@ -350,6 +350,23 @@ class OptimisticLockingTest < ActiveRecord::TestCase
     assert_not_predicate stale_object, :saved_changes?
   end
 
+  def test_save_after_rollback_restores_lock_version
+    person = Person.find(1)
+    original_lock_version = person.lock_version
+
+    Person.transaction do
+      person.update!(first_name: "Rollback")
+      raise ActiveRecord::Rollback
+    end
+
+    assert_equal original_lock_version, person.lock_version
+
+    assert_nothing_raised do
+      person.update!(first_name: "After rollback")
+    end
+    assert_equal original_lock_version + 1, person.lock_version
+  end
+
   def test_lock_without_default_should_work_with_null_in_the_database
     ActiveRecord::Base.lease_connection.execute("INSERT INTO lock_without_defaults(title) VALUES('title1')")
     t1 = LockWithoutDefault.last

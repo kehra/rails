@@ -93,6 +93,8 @@ class MessagesSerializerWithFallbackTest < ActiveSupport::TestCase
     if message_pack && (!defined?(ActiveSupport::MessagePack) || ActiveSupport::MessagePack != message_pack)
       ActiveSupport.send(:remove_const, :MessagePack) if defined?(ActiveSupport::MessagePack)
       ActiveSupport.const_set(:MessagePack, message_pack)
+    elsif !message_pack && defined?(ActiveSupport::MessagePack)
+      ActiveSupport.send(:remove_const, :MessagePack)
     end
   end
 

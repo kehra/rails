@@ -276,8 +276,8 @@ module ActiveRecord
       refute adapter.send(:warning_ignored?, Struct.new(:message, :code).new("other", 456))
       ActiveRecord.db_warnings_ignore = old_warning_ignore
 
-      populated_column = Struct.new(:auto_populated?).new(true)
-      plain_column = Struct.new(:auto_populated?).new(false)
+      populated_column = Struct.new(:auto_populated_on_insert?).new(true)
+      plain_column = Struct.new(:auto_populated_on_insert?).new(false)
       assert_equal true, adapter.return_value_after_insert?(populated_column)
       assert_equal false, adapter.return_value_after_insert?(plain_column)
 
@@ -760,8 +760,8 @@ module ActiveRecord
       assert adapter.supports_insert_on_duplicate_skip?
       assert adapter.supports_insert_on_duplicate_update?
       refute adapter.supports_insert_returning?
-      auto_increment_column = Struct.new(:auto_populated?, :auto_increment?).new(false, true)
-      auto_populated_column = Struct.new(:auto_populated?, :auto_increment?).new(true, false)
+      auto_increment_column = Struct.new(:auto_populated_on_insert?, :auto_increment?).new(false, true)
+      auto_populated_column = Struct.new(:auto_populated_on_insert?, :auto_increment?).new(true, false)
       assert adapter.return_value_after_insert?(auto_increment_column)
       adapter.full_version = "10.8.1-MariaDB"
       adapter.version = "10.8.1"

@@ -1660,6 +1660,9 @@ module ActiveRecord
         assert virtual_column.virtual?
         refute virtual_column.virtual_stored?
         assert stored_column.virtual_stored?
+        refute plain_column.auto_populated_on_update?
+        assert virtual_column.auto_populated_on_update?
+        assert stored_column.auto_populated_on_update?
         assert plain_column.has_default?
         refute virtual_column.has_default?
 

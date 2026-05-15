@@ -53,6 +53,15 @@ class StrictLoadingTest < ActiveRecord::TestCase
     assert_predicate developer, :strict_loading_n_plus_one_only?
   end
 
+  def test_strict_loading_violation_on_collection_proxy_pluck
+    developer = Developer.first
+    developer.strict_loading!
+
+    assert_raises ActiveRecord::StrictLoadingViolationError do
+      developer.audit_logs.pluck(:id)
+    end
+  end
+
   def test_strict_loading_n_plus_one_only_mode_with_has_many
     developer = Developer.first
     firm = Firm.create!(name: "NASA")

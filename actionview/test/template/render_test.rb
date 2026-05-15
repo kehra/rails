@@ -337,6 +337,14 @@ module RenderTestCases
     assert_includes name_error.message, "NilClass"
   end
 
+  def test_render_renderable_uses_real_render_in_method_when_object_overrides_method
+    renderable = Object.new
+    renderable.define_singleton_method(:render_in) { |view_context, **| "rendered" if view_context.is_a?(ActionView::Base) }
+    renderable.define_singleton_method(:method) { |*| raise "overridden method should not be used" }
+
+    assert_equal "rendered", @view.render(renderable: renderable)
+  end
+
   def test_render_partial_starting_with_a_capital
     assert_nothing_raised { @view.render(partial: "test/FooBar") }
   end

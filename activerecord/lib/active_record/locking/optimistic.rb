@@ -108,6 +108,15 @@ module ActiveRecord
               MSG
             end
 
+            locking_column_before_update = self[locking_column]
+            if self.class.current_transaction.open?
+              self.class.current_transaction.after_rollback do
+                self[locking_column] = locking_column_before_update
+                clear_attribute_change(locking_column)
+              end
+            end
+
+            @_locking_column_before_last_update ||= locking_column_before_update
             self[locking_column] += 1
 
             affected_rows = self.class._update_record(

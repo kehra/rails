@@ -56,6 +56,15 @@ if ActiveRecord::Base.lease_connection.supports_virtual_columns?
       assert_equal 5, VirtualColumn.take.name_length
     end
 
+    def test_update_reloads_stored_virtual_columns_from_returning
+      record = VirtualColumn.take
+
+      record.update!(name: "PostgreSQL")
+
+      assert_equal "POSTGRESQL", record.upper_name
+      assert_equal 10, record.name_length
+    end
+
     def test_change_table
       @connection.change_table :virtual_columns do |t|
         t.virtual :lower_name, type: :string, as: "LOWER(name)", stored: true

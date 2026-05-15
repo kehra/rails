@@ -201,6 +201,31 @@ class SerializedAttributeTest < ActiveRecord::TestCase
     assert_equal({ "baz" => "qux" }, topic.content)
   end
 
+  def test_insert_all_serializes_without_loading_serialized_attribute_values
+    coder = Object.new
+    dump_count = 0
+    load_count = 0
+
+    coder.define_singleton_method(:dump) do |value|
+      dump_count += 1
+      value&.to_json
+    end
+    coder.define_singleton_method(:load) do |value|
+      load_count += 1
+      value && JSON.parse(value)
+    end
+
+    topic_class = Class.new(ActiveRecord::Base) do
+      self.table_name = "topics"
+      serialize :content, coder: coder, type: Hash
+    end
+
+    topic_class.insert_all!([{ content: { "foo" => "bar" } }])
+
+    assert_equal 1, dump_count
+    assert_equal 0, load_count
+  end
+
   def test_serialized_string_attribute
     myobj = "Yes"
     topic = Topic.create("content" => myobj).reload
