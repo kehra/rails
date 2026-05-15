@@ -294,6 +294,7 @@ class EnginePublicContractTest < ActiveSupport::TestCase
       base = Class.new
       base.define_singleton_method(:table_name_prefix) { prefix }
       base.define_singleton_method(:descendants) { [] }
+      base.define_method(:descendants) { [] }
       active_record.const_set(:Base, base)
       Object.const_set(:ActiveRecord, active_record)
       yield

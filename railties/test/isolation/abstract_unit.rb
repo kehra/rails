@@ -410,7 +410,7 @@ module TestHelpers
         Process.waitpid pid
 
       else
-        ENV["BOOTSNAP_CACHE_DIR"] = bootsnap_cache_path
+        ENV["BOOTSNAP_CACHE_DIR"] = bootsnap_cache_path unless defined?(Coverage) && Coverage.running?
         begin
           output = `cd #{app_path}; #{command}`
         ensure
@@ -635,7 +635,7 @@ Module.new do
 
   sh "#{Gem.ruby} #{RAILS_FRAMEWORK_ROOT}/railties/exe/rails new #{app_template_path} --skip-bundle --no-rc --quiet"
   File.open("#{app_template_path}/config/boot.rb", "w") do |f|
-    f.puts 'require "bootsnap/setup" if ENV["BOOTSNAP_CACHE_DIR"]'
+    f.puts 'require "bootsnap/setup" if ENV["BOOTSNAP_CACHE_DIR"] && !(defined?(Coverage) && Coverage.running?)'
     f.puts 'require "rails/all"'
   end
 

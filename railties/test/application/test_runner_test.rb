@@ -1518,6 +1518,7 @@ module ApplicationTests
       def exercise_parallelization_regardless_of_machine_core_count(with:, threshold: 0, transactional_fixtures: true)
         file_content = ERB.new(<<-ERB, trim_mode: "-").result_with_hash(with: with.to_s)
           ENV["RAILS_ENV"] ||= "test"
+          ENV.delete("PARALLEL_WORKERS") if ENV["PARALLEL_WORKERS"] == "0"
           require_relative "../config/environment"
           require "rails/test_help"
 
