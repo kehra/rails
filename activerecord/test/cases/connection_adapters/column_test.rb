@@ -47,8 +47,8 @@ module ActiveRecord
         assert_predicate default_column, :has_default?
         assert_predicate function_column, :has_default?
         assert_not plain_column.auto_incremented_by_db?
-        assert_not plain_column.auto_populated?
-        assert_equal "CURRENT_TIMESTAMP", function_column.auto_populated?
+        assert_not plain_column.auto_populated_on_insert?
+        assert_equal "CURRENT_TIMESTAMP", function_column.auto_populated_on_insert?
         assert_not plain_column.virtual?
       end
 
@@ -100,6 +100,14 @@ module ActiveRecord
         assert_nil column.default
         assert_nil column.sql_type_metadata
         assert column.null
+      end
+
+      def test_auto_populated_is_deprecated_in_favor_of_auto_populated_on_insert
+        column = Column.new("token", Type::Value.new, nil, nil, true, "gen_random_uuid()")
+
+        assert_deprecated(/auto_populated_on_insert\?/, ActiveRecord.deprecator) do
+          assert_equal column.auto_populated_on_insert?, column.auto_populated?
+        end
       end
 
       private
