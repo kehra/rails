@@ -161,6 +161,7 @@ class EnginePublicContractTest < ActiveSupport::TestCase
     seeds = []
     FileUtils.mkdir_p(@root.join("db"))
     File.write(@root.join("db/seeds.rb"), "$engine_public_contract_seed_loaded = true")
+    engine_class.define_singleton_method(:descendants) { [] }
     engine_class.set_callback(:load_seed, :before) { seeds << :before }
     engine.load_seed
 

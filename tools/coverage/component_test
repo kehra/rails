@@ -45,11 +45,11 @@ case "$component:$#" in
   status=0
   while IFS= read -r test_file; do
     echo "==> $component/$test_file"
-    SIMPLECOV_COMMAND_NAME="$component:$test_file" bin/test "$test_file" || status=$?
+    SIMPLECOV_COMMAND_NAME="$component:$test_file" ruby bin/test "$test_file" || status=$?
   done < <(find test -path "test/fixtures/tmp" -prune -o -type f -name "*_test.rb" -print | sort)
   exit "$status"
     ;;
 esac
 
 export SIMPLECOV_COMMAND_NAME="${SIMPLECOV_COMMAND_NAME:-$component}"
-exec bin/test "$@"
+exec ruby bin/test "$@"
