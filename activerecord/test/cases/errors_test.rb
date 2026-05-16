@@ -265,7 +265,9 @@ class ErrorsTest < ActiveRecord::TestCase
 
   def test_can_be_instantiated_with_no_args
     base = ActiveRecord::ActiveRecordError
-    error_klasses = ObjectSpace.each_object(Class).select { |klass| klass < base }
+    error_klasses = ObjectSpace.each_object(Class).select do |klass|
+      klass < base && !(klass.respond_to?(:singleton_class?) && klass.singleton_class?)
+    end
 
     expected_to_be_initializable_with_no_args = error_klasses - [
       ActiveRecord::AmbiguousSourceReflectionForThroughAssociation,
