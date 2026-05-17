@@ -30,6 +30,21 @@ class DestroyAssociationAsyncJobTest < ActiveRecord::TestCase
     assert_nil EssayDestroyAsync.find_by(id: essay.id)
   end
 
+  def test_perform_ignores_unknown_job_options
+    essay = EssayDestroyAsync.create!(name: "orphaned")
+
+    ActiveRecord::DestroyAssociationAsyncJob.perform_now(
+      owner_model_name: "BookDestroyAsync",
+      owner_id: -1,
+      association_class: "EssayDestroyAsync",
+      association_ids: [essay.id],
+      association_primary_key_column: "id",
+      deprecated_payload_option: true
+    )
+
+    assert_nil EssayDestroyAsync.find_by(id: essay.id)
+  end
+
   def test_perform_destroys_association_records_when_owner_check_passes
     BookDestroyAsync.class_eval { def async_destroy_allowed? = true }
     book = BookDestroyAsync.create!(name: "owner")
