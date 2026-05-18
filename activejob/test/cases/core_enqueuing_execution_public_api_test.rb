@@ -222,6 +222,10 @@ class CoreEnqueuingExecutionPublicApiTest < ActiveSupport::TestCase
     assert_predicate jobs.second, :successfully_enqueued?
   end
 
+  test "perform_all_later accepts no jobs" do
+    assert_nil ActiveJob.perform_all_later
+  end
+
   test "perform_all_later fallback enqueues immediate and scheduled jobs and captures enqueue errors" do
     adapter = FallbackAdapter.new
     FallbackJob.adapter = adapter

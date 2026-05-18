@@ -160,6 +160,14 @@ class MessageDeliveryTest < ActiveSupport::TestCase
     end
   end
 
+  test "deliver_all_later accepts no deliveries" do
+    assert_nil ActionMailer.deliver_all_later
+  end
+
+  test "deliver_all_later! accepts no deliveries" do
+    assert_nil ActionMailer.deliver_all_later!
+  end
+
   test "deliver_all_later does not inline process the mailers" do
     mail1 = DelayedMailer.test_message(1)
     mail2 = DelayedMailer.test_message(2)
