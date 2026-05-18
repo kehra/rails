@@ -221,6 +221,7 @@ class ActiveStorage::EngineTest < ActiveSupport::TestCase
     def assert_engine_variant_transformer(processor, transformer)
       app = Rails.application
       previous_processor = app.config.active_storage.variant_processor
+      previous_active_storage_processor = ActiveStorage.variant_processor
       previous_transformer = ActiveStorage.variant_transformer
 
       app.config.active_storage.variant_processor = processor
@@ -233,12 +234,14 @@ class ActiveStorage::EngineTest < ActiveSupport::TestCase
       end
     ensure
       app.config.active_storage.variant_processor = previous_processor
+      ActiveStorage.variant_processor = previous_active_storage_processor
       ActiveStorage.variant_transformer = previous_transformer
     end
 
     def assert_engine_variant_transformer_load_error(processor, transformer_name, message, warning_pattern)
       app = Rails.application
       previous_processor = app.config.active_storage.variant_processor
+      previous_active_storage_processor = ActiveStorage.variant_processor
       previous_config_logger = app.config.active_storage.logger
       previous_transformer = ActiveStorage.variant_transformer
       previous_logger = ActiveStorage.logger
@@ -266,6 +269,7 @@ class ActiveStorage::EngineTest < ActiveSupport::TestCase
       ActiveStorage::Transformers.singleton_class.remove_method(:const_missing) if ActiveStorage::Transformers.singleton_class.method_defined?(:const_missing)
       ActiveStorage::Transformers.const_set(transformer_name, transformer) if transformer && !ActiveStorage::Transformers.const_defined?(transformer_name, false)
       app.config.active_storage.variant_processor = previous_processor
+      ActiveStorage.variant_processor = previous_active_storage_processor
       app.config.active_storage.logger = previous_config_logger
       ActiveStorage.variant_transformer = previous_transformer
       ActiveStorage.logger = previous_logger
