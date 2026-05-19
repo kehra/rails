@@ -10,7 +10,7 @@ class ActiveRecordTest < ActiveRecord::TestCase
   teardown do
     ActiveRecord.db_warnings_action = :ignore
     ActiveRecord.default_timezone = :utc
-    ActiveRecord.marshalling_format_version = 6.1
+    ActiveRecord.marshalling_format_version = 7.1
     ActiveRecord.permanent_connection_checkout = true
     ActiveRecord.default_transaction_isolation_level = nil
   end
@@ -62,13 +62,12 @@ class ActiveRecordTest < ActiveRecord::TestCase
   end
 
   test ".marshalling_format_version delegates to marshalling configuration" do
-    assert_equal 6.1, ActiveRecord.marshalling_format_version
-
-    ActiveRecord.marshalling_format_version = 7.1
     assert_equal 7.1, ActiveRecord.marshalling_format_version
 
-    ActiveRecord.marshalling_format_version = 6.1
-    assert_equal 6.1, ActiveRecord.marshalling_format_version
+    error = assert_raises(ArgumentError) do
+      ActiveRecord.marshalling_format_version = 6.1
+    end
+    assert_equal "Unknown marshalling format: 6.1", error.message
   end
 
   test ".default_timezone= accepts utc and local" do
