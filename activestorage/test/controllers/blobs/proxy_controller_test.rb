@@ -11,9 +11,13 @@ class ActiveStorage::Blobs::ProxyControllerTest < ActionDispatch::IntegrationTes
   end
 
   test "HTTP caching" do
-    get rails_storage_proxy_url(create_file_blob(filename: "racecar.jpg"))
+    blob = create_file_blob(filename: "racecar.jpg")
+
+    get rails_storage_proxy_url(blob)
+
     assert_response :success
     assert_equal "max-age=3155695200, public, immutable", response.headers["Cache-Control"]
+    assert_equal blob.created_at.httpdate, response.headers["Last-Modified"]
   end
 
   test "invalidates cache and returns a 404 if the file is not found on download" do

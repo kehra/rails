@@ -61,7 +61,7 @@ class SchemaDumperUnitTest < ActiveRecord::TestCase
 
   FakeForeignKey = Struct.new(
     :from_table, :to_table, :column, :primary_key, :name, :on_update, :on_delete,
-    :deferrable, :validate?, :export_name_on_schema_dump?, keyword_init: true
+    :deferrable, :validate?, :enforced?, :export_name_on_schema_dump?, keyword_init: true
   ) do
     def custom_primary_key?
       primary_key != "id"
@@ -272,7 +272,7 @@ class SchemaDumperUnitTest < ActiveRecord::TestCase
       FakeForeignKey.new(
         from_table: "orders", to_table: "accounts", column: "account_uuid", primary_key: "uuid",
         name: "fk_orders_accounts", on_update: :cascade, on_delete: :nullify, deferrable: :deferred,
-        validate?: false, export_name_on_schema_dump?: true
+        validate?: false, enforced?: false, export_name_on_schema_dump?: true
       )
     ]
     stream = StringIO.new
@@ -288,5 +288,6 @@ class SchemaDumperUnitTest < ActiveRecord::TestCase
     assert_includes output, 'on_delete: :nullify'
     assert_includes output, 'deferrable: :deferred'
     assert_includes output, 'validate: false'
+    assert_includes output, 'enforced: false'
   end
 end
