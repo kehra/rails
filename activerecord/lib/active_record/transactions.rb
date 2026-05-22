@@ -527,6 +527,19 @@ module ActiveRecord
             end
             freeze if restore_state[:frozen?]
             remove_instance_variable(:@_locking_column_before_last_update) if defined?(@_locking_column_before_last_update)
+          elsif self.class.locking_enabled?
+            # Nested savepoint rollback. The full restore above only runs at the
+            # outermost level, but the same `_update_row` mutation that bumps the
+            # in-memory locking column happens for saves performed inside the
+            # savepoint too. Leaving the bumped value in memory after the
+            # savepoint reverts those rows raises `StaleObjectError` on the next
+            # save in the surrounding transaction. Reset just the locking column
+            # so subsequent saves can match the row that the savepoint restored.
+            locking_column = self.class.locking_column
+            attr = restore_state[:attributes][locking_column]
+            if attr
+              @attributes.write_from_database(locking_column, attr.original_value)
+            end
           end
         end
       end

@@ -1,3 +1,21 @@
+*   Release the executor state eagerly on rack hijack in
+    `ActionDispatch::Executor`.
+
+    The executor completed its state via the response body's `close`
+    callback (or `rack.response_finished` where available). For WebSocket
+    upgrades and full rack hijack the body becomes a long-lived streaming
+    connection, so `close` never fires until the socket closes. Under
+    Puma this was masked because Action Cable's hijack detaches to a
+    worker pool; under fiber-scheduled servers (e.g. Falcon) the request
+    fiber stays inline and the reloader share is held until the client
+    disconnects, blocking every subsequent reload.
+
+    The executor now detects hijacked responses -- HTTP 101 upgrades and
+    `rack.hijack_io` -- and completes the state immediately rather than
+    waiting on body close.
+
+    *Joel Junström*
+
 *   Add `ActionController::Parameters#deep_transform_values` and `deep_transform_values!`.
 
     Mirrors the existing `deep_transform_keys` / `deep_transform_keys!` pair,
@@ -401,5 +419,39 @@
     ```
 
     *Thiago Youssef*
+
+*   Add the latest standardized features to `permissions_policy`
+
+    Add the following features that have been standardized since the list was last updated:
+
+    * `attribution-reporting`
+    * `battery`
+    * `bluetooth`
+    * `ch-ua`
+    * `ch-ua-arch`
+    * `ch-ua-bitness`
+    * `ch-ua-full-version`
+    * `ch-ua-full-version-list`
+    * `ch-ua-high-entropy-values`
+    * `ch-ua-mobile`
+    * `ch-ua-model`
+    * `ch-ua-platform`
+    * `ch-ua-platform-version`
+    * `ch-ua-wow64`
+    * `compute-pressure`
+    * `cross-origin-isolated`
+    * `direct-sockets`
+    * `execution-while-not-rendered`
+    * `execution-while-out-of-viewport`
+    * `identity-credentials-get`
+    * `mediasession`
+    * `navigation-override`
+    * `otp-credentials`
+    * `publickey-credentials-get`
+    * `storage-access`
+    * `window-management`
+    * `xr-spatial-tracking`
+
+    *Ruben Arakelyan*
 
 Please check [8-1-stable](https://github.com/rails/rails/blob/8-1-stable/actionpack/CHANGELOG.md) for previous changes.
