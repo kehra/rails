@@ -44,7 +44,7 @@ class RoutesReloaderPublicContractTest < ActiveSupport::TestCase
     reloader.paths << route_file = Tempfile.new([ "routes", ".rb" ]).path
     reloader.eager_load = true
     after_load_called = false
-    reloader.run_after_load_paths = -> { after_load_called = true }
+    reloader.run_once_after_load_paths = -> { after_load_called = true }
 
     File.write(route_file, "$routes_reloader_public_contract_loaded = true")
 

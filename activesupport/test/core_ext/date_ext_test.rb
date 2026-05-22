@@ -46,10 +46,9 @@ class DateExtCalculationsTest < ActiveSupport::TestCase
   end
 
   def test_to_fs_with_custom_date_format
-    Date::DATE_FORMATS[:custom] = "%Y%m%d"
-    assert_equal "20050221", Date.new(2005, 2, 21).to_fs(:custom)
-  ensure
-    Date::DATE_FORMATS.delete(:custom)
+    ActiveSupport::DateFormats.register(:custom_ymd, "%Y%m%d")
+
+    assert_equal "20050221", Date.new(2005, 2, 21).to_fs(:custom_ymd)
   end
 
   def test_to_fs_with_single_digit_day

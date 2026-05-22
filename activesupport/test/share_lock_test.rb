@@ -13,8 +13,9 @@ class ShareLockTest < ActiveSupport::TestCase
     @lock.sharing do
       @lock.exclusive do
         @lock.raw_state do |state|
-          current = state.fetch(Thread.current)
-          assert_equal Thread.current, current[:thread]
+          owner = ActiveSupport::IsolatedExecutionState.context
+          current = state.fetch(owner)
+          assert_equal owner, current[:owner]
           assert_equal 1, current[:sharing]
           assert_equal true, current[:exclusive]
           assert_equal false, current[:waiting]

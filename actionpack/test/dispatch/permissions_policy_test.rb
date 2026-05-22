@@ -26,6 +26,43 @@ class PermissionsPolicyTest < ActiveSupport::TestCase
     assert_equal "geolocation 'self'; usb 'none'", @policy.build
   end
 
+  def test_recent_permissions_policy_directives
+    {
+      attribution_reporting: "attribution-reporting",
+      battery: "battery",
+      bluetooth: "bluetooth",
+      ch_ua: "ch-ua",
+      ch_ua_arch: "ch-ua-arch",
+      ch_ua_bitness: "ch-ua-bitness",
+      ch_ua_full_version: "ch-ua-full-version",
+      ch_ua_full_version_list: "ch-ua-full-version-list",
+      ch_ua_high_entropy_values: "ch-ua-high-entropy-values",
+      ch_ua_mobile: "ch-ua-mobile",
+      ch_ua_model: "ch-ua-model",
+      ch_ua_platform: "ch-ua-platform",
+      ch_ua_platform_version: "ch-ua-platform-version",
+      ch_ua_wow64: "ch-ua-wow64",
+      compute_pressure: "compute-pressure",
+      cross_origin_isolated: "cross-origin-isolated",
+      direct_sockets: "direct-sockets",
+      execution_while_not_rendered: "execution-while-not-rendered",
+      execution_while_out_of_viewport: "execution-while-out-of-viewport",
+      identity_credentials_get: "identity-credentials-get",
+      mediasession: "mediasession",
+      navigation_override: "navigation-override",
+      otp_credentials: "otp-credentials",
+      publickey_credentials_get: "publickey-credentials-get",
+      storage_access: "storage-access",
+      window_management: "window-management",
+      xr_spatial_tracking: "xr-spatial-tracking",
+    }.each do |method_name, directive|
+      policy = ActionDispatch::PermissionsPolicy.new
+      policy.public_send(method_name, :self)
+
+      assert_equal "#{directive} 'self'", policy.build
+    end
+  end
+
   def test_multiple_directives_for_multiple_directives
     @policy.geolocation :self, "https://example.com"
     @policy.usb :none, "https://example.com"

@@ -168,8 +168,8 @@ class FinisherPublicContractTest < ActiveSupport::TestCase
     run_initializer(:add_internal_routes, app, app)
 
     assert_includes app.routes.prepended_paths, "/rails/info"
-    assert app.routes_reloader.run_after_load_paths
-    app.routes_reloader.run_after_load_paths.call
+    assert app.routes_reloader.run_once_after_load_paths
+    app.routes_reloader.run_once_after_load_paths.call
     assert_includes app.routes.appended_paths, "/"
 
     run_initializer(:set_routes_reloader_hook, app, app)
@@ -418,7 +418,7 @@ class FinisherPublicContractTest < ActiveSupport::TestCase
     end
 
     class RoutesReloaderSpy
-      attr_accessor :eager_load, :run_after_load_paths
+      attr_accessor :eager_load, :run_once_after_load_paths
       attr_reader :executed, :executed_unless_loaded
       def execute
         @executed = true
