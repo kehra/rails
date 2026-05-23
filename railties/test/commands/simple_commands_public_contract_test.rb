@@ -324,8 +324,8 @@ class SimpleCommandsPublicContractTest < ActiveSupport::TestCase
     command = Rails::Command::PluginCommand.new([], ["--no-rc"])
     generator_args.clear
     command.define_singleton_method(:run_plugin_generator) { |args| generator_args << args }
-    command.perform("help", "demo")
-    assert_equal [["demo", "--help"]], generator_args
+    command.perform
+    assert_equal [["--help"]], generator_args
 
     missing_rc = File.join(Dir.tmpdir, "missing-railsrc-#{$$}")
     command = Rails::Command::PluginCommand.new([], ["--rc=#{missing_rc}"])

@@ -571,14 +571,6 @@ class InsertAllTest < ActiveRecord::TestCase
     assert_equal "You can't set :update_only and provide custom update SQL via :on_duplicate at the same time", error.message
   end
 
-  def test_insert_all_requires_all_records_to_have_the_same_keys
-    error = assert_raises ArgumentError do
-      Book.insert_all! [{ name: "Rework", author_id: 1 }, { name: "Remote" }]
-    end
-
-    assert_equal "All objects being inserted must have the same keys", error.message
-  end
-
   def test_insert_all_raises_when_returning_is_unsupported
     with_connection_supports(:supports_insert_returning?, false) do
       error = assert_raises ArgumentError do
@@ -645,6 +637,27 @@ class InsertAllTest < ActiveRecord::TestCase
         Book.insert_all! [{ name: "Rework", author_id: 1 }]
       end
     end
+  end
+
+  def test_insert_all_raises_with_key_diff_when_attributes_mismatch
+    error = assert_raises ArgumentError do
+      Book.insert_all [
+        { name: "Rework", author_id: 1 },
+        { name: "Remote", author_id: 1, isbn: "1974522598" }
+      ]
+    end
+    assert_match(/All objects being inserted must have the same keys/, error.message)
+    assert_match(/extra: \["isbn"\]/, error.message)
+  end
+
+  def test_insert_all_raises_with_missing_key_when_attributes_mismatch
+    error = assert_raises ArgumentError do
+      Book.insert_all [
+        { name: "Rework", author_id: 1, isbn: "1974522598" },
+        { name: "Remote", author_id: 1 }
+      ]
+    end
+    assert_match(/missing: \["isbn"\]/, error.message)
   end
 
   def test_upsert_all_only_updates_the_column_provided_via_update_only

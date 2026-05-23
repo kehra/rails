@@ -1,3 +1,49 @@
+*   Include the list of valid values in the `ArgumentError` raised when assigning
+    an invalid value to an enum attribute.
+
+    ```ruby
+    Book.new(status: "bogus")
+    # ArgumentError: 'bogus' is not a valid status. Valid values are: "proposed", "written", "published"
+    ```
+
+    *Hammad Khan*
+
+*   Include the mismatched keys in the error raised by `insert_all` / `upsert_all`
+    when the inserted objects have inconsistent attributes.
+
+    ```ruby
+    Book.insert_all [{ name: "Rework", author_id: 1 }, { name: "Remote", author_id: 1, isbn: "x" }]
+    # ArgumentError: All objects being inserted must have the same keys (extra: [:isbn])
+    ```
+
+    *Hammad Khan*
+
+*   Allow `create_join_table` to accept a primary key.
+
+    This is useful for databases like PostgreSQL where logical replication requires primary
+    keys on all tables.
+
+    ```ruby
+    create_join_table :assemblies, :parts, primary_key: [:assembly_id, :part_id]
+    ```
+
+    This generates a join table with a composite primary key on both foreign key columns.
+
+    *Genadi Samokovarov*
+
+*   Fix Active Record Pool Reaper thread leak after `Parallelization#shutdown`.
+
+    After parallelized test runs, the parent process leaked the Active Record Pool
+    Reaper thread, holding open connection pools and file descriptors for up to
+    `reaping_frequency` seconds (or indefinitely if never reaped).
+
+    Three fixes: `Parallelization#shutdown` now calls `run_cleanup_hooks`;
+    Active Record registers a cleanup hook that discards all connection pools; and
+    `ConnectionPool#discard!` now calls `Reaper.discard_pool`, which immediately
+    kills and joins the reaper thread when no pools remain at that frequency.
+
+    *Ruy Rocha*
+
 *   Reset `lock_version` after a nested savepoint rollback.
 
     When a record was saved inside a `transaction(requires_new: true)` block
