@@ -377,7 +377,7 @@ module ActiveRecord
           def supports_comments? = true
           def change_table_comment_sql(table_name, comment) = "COMMENT ON TABLE #{quote_table_name(table_name)} IS #{quote(comment)}"
           def change_column_comment_sql(table_name, column_name, comment) = "COMMENT ON COLUMN #{quote_table_name(table_name)}.#{quote_column_name(column_name)} IS #{quote(comment)}"
-          def change_index_comment_sql(index) = "COMMENT ON INDEX #{quote_table_name(index.name)} IS #{quote(index.comment)}"
+          def change_index_comment_sql(index, _table_name) = "COMMENT ON INDEX #{quote_table_name(index.name)} IS #{quote(index.comment)}"
         end
 
         commented_connection = commented_connection_class.new
