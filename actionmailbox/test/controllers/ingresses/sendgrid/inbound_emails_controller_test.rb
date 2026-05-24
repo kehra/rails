@@ -48,15 +48,23 @@ class ActionMailbox::Ingresses::Sendgrid::InboundEmailsControllerTest < ActionDi
   end
 
   test "rejecting invalid Sendgrid envelope JSON" do
-    assert_no_difference -> { ActionMailbox::InboundEmail.count } do
-      post rails_sendgrid_inbound_emails_url,
-        headers: { authorization: credentials }, params: {
-          email: file_fixture("../files/welcome.eml").read,
-          envelope: "not-json",
-        }
-    end
+    assert_rejects_malformed_envelope "not-json"
+  end
 
-    assert_response ActionDispatch::Constants::UNPROCESSABLE_CONTENT
+  test "rejecting an inbound email from Sendgrid with envelope missing to recipients" do
+    assert_rejects_malformed_envelope "{\"from\":\"jason@37signals.com\"}"
+  end
+
+  test "rejecting an inbound email from Sendgrid with a non-object envelope" do
+    assert_rejects_malformed_envelope "[\"replies@example.com\"]"
+  end
+
+  test "rejecting an inbound email from Sendgrid with non-array to recipients" do
+    assert_rejects_malformed_envelope "{\"to\":\"replies@example.com\",\"from\":\"jason@37signals.com\"}"
+  end
+
+  test "rejecting an inbound email from Sendgrid with non-string to recipients" do
+    assert_rejects_malformed_envelope "{\"to\":[1],\"from\":\"jason@37signals.com\"}"
   end
 
   test "rejecting an unauthorized inbound email from Sendgrid" do
@@ -84,4 +92,17 @@ class ActionMailbox::Ingresses::Sendgrid::InboundEmailsControllerTest < ActionDi
       end
     end
   end
+
+  private
+    def assert_rejects_malformed_envelope(envelope)
+      assert_no_difference -> { ActionMailbox::InboundEmail.count } do
+        post rails_sendgrid_inbound_emails_url,
+          headers: { authorization: credentials }, params: {
+            email: file_fixture("../files/welcome.eml").read,
+            envelope: envelope,
+          }
+      end
+
+      assert_response ActionDispatch::Constants::UNPROCESSABLE_CONTENT
+    end
 end

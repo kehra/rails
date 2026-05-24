@@ -2,12 +2,16 @@
 
 require "test_helper"
 
-ENV["MANDRILL_INGRESS_API_KEY"] = "1l9Qf7lutEf7h73VXfBwhw"
-
 class ActionMailbox::Ingresses::Mandrill::InboundEmailsControllerTest < ActionDispatch::IntegrationTest
   setup do
+    @previous_key = ENV["MANDRILL_INGRESS_API_KEY"]
+    ENV["MANDRILL_INGRESS_API_KEY"] = "1l9Qf7lutEf7h73VXfBwhw"
     ActionMailbox.ingress = :mandrill
     @events = JSON.generate([{ event: "inbound", msg: { raw_msg: file_fixture("../files/welcome.eml").read } }])
+  end
+
+  teardown do
+    ENV["MANDRILL_INGRESS_API_KEY"] = @previous_key
   end
 
   test "verifying existence of Mandrill inbound route" do
@@ -30,14 +34,52 @@ class ActionMailbox::Ingresses::Mandrill::InboundEmailsControllerTest < ActionDi
   end
 
   test "rejecting invalid Mandrill events JSON" do
-    params = { mandrill_events: "not-json" }
-
     assert_no_difference -> { ActionMailbox::InboundEmail.count } do
       post rails_mandrill_inbound_emails_url,
-        headers: { "X-Mandrill-Signature" => mandrill_signature(params) }, params: params
+        headers: { "X-Mandrill-Signature" => signature_for("not-json") }, params: { mandrill_events: "not-json" }
     end
 
-    assert_response ActionDispatch::Constants::UNPROCESSABLE_CONTENT
+    assert_response :unprocessable_content
+  end
+
+  test "rejecting a Mandrill events payload that is not a JSON array" do
+    events = JSON.generate({ event: "inbound" })
+    assert_no_difference -> { ActionMailbox::InboundEmail.count } do
+      post rails_mandrill_inbound_emails_url,
+        headers: { "X-Mandrill-Signature" => signature_for(events) }, params: { mandrill_events: events }
+    end
+
+    assert_response :unprocessable_content
+  end
+
+  test "rejecting a Mandrill events payload that parses to null" do
+    events = "null"
+    assert_no_difference -> { ActionMailbox::InboundEmail.count } do
+      post rails_mandrill_inbound_emails_url,
+        headers: { "X-Mandrill-Signature" => signature_for(events) }, params: { mandrill_events: events }
+    end
+
+    assert_response :unprocessable_content
+  end
+
+  test "rejecting a Mandrill events array that contains non-objects" do
+    events = JSON.generate([{ event: "inbound" }, "not-a-hash"])
+    assert_no_difference -> { ActionMailbox::InboundEmail.count } do
+      post rails_mandrill_inbound_emails_url,
+        headers: { "X-Mandrill-Signature" => signature_for(events) }, params: { mandrill_events: events }
+    end
+
+    assert_response :unprocessable_content
+  end
+
+  test "rejecting a Mandrill events payload that parses to a scalar" do
+    events = "42"
+    assert_no_difference -> { ActionMailbox::InboundEmail.count } do
+      post rails_mandrill_inbound_emails_url,
+        headers: { "X-Mandrill-Signature" => signature_for(events) }, params: { mandrill_events: events }
+    end
+
+    assert_response :unprocessable_content
   end
 
   test "rejecting a forged inbound email from Mandrill" do
@@ -76,8 +118,9 @@ class ActionMailbox::Ingresses::Mandrill::InboundEmailsControllerTest < ActionDi
   end
 
   private
-    def mandrill_signature(params)
-      Base64.strict_encode64 OpenSSL::HMAC.digest(OpenSSL::Digest::SHA1.new, ENV.fetch("MANDRILL_INGRESS_API_KEY"), rails_mandrill_inbound_emails_url + params.sort.flatten.join)
+    def signature_for(events)
+      message = rails_mandrill_inbound_emails_url + { "mandrill_events" => events }.sort.flatten.join
+      Base64.strict_encode64 OpenSSL::HMAC.digest(OpenSSL::Digest::SHA1.new, ENV["MANDRILL_INGRESS_API_KEY"], message)
     end
 
     def switch_key_to(new_key)
