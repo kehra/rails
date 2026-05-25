@@ -227,8 +227,7 @@ class LookupContextTest < ActiveSupport::TestCase
 
   test "register detail defines default reader and writer" do
     detail_name = :lookup_context_test_detail
-    original_details = ActionView::LookupContext.registered_details.dup
-    original_default = ActionView::LookupContext::Accessors::DEFAULT_PROCS[detail_name]
+    original_default_procs = ActionView::LookupContext.default_procs
 
     ActionView::LookupContext.register_detail(detail_name) { [:default_value] }
     context = build_lookup_context([], {})
@@ -237,12 +236,7 @@ class LookupContextTest < ActiveSupport::TestCase
     context.public_send("#{detail_name}=", :custom_value)
     assert_equal [:custom_value], context.public_send(detail_name)
   ensure
-    ActionView::LookupContext.registered_details = original_details
-    if original_default
-      ActionView::LookupContext::Accessors::DEFAULT_PROCS[detail_name] = original_default
-    else
-      ActionView::LookupContext::Accessors::DEFAULT_PROCS.delete(detail_name)
-    end
+    ActionView::LookupContext.default_procs = original_default_procs
   end
 
   test "lookup context view path public helpers delegate to path set" do

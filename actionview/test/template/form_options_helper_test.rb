@@ -388,6 +388,15 @@ class FormOptionsHelperTest < ActionView::TestCase
     )
   end
 
+  def test_option_groups_from_collection_for_select_with_callable_option_methods
+    key_proc = Proc.new { |c| c.country_id }
+    value_proc = Proc.new { |c| c.country_name }
+    assert_dom_equal(
+      "<optgroup label=\"&lt;Africa&gt;\"><option value=\"&lt;sa&gt;\">&lt;South Africa&gt;</option>\n<option value=\"so\">Somalia</option></optgroup><optgroup label=\"Europe\"><option value=\"dk\" selected=\"selected\">Denmark</option>\n<option value=\"ie\">Ireland</option></optgroup>",
+      option_groups_from_collection_for_select(dummy_continents, "countries", "continent_name", key_proc, value_proc, "dk")
+    )
+  end
+
   def test_option_groups_from_collection_for_select_returns_html_safe_string
     assert_predicate option_groups_from_collection_for_select(dummy_continents, "countries", "continent_name", "country_id", "country_name", "dk"), :html_safe?
   end
