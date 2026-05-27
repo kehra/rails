@@ -127,7 +127,8 @@ class QueueAdapterTest < ActiveJob::TestCase
     adapter.stopping = false
     assert_equal false, adapter.stopping?
 
-    adapter.stopping = -> { true }
-    assert_equal true, adapter.stopping?
+    adapter.stopping = ->(job) { job == :job }
+    assert_equal true, adapter.stopping?(:job)
+    assert_equal false, adapter.stopping?(:other)
   end
 end

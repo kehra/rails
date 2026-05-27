@@ -116,6 +116,7 @@ class RailtiePublicApiTest < ActiveSupport::TestCase
   end
 
   test "enqueue after transaction commit initializer includes module and applies config when present" do
+    original = ActiveJob::Base.enqueue_after_transaction_commit
     options = active_job_options(enqueue_after_transaction_commit: false)
 
     run_initializer("active_job.enqueue_after_transaction_commit", fake_app(active_job: options))
@@ -123,7 +124,7 @@ class RailtiePublicApiTest < ActiveSupport::TestCase
     assert_includes ActiveJob::Base.ancestors, ActiveJob::EnqueueAfterTransactionCommit
     assert_equal false, ActiveJob::Base.enqueue_after_transaction_commit
   ensure
-    ActiveJob::Base.enqueue_after_transaction_commit = true if ActiveJob::Base.respond_to?(:enqueue_after_transaction_commit=)
+    ActiveJob::Base.enqueue_after_transaction_commit = original if ActiveJob::Base.respond_to?(:enqueue_after_transaction_commit=)
   end
 
   test "enqueue after transaction commit initializer leaves default when config key is absent" do
