@@ -34,6 +34,9 @@ module ActiveRecord
 
       adapter = adapter_class.allocate
       adapter.instance_variable_set(:@config, { schema_order: "public" })
+      adapter.instance_variable_set(:@raw_connection, Object.new.tap do |connection|
+        def connection.parameter_status(*) = nil
+      end)
 
       assert_deprecated(ActiveRecord.deprecator) do
         adapter.send(:configure_connection)
