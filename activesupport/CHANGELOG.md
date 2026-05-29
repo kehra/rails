@@ -1,3 +1,46 @@
+*   Add shims for `Ractor` shareability methods so framework code can call them
+    unconditionally regardless of the Ruby version.
+
+    When `Ractor` is not defined, or the underlying method is not available, the
+    shim is a no-op that simply returns its argument (or the given block).
+    Otherwise the call is forwarded to the matching `Ractor` class method.
+
+    ```ruby
+    ractor_make_shareable(obj)        # => Ractor.make_shareable(obj)        or obj
+    ractor_shareable?(obj)            # => Ractor.shareable?(obj)            or obj
+    ractor_shareable_proc   { ... }   # => Ractor.shareable_proc   { ... }   or the block
+    ractor_shareable_lambda { ... }   # => Ractor.shareable_lambda { ... }   or the block
+    ```
+
+    *Andrew Novoselac*
+
+*   Fix `NumberHelper` raising `FloatDomainError` for `Infinity` / `NaN` with
+    `significant: true`.
+
+    `number_to_rounded(Float::INFINITY, precision: 3, significant: true)` (and
+    its callers `number_to_percentage`, `number_to_currency`, etc.) raised
+    `FloatDomainError` because `RoundingHelper#digit_count` called
+    `Math.log10(Float::INFINITY).floor`. The non-`significant` path already
+    formatted these values as `"Inf"` / `"-Inf"` / `"NaN"`; the two paths now
+    agree.
+
+    *Kenta Ishizaki*
+
+*   Fix `number_to_delimited` mangling non-finite floats.
+
+    `number_to_delimited(Float::INFINITY)` returned `"In,fin,ity"` because the
+    fast-path manual slicing introduced in commit `2d485aecf5` and made the
+    default in commit `33fbedb1b1` treated `Float::INFINITY.to_s` (the string
+    `"Infinity"`) as a sequence of digits to group every three characters.
+    `-Float::INFINITY` was similarly mangled to `"-In,fin,ity"`. `Float::NAN`
+    happened to survive only because `"NaN"` is exactly three characters long.
+
+    Now returns the underlying string representation (`"Infinity"`,
+    `"-Infinity"`, `"NaN"`) for non-finite floats, matching the pre-`2d485aecf5`
+    behavior.
+
+    *Kenta Ishizaki*
+
 *   Duplicate the `context` hash passed to `ActiveSupport::ErrorReport#handle` for each subscriber.
     This prevents mutations done on the `context` by one subscriber from effecting the others.
 

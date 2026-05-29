@@ -158,6 +158,14 @@ module ActiveSupport
         end
       end
 
+      def test_to_delimited_with_non_finite_floats
+        [@instance_with_helpers, TestClassWithClassNumberHelpers, ActiveSupport::NumberHelper].each do |number_helper|
+          assert_equal "Infinity", number_helper.number_to_delimited(Float::INFINITY)
+          assert_equal "-Infinity", number_helper.number_to_delimited(-Float::INFINITY)
+          assert_equal "NaN", number_helper.number_to_delimited(Float::NAN)
+        end
+      end
+
       def test_to_delimited_with_options_hash
         [@instance_with_helpers, TestClassWithClassNumberHelpers, ActiveSupport::NumberHelper].each do |number_helper|
           assert_equal "12 345 678", number_helper.number_to_delimited(12345678, delimiter: " ")
@@ -237,6 +245,16 @@ module ActiveSupport
           assert_equal("97.7", number_helper.number_to_rounded(Rational(9772, 100), precision: 3, significant: true))
           assert_equal "28729870200000000000000", number_helper.number_to_rounded(0.287298702e23.to_d, precision: 0, significant: true)
           assert_equal "-Inf", number_helper.number_to_rounded(-Float::INFINITY, precision: 0, significant: true)
+        end
+      end
+
+      def test_to_rounded_with_significant_true_and_non_finite_value
+        [@instance_with_helpers, TestClassWithClassNumberHelpers, ActiveSupport::NumberHelper].each do |number_helper|
+          assert_equal "Inf",  number_helper.number_to_rounded(Float::INFINITY,  precision: 3, significant: true)
+          assert_equal "-Inf", number_helper.number_to_rounded(-Float::INFINITY, precision: 3, significant: true)
+          assert_equal "NaN",  number_helper.number_to_rounded(Float::NAN,       precision: 3, significant: true)
+          assert_equal "Inf%", number_helper.number_to_percentage(Float::INFINITY, precision: 3, significant: true)
+          assert_equal "$Inf", number_helper.number_to_currency(Float::INFINITY,   precision: 3, significant: true)
         end
       end
 

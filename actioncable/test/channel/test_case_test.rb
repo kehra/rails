@@ -11,16 +11,6 @@ class NonInferrableExplicitClassChannelTest < ActionCable::Channel::TestCase
   def test_set_channel_class_manual
     assert_equal TestTestChannel, self.class.channel_class
   end
-
-  def test_channel_class_accessor
-    original_channel_class = self.class._channel_class
-
-    self.class._channel_class = TestTestChannel
-
-    assert_equal TestTestChannel, self.class._channel_class
-  ensure
-    self.class._channel_class = original_channel_class
-  end
 end
 
 class NonInferrableSymbolNameChannelTest < ActionCable::Channel::TestCase
@@ -36,29 +26,6 @@ class NonInferrableStringNameChannelTest < ActionCable::Channel::TestCase
 
   def test_set_channel_class_manual_using_string
     assert_equal TestTestChannel, self.class.channel_class
-  end
-end
-
-class NonInferrableChannelTest < ActionCable::Channel::TestCase
-  def test_tests_rejects_unknown_channel_argument
-    error = assert_raises(ActionCable::Channel::NonInferrableChannelError) do
-      self.class.tests(Object.new)
-    end
-
-    assert_match "Unable to determine the channel to test", error.message
-  end
-
-  def test_default_channel_inference_error
-    original_channel_class = self.class._channel_class
-    self.class._channel_class = nil
-
-    error = assert_raises(ActionCable::Channel::NonInferrableChannelError) do
-      self.class.channel_class
-    end
-
-    assert_match self.class.name, error.message
-  ensure
-    self.class._channel_class = original_channel_class
   end
 end
 
@@ -79,13 +46,18 @@ class SubscriptionsTestChannelTest < ActionCable::Channel::TestCase
 
     assert_predicate subscription, :confirmed?
     assert_not subscription.rejected?
-    assert_equal 1, connection.transmissions.size
+    assert_equal 1, socket.transmissions.size
     assert_equal ActionCable::INTERNAL[:message_types][:confirmation],
-                 connection.transmissions.last["type"]
+                 socket.transmissions.last["type"]
   end
 end
 
 class StubConnectionTest < ActionCable::Channel::TestCase
+  class Connection < ActionCable::Connection::Base
+    identified_by :username, :admin
+  end
+
+  tests_connection Connection
   tests SubscriptionsTestChannel
 
   GIDIdentifier = Struct.new(:id) do
@@ -105,26 +77,32 @@ class StubConnectionTest < ActionCable::Channel::TestCase
   end
 
   def test_connection_stub_exposes_server_state_and_transmits_with_indifferent_access
-    stub_connection user: GIDIdentifier.new(7), token: "abc"
+    stub_connection username: GIDIdentifier.new(7), admin: "abc"
 
     connection.transmit("type" => "ping")
 
-    assert_same ActionCable.server, connection.server
     assert_same ActionCable.server.config, connection.config
-    assert_same ActionCable.server.pubsub, connection.pubsub
+    assert_same testserver.pubsub, connection.pubsub
+    assert_same testserver.executor, connection.executor
     assert_instance_of ActionCable::Connection::Subscriptions, connection.subscriptions
-    assert_respond_to connection.logger, :tagged
-    assert_equal [ :user, :token ], connection.identifiers
-    assert_equal "ping", connection.transmissions.last[:type]
+    assert_respond_to connection.logger, :info
+    assert_equal Set[:username, :admin], connection.identifiers
+    assert_equal "ping", socket.transmissions.last[:type]
     assert_equal "abc:gid://test/User/7", connection.connection_identifier
     assert_same connection.connection_identifier, connection.connection_identifier
   end
 
-  def test_connection_identifier_ignores_nil_identifier_names
+  def test_connection_identifier_handles_empty_identifier_names
     stub_connection
-    connection.instance_variable_set(:@identifiers, [ nil ])
+    connection.instance_variable_set(:@identifiers, [])
 
     assert_equal "", connection.connection_identifier
+  end
+
+  def test_unknown_identifiers
+    assert_raises NoMethodError do
+      stub_connection non_existing: "John"
+    end
   end
 end
 
@@ -140,9 +118,9 @@ class RejectionTestChannelTest < ActionCable::Channel::TestCase
 
     assert_not subscription.confirmed?
     assert_predicate subscription, :rejected?
-    assert_equal 1, connection.transmissions.size
+    assert_equal 1, socket.transmissions.size
     assert_equal ActionCable::INTERNAL[:message_types][:rejection],
-                 connection.transmissions.last["type"]
+                 socket.transmissions.last["type"]
   end
 
   def test_perform_when_rejected
@@ -197,13 +175,6 @@ class StreamsTestChannelTest < ActionCable::Channel::TestCase
 
     assert_no_streams
   end
-
-  def test_channel_stub_periodic_timer_methods_are_no_ops
-    subscribe
-
-    assert_nil subscription.start_periodic_timers
-    assert_nil subscription.stop_periodic_timers
-  end
 end
 
 class StreamsForTestChannel < ActionCable::Channel::Base
@@ -228,12 +199,6 @@ class StreamsForTestChannelTest < ActionCable::Channel::TestCase
     perform :unsubscribed, id: 42
 
     assert_has_no_stream_for User.new(42)
-  end
-
-  def test_not_stream_for_different_object
-    subscribe id: 42
-
-    assert_has_no_stream_for User.new(43)
   end
 end
 
@@ -261,6 +226,12 @@ class PerformTestChannel < ActionCable::Channel::Base
 end
 
 class PerformTestChannelTest < ActionCable::Channel::TestCase
+  class Connection < ActionCable::Connection::Base
+    identified_by :user_id
+  end
+
+  tests_connection Connection
+
   def setup
     stub_connection user_id: 2016
     subscribe id: 5
@@ -305,6 +276,12 @@ class BroadcastsTestChannel < ActionCable::Channel::Base
 end
 
 class BroadcastsTestChannelTest < ActionCable::Channel::TestCase
+  class Connection < ActionCable::Connection::Base
+    identified_by :user_id
+  end
+
+  tests_connection Connection
+
   def setup
     stub_connection user_id: 2017
     subscribe id: 5
@@ -330,5 +307,48 @@ class BroadcastsTestChannelTest < ActionCable::Channel::TestCase
     assert_broadcast_on(user, text: "SOS") do
       perform :broadcast_to_user, message: "SOS"
     end
+  end
+end
+
+class PeriodicCounterChannel < ActionCable::Channel::Base
+  periodically :tick, every: 5
+
+  attr_reader :tick_count
+
+  def subscribed
+    @tick_count = 0
+  end
+
+  private
+    def tick
+      @tick_count += 1
+    end
+end
+
+class PeriodicCounterChannelTest < ActionCable::Channel::TestCase
+  tests PeriodicCounterChannel
+
+  def test_advance_time_fires_periodic_callback_when_interval_is_reached
+    subscribe
+    assert_equal 0, subscription.tick_count
+
+    advance_time 4
+    assert_equal 0, subscription.tick_count
+
+    advance_time 1
+    assert_equal 1, subscription.tick_count
+
+    advance_time 12
+    assert_equal 3, subscription.tick_count
+  end
+
+  def test_timer_stops_firing_after_unsubscribe
+    subscribe
+    advance_time 5
+    assert_equal 1, subscription.tick_count
+
+    unsubscribe
+    advance_time 100
+    assert_equal 1, subscription.tick_count
   end
 end
