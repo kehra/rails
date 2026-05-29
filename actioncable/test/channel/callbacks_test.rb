@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "stubs/test_connection"
+require "stubs/test_socket"
 
 class ActionCable::Channel::CallbacksTest < ActionCable::TestCase
   class CallbackChannel < ActionCable::Channel::Base
@@ -35,7 +35,7 @@ class ActionCable::Channel::CallbacksTest < ActionCable::TestCase
   end
 
   setup do
-    @channel = CallbackChannel.new(TestConnection.new, "{id: 1}")
+    @channel = CallbackChannel.new(TestSocket.new, "{id: 1}")
   end
 
   test "subscribe callbacks run around subscribed hook" do

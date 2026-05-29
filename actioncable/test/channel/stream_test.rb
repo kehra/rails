@@ -221,7 +221,7 @@ module ActionCable::StreamTests
 
     test "stop_stream_from is a no-op for unknown broadcasting" do
       run_in_eventmachine do
-        connection = TestConnection.new
+        connection = Connection.new(server, socket)
         channel = ChatChannel.new connection, "{id: 3}"
         channel.subscribe_to_channel
         channel.stream_from "room_one"

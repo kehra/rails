@@ -24,10 +24,6 @@ class BaseTest < ActionCable::TestCase
     def self.call
       self
     end
-
-    def process
-      [ -1, {}, [] ]
-    end
   end
 
   test "#restart closes all open connections" do
@@ -64,7 +60,7 @@ class BaseTest < ActionCable::TestCase
     assert_same @server.config.logger, @server.logger
     assert_instance_of Monitor, @server.mutex
     assert_instance_of ActionCable::RemoteConnections, @server.remote_connections
-    assert_instance_of ActionCable::Connection::StreamEventLoop, @server.event_loop
+    assert_instance_of ActionCable::Server::StreamEventLoop, @server.event_loop
     assert_instance_of ActionCable::Server::Worker, @server.worker_pool
     assert_instance_of ActionCable::SubscriptionAdapter::Async, @server.pubsub
   end
@@ -78,8 +74,11 @@ class BaseTest < ActionCable::TestCase
 
   test "call builds configured connection" do
     @server.config.connection_class = -> { TestConnection }
+    @server.config.disable_request_forgery_protection = true
 
-    assert_equal [ -1, {}, [] ], @server.call("PATH_INFO" => "/cable")
+    env = Rack::MockRequest.env_for "/cable", "HTTP_CONNECTION" => "upgrade", "HTTP_UPGRADE" => "websocket"
+
+    assert_equal [ -1, {}, [] ], @server.call(env)
   end
 
   test "disconnect delegates to remote connections" do

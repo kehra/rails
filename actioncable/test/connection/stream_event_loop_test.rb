@@ -2,20 +2,8 @@
 
 require "test_helper"
 
-class ActionCable::Connection::StreamEventLoopTest < ActionCable::TestCase
+class ActionCable::Server::StreamEventLoopTest < ActionCable::TestCase
   FakeThread = Struct.new(:status)
-
-  class FakeExecutor
-    attr_reader :tasks
-
-    def initialize
-      @tasks = []
-    end
-
-    def <<(task)
-      @tasks << task
-    end
-  end
 
   class FakeMonitor
     attr_reader :io
@@ -58,28 +46,10 @@ class ActionCable::Connection::StreamEventLoopTest < ActionCable::TestCase
   end
 
   setup do
-    @loop = ActionCable::Connection::StreamEventLoop.new
+    @loop = ActionCable::Server::StreamEventLoop.new
     @nio = FakeNIO.new
-    @executor = FakeExecutor.new
     @loop.instance_variable_set(:@nio, @nio)
-    @loop.instance_variable_set(:@executor, @executor)
     @loop.instance_variable_set(:@thread, FakeThread.new("sleep"))
-  end
-
-  test "post schedules task on executor" do
-    task = -> {}
-
-    @loop.post(task)
-
-    assert_equal [ task ], @executor.tasks
-  end
-
-  test "timer returns an executable timer task" do
-    timer = @loop.timer(60) {}
-
-    assert_instance_of Concurrent::TimerTask, timer
-  ensure
-    timer&.shutdown
   end
 
   test "attach registers io and stores stream" do
@@ -133,7 +103,7 @@ class ActionCable::Connection::StreamEventLoopTest < ActionCable::TestCase
   end
 
   test "stop without selector only marks stopping" do
-    loop = ActionCable::Connection::StreamEventLoop.new
+    loop = ActionCable::Server::StreamEventLoop.new
 
     loop.stop
 

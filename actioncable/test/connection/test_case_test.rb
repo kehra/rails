@@ -55,8 +55,8 @@ class ConnectionSimpleTest < ActionCable::Connection::TestCase
     connect
 
     assert_nil connection.user_id
-    assert_kind_of ActionCable::Connection::TaggedLoggerProxy, connection.logger
-    assert_kind_of ActionCable::Connection::TestRequest, connection.request
+    assert_kind_of ActionCable::Server::TaggedLoggerProxy, connection.logger
+    assert_kind_of ActionCable::Connection::TestSocket::Request, connection.request
   end
 
   def test_url_params

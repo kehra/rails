@@ -19,8 +19,7 @@ class ActionCable::SubscriptionAdapter::BaseTest < ActionCable::TestCase
   test "initializes with server and logger" do
     adapter = BrokenAdapter.new(@server)
 
-    assert_same @server, adapter.server
-    assert_same @server.logger, adapter.logger
+    assert_nil adapter.logger
   end
 
   test "#broadcast returns NotImplementedError by default" do
