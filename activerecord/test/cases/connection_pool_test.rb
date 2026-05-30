@@ -390,6 +390,28 @@ module ActiveRecord
         end
       end
 
+      def test_preconnect_waits_for_reaper_maintenance
+        pool = new_pool_with_options(min_connections: 1, max_connections: 1, async: false)
+        pool.activate
+        pool.prepopulate
+
+        conn = pool.connections.first
+        assert_not_predicate conn, :connected?
+
+        reaper_lock_entered = false
+        original_reaper_lock = pool.method(:reaper_lock)
+
+        pool.stub(:reaper_lock, ->(&block) do
+          reaper_lock_entered = true
+          original_reaper_lock.call(&block)
+        end) do
+          pool.preconnect
+        end
+
+        assert reaper_lock_entered
+        assert_predicate conn, :connected?
+      end
+
       def test_prepopulated_connections_have_allow_preconnect_true
         pool = new_pool_with_options(min_connections: 2, max_connections: 5, async: false)
         pool.activate
