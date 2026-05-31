@@ -94,6 +94,20 @@ class PostgresqlNetworkTest < ActiveRecord::PostgreSQLTestCase
     assert_match %r{t\.macaddr\s+"mac_address",\s+default: "ff:ff:ff:ff:ff:ff"}, output
   end
 
+  def test_schema_dump_preserves_ipv6_prefix_defaults
+    @connection.add_column "postgresql_network_addresses", "inet_subnet", :inet, default: "::/32"
+    @connection.add_column "postgresql_network_addresses", "cidr_subnet", :cidr, default: "fe80::/10"
+    @connection.add_column "postgresql_network_addresses", "inet_host", :inet, default: "::1/128"
+    @connection.add_column "postgresql_network_addresses", "cidr_host", :cidr, default: "::1/128"
+
+    output = dump_table_schema("postgresql_network_addresses")
+
+    assert_match %r{t\.inet\s+"inet_subnet",\s+default: "::/32"}, output
+    assert_match %r{t\.cidr\s+"cidr_subnet",\s+default: "fe80::/10"}, output
+    assert_match %r{t\.inet\s+"inet_host",\s+default: "::1"}, output
+    assert_match %r{t\.cidr\s+"cidr_host",\s+default: "::1"}, output
+  end
+
   def test_cidr_change_prefix
     model = PostgresqlNetworkAddress.create(cidr_address: "192.168.1.0/24")
     model.cidr_address = "192.168.1.0/24"
