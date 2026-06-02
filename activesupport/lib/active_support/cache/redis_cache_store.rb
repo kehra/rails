@@ -300,19 +300,29 @@ module ActiveSupport
           if namespace = merged_options(options)[:namespace]
             delete_matched "*", namespace: namespace
           else
-            redis.then { |c| c.flushdb }
+            redis.nodes.each { |node| node.with { |c| c.call("flushdb") } }
           end
         end
       end
 
       # Get info from redis servers.
       def stats
-        redis.then { |c| c.info }
+        infos = redis.nodes.map { |node| parse_info(node.call("info")) }
+        infos.one? ? infos.first : infos
       end
 
       private
         def instance_variables_to_inspect
           [:@options, :@redis].freeze
+        end
+
+        def parse_info(info)
+          info.each_line(chomp: true).each_with_object({}) do |line, result|
+            next if line.empty? || line.start_with?("#")
+
+            key, value = line.split(":", 2)
+            result[key] = value if key && value
+          end
         end
 
         # Store provider interface:

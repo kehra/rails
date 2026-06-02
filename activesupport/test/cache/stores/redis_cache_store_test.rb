@@ -435,9 +435,9 @@ module ActiveSupport::Cache::RedisCacheStoreTests
       key = @cache.send(:normalize_key, SecureRandom.uuid, {})
 
       assert @cache.send(:write_serialized_entry, key, "payload")
-      redis_backend { |r| assert_equal "payload", r.get(key) }
+      redis_backend { |r| assert_equal "payload", r.call("get", key) }
     ensure
-      redis_backend { |r| r.del(key) } if key
+      redis_backend { |r| r.call("del", key) } if key
     end
 
     test "write entry with unless exist but no expiry sets nx without px" do
@@ -445,9 +445,9 @@ module ActiveSupport::Cache::RedisCacheStoreTests
 
       assert @cache.send(:write_serialized_entry, key, "payload", unless_exist: true)
       assert_not @cache.send(:write_serialized_entry, key, "other", unless_exist: true)
-      redis_backend { |r| assert_equal "payload", r.get(key) }
+      redis_backend { |r| assert_equal "payload", r.call("get", key) }
     ensure
-      redis_backend { |r| r.del(key) } if key
+      redis_backend { |r| r.call("del", key) } if key
     end
 
     test "clear without namespace flushes redis db" do
@@ -462,30 +462,30 @@ module ActiveSupport::Cache::RedisCacheStoreTests
 
     test "change_counter without expire nx preserves existing ttl when present" do
       key = @cache_no_ttl.send(:normalize_key, SecureRandom.uuid, {})
-      redis_backend(@cache_no_ttl) { |r| r.setex(key, 120, 1) }
+      redis_backend(@cache_no_ttl) { |r| r.call("setex", key, 120, 1) }
       @cache_no_ttl.instance_variable_set(:@supports_expire_nx, false)
 
       assert_equal 2, @cache_no_ttl.send(:change_counter, key, 1, expires_in: 60)
-      redis_backend(@cache_no_ttl) { |r| assert_operator r.ttl(key), :>, 60 }
+      redis_backend(@cache_no_ttl) { |r| assert_operator r.call("ttl", key), :>, 60 }
     ensure
-      redis_backend(@cache_no_ttl) { |r| r.del(key) } if key
+      redis_backend(@cache_no_ttl) { |r| r.call("del", key) } if key
     end
 
     test "change_counter without expire nx sets expiry when ttl is absent" do
       key = @cache_no_ttl.send(:normalize_key, SecureRandom.uuid, {})
-      redis_backend(@cache_no_ttl) { |r| r.set(key, 1) }
+      redis_backend(@cache_no_ttl) { |r| r.call("set", key, 1) }
       @cache_no_ttl.instance_variable_set(:@supports_expire_nx, false)
 
       assert_equal 2, @cache_no_ttl.send(:change_counter, key, 1, expires_in: 60)
-      redis_backend(@cache_no_ttl) { |r| assert_operator r.ttl(key), :>, 0 }
+      redis_backend(@cache_no_ttl) { |r| assert_operator r.call("ttl", key), :>, 0 }
     ensure
-      redis_backend(@cache_no_ttl) { |r| r.del(key) } if key
+      redis_backend(@cache_no_ttl) { |r| r.call("del", key) } if key
     end
 
     test "failsafe with nil error handler returns fallback" do
       cache = lookup_store(error_handler: nil)
 
-      assert_equal :fallback, cache.send(:failsafe, :read, returning: :fallback) { raise Redis::BaseError, "failed" }
+      assert_equal :fallback, cache.send(:failsafe, :read, returning: :fallback) { raise RedisClient::ConnectionError, "failed" }
     end
 
     private
