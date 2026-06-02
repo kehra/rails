@@ -1,3 +1,39 @@
+*   Fix collection association `ids=` writers (e.g. `author.book_ids=`) raising
+    `ActiveRecord::RecordNotFound` for existing records when a composite primary
+    key model is assigned string ids (the shape ids take from request params).
+
+    Each id component is now cast against its own column type, instead of casting
+    the whole tuple against an array of column names, which `type_for_attribute`
+    can't resolve to a real type (so the cast was a no-op and the string ids
+    never matched the loaded records).
+
+    *Kenta Ishizaki*
+
+*   Fix `find` with multiple composite primary key ids passed as strings
+    silently returning `[]`.
+
+    `Model.find([["1", "10"], ["1", "20"]])` (the shape ids take when they come
+    from request parameters) returned an empty array instead of the records and
+    without raising `RecordNotFound`. The ids were cast against the array of key
+    column names as a whole — which is a no-op — so the string tuples never
+    compared equal to the records' integer ids when ordering the result. Each
+    component is now cast against its own column type, matching the documented
+    coercion already performed for single-column keys.
+
+    *Kenta Ishizaki*
+
+*   Fix PostgreSQL `daterange` / `tsrange` / `tstzrange` schema dump producing
+    invalid Ruby.
+
+    The schema dumper used to render range defaults via `Range#inspect`, which
+    falls back to `Date#inspect` / `Time#inspect` for the bounds. The resulting
+    `schema.rb` literal (for example `default: Mon, 01 Jan 2024..Wed, 01 Jan 2025`)
+    raised a `SyntaxError` on `db:schema:load`. The bounds are now rendered via
+    the subtype's `type_cast_for_schema`, so date and timestamp range defaults
+    round-trip through `schema.rb` like any other column.
+
+    *Kenta Ishizaki*
+
 *   Respect `schema_search_path` on `rails dbconsole` for PostgreSQL.
 
     *Gabriel Sobrinho*

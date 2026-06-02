@@ -1,18 +1,15 @@
-*   Add shims for `Ractor` shareability methods so framework code can call them
-    unconditionally regardless of the Ruby version.
+*   `ActiveSupport::Cache::RedisCacheStore` entirely reimplemented.
 
-    When `Ractor` is not defined, or the underlying method is not available, the
-    shim is a no-op that simply returns its argument (or the given block).
-    Otherwise the call is forwarded to the matching `Ractor` class method.
+    Now depends on the much lighter `redis-client >= 0.28.0` instead of `redis >= 4.0.1`.
 
-    ```ruby
-    ractor_make_shareable(obj)        # => Ractor.make_shareable(obj)        or obj
-    ractor_shareable?(obj)            # => Ractor.shareable?(obj)            or obj
-    ractor_shareable_proc   { ... }   # => Ractor.shareable_proc   { ... }   or the block
-    ractor_shareable_lambda { ... }   # => Ractor.shareable_lambda { ... }   or the block
-    ```
+    The change shouldn't be noticeable unless the cache is configured with the `:redis` argument.
+    In such case it will keep working for now, but will issue a deprecation warning.
 
-    *Andrew Novoselac*
+    Prefer configuring Redis Cache Store with an `:url` argument instead, but if you need advanced options
+    not supported by Redis Cache Store constructor, you can alternatively pass a custom `RedisClient::Config` instance
+    via the `:client` argument.
+
+    *Jean Boussier*
 
 *   Fix `NumberHelper` raising `FloatDomainError` for `Infinity` / `NaN` with
     `significant: true`.
