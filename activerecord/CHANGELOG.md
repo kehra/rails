@@ -1,3 +1,19 @@
+*   Fix grouped calculations (e.g. `count`) grouped by a `belongs_to` association
+    that points to a composite primary key model.
+
+    `Book.group(:order).count`, where `Book belongs_to :order` and `Order` has a
+    composite primary key, raised `ArgumentError: Expected corresponding value
+    for ["shop_id", "id"] to be an Array`. The grouped result is now keyed by the
+    associated records as it already is for single-column keys.
+
+    *Kenta Ishizaki*
+
+*   Fix `has_many`/`has_one :through` associations with `disable_joins: true`
+    silently returning an empty result when the source points to a composite
+    primary key model.
+
+    *Kenta Ishizaki*
+
 *   Fix collection association `ids=` writers (e.g. `author.book_ids=`) raising
     `ActiveRecord::RecordNotFound` for existing records when a composite primary
     key model is assigned string ids (the shape ids take from request params).
