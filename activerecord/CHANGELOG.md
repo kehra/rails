@@ -1,3 +1,20 @@
+*   Fix `reset_column_sequences!` for tables in quoted schemas.
+
+    *Kenta Ishizaki*
+
+*   Fix `accepts_nested_attributes_for` `:limit` miscounting a single-record hash.
+
+    *Kenta Ishizaki*
+
+*   Fix `rename_index` to preserve a partial index's `WHERE` for SQLite and older MySQL/MariaDB versions.
+
+    *Kenta Ishizaki*
+
+*   Fix PostgreSQL `foreign_keys` returning a corrupted `to_table` for a foreign key
+    that references a table in a quoted schema.
+
+    *Kenta Ishizaki*
+
 *   Fix grouped calculations (e.g. `count`) grouped by a `belongs_to` association
     that points to a composite primary key model.
 
