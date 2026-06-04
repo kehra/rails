@@ -834,7 +834,7 @@ module ActiveRecord
         def rename_table_indexes(table_name, new_name, **options) = @renamed_table_indexes << [table_name, new_name, options]
         def add_index(table_name, columns, **options) = @added_indexes << [table_name, columns, options]
         def remove_index(table_name, **options) = @removed_indexes << [table_name, options]
-        def indexes(_table_name) = [Struct.new(:name, :columns, :unique).new("old_idx", ["author_id"], true)]
+        def indexes(_table_name) = [Struct.new(:name, :columns, :unique, :where).new("old_idx", ["author_id"], true, "`active` = 1")]
       end
 
       adapter_class.const_set(:ADAPTER_NAME, "RenameMysql")
@@ -904,7 +904,7 @@ module ActiveRecord
 
       adapter.supports_rename_index = false
       adapter.rename_index(:books, :old_idx, :copied_idx)
-      assert_equal [:books, ["author_id"], { name: "copied_idx", unique: true }], adapter.added_indexes.last
+      assert_equal [:books, ["author_id"], { name: "copied_idx", unique: true, where: "`active` = 1" }], adapter.added_indexes.last
       assert_equal [:books, { name: "old_idx" }], adapter.removed_indexes.last
     end
 
