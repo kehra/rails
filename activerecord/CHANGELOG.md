@@ -1,3 +1,24 @@
+*   Allow the query log tags format to be configured per connection pool.
+
+    A `query_log_tags_format` key in a `database.yml` entry overrides the global
+    `config.active_record.query_log_tags_format` for connections in that pool, so
+    different databases can emit `:legacy` or `:sqlcommenter` formatted comments.
+
+    ```yaml
+    production:
+      primary:
+        database: primary
+      analytics:
+        database: analytics
+        query_log_tags_format: sqlcommenter
+    ```
+
+    *Hartley McGuire*
+
+*   Fix `update_attribute`/`update_attribute!` to raise for a readonly attribute referenced by an alias.
+
+    *Kenta Ishizaki*
+
 *   Fix `reset_column_sequences!` for tables in quoted schemas.
 
     *Kenta Ishizaki*
