@@ -63,6 +63,7 @@ module ActiveRecord
 
         def async_enabled? = async_enabled_value
         def preventing_writes? = preventing_writes_value
+        def sql_notifications? = true
         def current_transaction = transaction
         def write_query?(sql) = write_query_result || sql.match?(/insert|update|delete/i)
         def type_casted_binds(binds) = binds.map { |bind| "cast-#{bind}" }

@@ -3,6 +3,7 @@
 require_relative "../../abstract_unit"
 require "active_support/cache"
 require "active_support/cache/redis_cache_store"
+require "redis"
 require_relative "../behaviors"
 
 module ActiveSupport::Cache::RedisCacheStoreTests

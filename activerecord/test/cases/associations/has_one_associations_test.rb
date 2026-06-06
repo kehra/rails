@@ -1159,7 +1159,7 @@ class HasOneAssociationsTest < ActiveRecord::TestCase
     assert_equal({ "owner_id" => nil }, record.assigned_attributes)
   end
 
-  HasOneDependencyReflection = Struct.new(:name, :klass, :foreign_key)
+  HasOneDependencyReflection = Struct.new(:name, :klass, :foreign_key, :type)
 
   HasOneDependencyErrors = Struct.new(:added_errors, keyword_init: true) do
     def add(*args)

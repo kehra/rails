@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../abstract_unit"
+require "active_support/notifications"
 require "active_support/notifications/instrumenter"
 
 module ActiveSupport
@@ -87,6 +88,47 @@ module ActiveSupport
 
         assert_equal [["foo", instrumenter.id, payload]], notifier.starts
         assert_equal [["foo", instrumenter.id, payload, notifier.starts]], notifier.finishes
+      end
+
+      def test_null_instrumenter_is_a_singleton_no_op_instrumenter
+        assert_instance_of NullInstrumenter, Notifications.null_instrumenter
+        assert_same Notifications.null_instrumenter, Notifications.null_instrumenter
+      end
+
+      def test_null_instrumenter_instrument_yields_payload_without_publishing
+        result = Notifications.null_instrumenter.instrument("foo", payload) do |yielded_payload|
+          assert_same payload, yielded_payload
+          :called
+        end
+
+        assert_equal :called, result
+        assert_empty notifier.starts
+        assert_empty notifier.finishes
+      end
+
+      def test_null_instrumenter_instrument_without_block_is_a_no_op
+        assert_nil Notifications.null_instrumenter.instrument("foo", payload)
+
+        assert_empty notifier.starts
+        assert_empty notifier.finishes
+      end
+
+      def test_null_instrumenter_build_handle_returns_reusable_no_op_handle
+        handle = Notifications.null_instrumenter.build_handle("foo", payload)
+        handle.start
+        handle.finish
+
+        assert_same handle, Notifications.null_instrumenter.build_handle("bar", {})
+        assert_empty notifier.starts
+        assert_empty notifier.finishes
+      end
+
+      def test_null_instrumenter_start_and_finish_are_no_ops
+        assert_nil Notifications.null_instrumenter.start("foo", payload)
+        assert_nil Notifications.null_instrumenter.finish("foo", payload)
+
+        assert_empty notifier.starts
+        assert_empty notifier.finishes
       end
 
       def test_event_time_and_end_are_nil_until_recorded
