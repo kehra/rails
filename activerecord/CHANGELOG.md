@@ -1,3 +1,30 @@
+*   Fix `ActiveRecord::MessagePack` serialization raising `NoMethodError`
+    for any record with a populated `time` column, which made such records
+    uncacheable through the MessagePack cache serializer.
+
+    *Kenta Ishizaki*
+
+*   Fix replacing or clearing a polymorphic `has_one` leaving a stale type column
+    on the removed record.
+
+    *Kenta Ishizaki*
+
+*   Add `sql_notifications` connection configuration option to disable SQL
+    notifications for specific database connections.
+
+    Libraries like Solid Cache and Solid Queue that use separate database
+    connections via `connects_to` can suppress internal SQL notification
+    overhead by setting `sql_notifications: false` in `database.yml`:
+
+    ```yaml
+    cache:
+      adapter: postgresql
+      database: myapp_cache
+      sql_notifications: false
+    ```
+
+    *Rosa Gutierrez*
+
 *   Allow the query log tags format to be configured per connection pool.
 
     A `query_log_tags_format` key in a `database.yml` entry overrides the global
