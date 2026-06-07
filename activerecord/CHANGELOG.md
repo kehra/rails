@@ -1,3 +1,19 @@
+*   Fix `serialize` with `coder: ActiveRecord::Coders::JSON` silently double-encoding
+    a native `json`/`jsonb` column.
+
+    *Kenta Ishizaki*
+
+*   Fix `update_all` / `delete_all` ignoring `group` and `having`, updating or
+    deleting every row in the table instead of only the rows that satisfy the
+    `HAVING` clause.
+
+    *Kenta Ishizaki*
+
+*   Fix `ActiveRecord::Relation#cache_key` / `cache_version` for a loaded collection
+    containing a record without a timestamp.
+
+    *Kenta Ishizaki*
+
 *   Fix `ActiveRecord::MessagePack` serialization raising `NoMethodError`
     for any record with a populated `time` column, which made such records
     uncacheable through the MessagePack cache serializer.
