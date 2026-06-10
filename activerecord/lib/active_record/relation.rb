@@ -619,8 +619,7 @@ module ActiveRecord
 
       if updates.is_a?(Hash)
         if model.locking_enabled? &&
-            !updates.key?(model.locking_column) &&
-            !updates.key?(model.locking_column.to_sym)
+            updates.keys.none? { |key| (model.attribute_alias(key) || key.to_s) == model.locking_column }
           attr = table[model.locking_column]
           updates[attr.name] = _increment_attribute(attr)
         end
@@ -755,8 +754,8 @@ module ActiveRecord
     # go through Active Record's type casting and serialization.
     #
     # See #insert_all! for more.
-    def insert!(attributes, returning: nil, record_timestamps: nil)
-      insert_all!([ attributes ], returning: returning, record_timestamps: record_timestamps)
+    def insert!(attributes, returning: nil, unique_by: nil, record_timestamps: nil)
+      insert_all!([ attributes ], returning: returning, unique_by: unique_by, record_timestamps: record_timestamps)
     end
 
     # Inserts multiple records into the database in a single SQL INSERT

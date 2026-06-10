@@ -715,10 +715,6 @@ class HasManyAssociationsTest < ActiveRecord::TestCase
   def test_default_order
     post = posts(:welcome)
 
-    comments = post.comments
-    assert_equal [1, 2], comments.pluck(:id)
-    assert_equal 1, comments.first.id
-
     comments = post.comments.order(:body)
     assert_equal [2, 1], comments.pluck(:id)
     assert_equal 2, comments.first.id
@@ -730,6 +726,27 @@ class HasManyAssociationsTest < ActiveRecord::TestCase
     comments = post.ordered_comments.order(:id)
     assert_equal [1, 2], comments.pluck(:id)
     assert_equal 1, comments.first.id
+  end
+
+  def test_default_order_is_applied_when_the_target_is_loaded
+    author = authors(:david)
+
+    # The generated SQL (used by pluck/count/to_sql) honors default_order.
+    assert_equal [6, 5, 4, 2, 1], author.posts_with_default_order.pluck(:id)
+
+    # The materialized collection must honor it too, not come back in
+    # arbitrary database order.
+    assert_equal [6, 5, 4, 2, 1], author.posts_with_default_order.to_a.map(&:id)
+    assert_equal [6, 5, 4, 2, 1], author.posts_with_default_order.reload.map(&:id)
+  end
+
+  def test_default_order_keeps_using_the_statement_cache
+    author = authors(:david)
+    association = author.association(:posts_with_default_order)
+
+    # The ORDER BY is baked into the cached SQL, so the statement cache must
+    # not be bypassed.
+    assert_not association.send(:skip_statement_cache?, association.scope)
   end
 
   def test_finding
