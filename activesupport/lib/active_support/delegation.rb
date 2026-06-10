@@ -235,7 +235,7 @@ module ActiveSupport
             # Methods that yield to an implicit block do not list a `:block`
             # parameter, so forward an anonymous block to them too. The `...`
             # signature already forwards the block.
-            forwards_implicit_block = signature != "..." && parameters.none? { |type, _name| type == :block }
+            forwards_implicit_block = signature != "..." && parameters.all? { |type, _name| type != :block }
 
             if forwards_implicit_block
               signature = signature.empty? ? "&" : "#{signature}, &"

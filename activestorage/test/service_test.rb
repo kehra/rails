@@ -62,7 +62,7 @@ class ActiveStorage::ServiceTest < ActiveSupport::TestCase
   end
 
   test "default metadata and direct upload headers are empty" do
-    service = ActiveStorage::Service.new
+    service = FakeService.new
 
     assert_nil service.update_metadata("key", identified: true)
     assert_equal({}, service.headers_for_direct_upload("key", filename: "x.txt", content_type: "text/plain", content_length: 1, checksum: "checksum"))

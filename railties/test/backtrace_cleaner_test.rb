@@ -136,9 +136,11 @@ class BacktraceCleanerTest < ActiveSupport::TestCase
     def with_rails_root(root)
       singleton = class << Rails; self; end
       original_root = Rails.method(:root)
+      Rails::BacktraceCleaner.remove_instance_variable(:@root) if Rails::BacktraceCleaner.instance_variable_defined?(:@root)
       singleton.define_method(:root) { root }
       yield
     ensure
       singleton.define_method(:root) { |*args, **kwargs, &block| original_root.call(*args, **kwargs, &block) }
+      Rails::BacktraceCleaner.remove_instance_variable(:@root) if Rails::BacktraceCleaner.instance_variable_defined?(:@root)
     end
 end
