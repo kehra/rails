@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "abstract_unit"
+require "active_support/core_ext/object/with"
 
 module ActionDispatch
   module Routing
@@ -266,6 +267,44 @@ module ActionDispatch
         assert_equal [404, { ActionDispatch::Constants::X_CASCADE => "pass" }, []], ActionDispatch::Routing::RouteSet::Dispatcher.new(false).serve(request)
         assert_raises(ActionController::RoutingError) do
           ActionDispatch::Routing::RouteSet::Dispatcher.new(true).serve(request)
+        end
+      end
+
+      if RUBY_VERSION >= "4.0"
+        test "#resolve raises an error when a proc is not shareable and unshareable_proc_action is :raise" do
+          assert_raise(Ractor::IsolationError) do
+            ActiveSupport::Ractors.with(unshareable_proc_action: :raise) do
+              draw do
+                to_resolve = [:basket, anchor: "items"]
+
+                resolve("Cart") { to_resolve }
+              end
+            end
+          end
+        end
+
+        test "#resolve trigger a deprecation when a proc is not shareable and unshareable_proc_action is :warn" do
+          assert_deprecated(/Rails attempted to make a Proc .* Ractor shareable/, ActiveSupport.deprecator) do
+            ActiveSupport::Ractors.with(unshareable_proc_action: :warn) do
+              draw do
+                to_resolve = [:basket, anchor: "items"]
+
+                resolve("Cart") { to_resolve }
+              end
+            end
+          end
+        end
+
+        test "#resolve does not attempt to make a proc shareable when unshareable_proc_action is nil" do
+          assert_nothing_raised do
+            ActiveSupport::Ractors.with(unshareable_proc_action: nil) do
+              draw do
+                to_resolve = [:basket, anchor: "items"]
+
+                resolve("Cart") { to_resolve }
+              end
+            end
+          end
         end
       end
 
