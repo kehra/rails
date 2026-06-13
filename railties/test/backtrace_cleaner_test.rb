@@ -120,8 +120,8 @@ class BacktraceCleanerTest < ActiveSupport::TestCase
     assert_equal "app/views/application/index.html.erb:4", frame
   end
 
-  test "backtrace cleaner is Ractor shareable" do
-    assert_ractor_shareable @cleaner
+  test "backtrace cleaner can be made Ractor shareable" do
+    assert_ractor_make_shareable @cleaner
   end
 
   private
