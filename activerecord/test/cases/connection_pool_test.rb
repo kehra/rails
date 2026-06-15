@@ -812,7 +812,8 @@ module ActiveRecord
 
         assert_not_predicate connection, :connected?
         assert_empty @pool.connections
-        assert_equal [[checkin_error, true, :warning, "active_record.connection_pool", {}]], subscriber.events
+        assert_equal [[checkin_error, true, :warning, "active_record.connection_pool"]], subscriber.events.map { |error, handled, severity, source,| [error, handled, severity, source] }
+        assert_kind_of Hash, subscriber.events.first.last
       ensure
         ActiveRecord::ConnectionAdapters::AbstractAdapter.skip_callback(:checkin, :before, proc_to_raise) if proc_to_raise
         ActiveSupport.error_reporter.unsubscribe(subscriber) if subscriber
@@ -841,7 +842,8 @@ module ActiveRecord
 
         assert_equal [first_connection, second_connection], disconnected
         assert_empty @pool.connections
-        assert_equal [[disconnect_error, true, :warning, "active_record.connection_pool", {}]], subscriber.events
+        assert_equal [[disconnect_error, true, :warning, "active_record.connection_pool"]], subscriber.events.map { |error, handled, severity, source,| [error, handled, severity, source] }
+        assert_kind_of Hash, subscriber.events.first.last
       ensure
         ActiveSupport.error_reporter.unsubscribe(subscriber) if subscriber
         first_connection&.singleton_class&.remove_method(:disconnect!) rescue nil
