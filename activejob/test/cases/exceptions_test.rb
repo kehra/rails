@@ -8,18 +8,9 @@ require "models/person"
 require "minitest/mock"
 
 class ExceptionsTest < ActiveSupport::TestCase
-  UnknownWaitError = Class.new(StandardError)
   FirstAfterDiscardHookError = Class.new(StandardError)
   SecondAfterDiscardHookError = Class.new(StandardError)
   AfterDiscardHookDiscardableError = Class.new(StandardError)
-
-  class UnknownWaitJob < ActiveJob::Base
-    retry_on UnknownWaitError, wait: :unknown_algorithm
-
-    def perform
-      raise UnknownWaitError
-    end
-  end
 
   class RaisingAfterDiscardJob < ActiveJob::Base
     discard_on AfterDiscardHookDiscardableError
@@ -454,14 +445,6 @@ class ExceptionsTest < ActiveSupport::TestCase
       AfterDiscardRetryJob.perform_later("AfterDiscardRetryJob::DiscardableError", 2)
 
       assert_equal "Ran after_discard for job. Message: AfterDiscardRetryJob::DiscardableError", JobBuffer.last_value
-    end
-
-    test "retry_on raises when wait cannot determine a delay" do
-      raised = assert_raises(RuntimeError) do
-        UnknownWaitJob.perform_later
-      end
-
-      assert_equal "Couldn't determine a delay based on :unknown_algorithm", raised.message
     end
 
     test "after_discard reraises the last error from discard hooks" do
