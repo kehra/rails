@@ -2,6 +2,7 @@
 
 require "abstract_unit"
 require "action_controller/railties/helpers"
+require "active_support/testing/ractors_assertions"
 
 ActionController::Base.helpers_path = File.expand_path("../fixtures/helpers", __dir__)
 
@@ -159,6 +160,8 @@ class HelpersTypoControllerTest < ActiveSupport::TestCase
 end
 
 class HelperTest < ActiveSupport::TestCase
+  include ActiveSupport::Testing::RactorsAssertions
+
   class TestController < ActionController::Base
     attr_accessor :delegate_attr
     def delegate_method() end
@@ -387,6 +390,14 @@ class HelperTest < ActiveSupport::TestCase
     AllHelpersController.config.my_var = "smth"
 
     assert_equal "smth", AllHelpersController.helpers.config.my_var
+  end
+
+  def test_helper_methods_are_ractor_safe
+    controller = Class.new(ActionController::Base) do
+      helper_method :foo
+    end
+
+    assert_ractor_shareable controller._helper_methods
   end
 
   private
