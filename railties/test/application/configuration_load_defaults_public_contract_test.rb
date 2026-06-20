@@ -31,6 +31,7 @@ class ApplicationConfigurationLoadDefaultsPublicContractTest < ActiveSupport::Te
     assert_equal :exception, @config.action_controller.default_protect_from_forgery_with
     assert_equal :array, @config.action_controller.rescue_from_event_backtrace
     assert_equal true, @config.action_dispatch.strict_freshness
+    assert_equal true, @config.action_dispatch.strict_accept_header
     assert_equal "nosniff", @config.action_dispatch.default_headers["X-Content-Type-Options"]
     assert_equal false, @config.active_support.escape_js_separators_in_json
     assert_equal :ruby, @config.action_view.render_tracker
