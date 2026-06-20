@@ -77,8 +77,7 @@ module ActiveRecord
           # Overwriting will negate any effect of the +primary_key_prefix_type+
           # setting, though.
           def primary_key
-            reset_primary_key unless @primary_key_definition
-            @primary_key_definition.name
+            primary_key_definition.name
           end
 
           def composite_primary_key? # :nodoc:
@@ -86,8 +85,8 @@ module ActiveRecord
           end
 
           def primary_key_definition # :nodoc:
-            reset_primary_key unless @primary_key_definition
-            @primary_key_definition
+            reset_primary_key unless _primary_key_definition
+            _primary_key_definition
           end
 
           # Returns a quoted version of the primary key name.
@@ -120,20 +119,10 @@ module ActiveRecord
           #   class Project < ActiveRecord::Base
           #     self.primary_key = 'sysid'
           #   end
-          #
-          # You can also define the #primary_key method yourself:
-          #
-          #   class Project < ActiveRecord::Base
-          #     def self.primary_key
-          #       'foo_' + super
-          #     end
-          #   end
-          #
-          #   Project.primary_key # => "foo_id"
           def primary_key=(value)
-            @primary_key_definition = ActiveRecord::Key.for(value)
+            self._primary_key_definition = ActiveRecord::Key.for(value)
 
-            include CompositePrimaryKey if @primary_key_definition.composite?
+            include CompositePrimaryKey if primary_key_definition.composite?
 
             @attributes_builder = nil
           end
@@ -142,7 +131,7 @@ module ActiveRecord
             def inherited(base)
               super
               base.class_eval do
-                @primary_key_definition = nil
+                class_attribute :_primary_key_definition, instance_accessor: false
                 @attributes_builder = nil
               end
             end
