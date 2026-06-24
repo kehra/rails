@@ -321,7 +321,7 @@ class LookupContextTest < ActiveSupport::TestCase
     assert_equal "Foo", path_set.find("foo", ["test"], true, details, details_key, []).source
 
     assert_raises(ActionView::MissingTemplate) do
-      path_set.find("missing", ["test"], true, details, details_key, [])
+      path_set.find!("missing", ["test"], true, details, details_key, [])
     end
 
     assert_raises(TypeError) do
