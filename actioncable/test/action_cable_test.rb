@@ -15,6 +15,12 @@ class ActionCableTest < ActionCable::TestCase
     ActionCable.instance_variable_set(:@server, old_server)
   end
 
+  test "configuration is available through the public top-level constant" do
+    assert_same ActionCable::Configuration, ActionCable::Server::Configuration
+    assert_instance_of ActionCable::Configuration, ActionCable::Server::Base.config
+    assert_instance_of ActionCable::Configuration, ActionCable::Server::Base.new.config
+  end
+
   test ".gem_version returns the loaded version as a Gem::Version" do
     assert_equal Gem::Version.new(ActionCable::VERSION::STRING), ActionCable.gem_version
   end

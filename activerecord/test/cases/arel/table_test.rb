@@ -106,6 +106,12 @@ module Arel
       assert_equal "foo", rel.table_alias
     end
 
+    test "new requires name as a keyword argument" do
+      assert_raises(ArgumentError) do
+        Table.new(:users)
+      end
+    end
+
     test "new ignores as if it equals name" do
       rel = Table.new name: :users, as: "users"
       assert_nil rel.table_alias

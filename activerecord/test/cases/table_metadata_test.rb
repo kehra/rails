@@ -28,7 +28,7 @@ module ActiveRecord
     end
 
     test "handles missing model for metadata lookups" do
-      table_metadata = TableMetadata.new(nil, Arel::Table.new("unknown_table"))
+      table_metadata = TableMetadata.new(nil, Arel::Table.new(name: "unknown_table"))
 
       assert_nil table_metadata.primary_key
       assert_nil table_metadata.has_column?("id")

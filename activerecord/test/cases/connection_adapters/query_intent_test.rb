@@ -188,10 +188,10 @@ module ActiveRecord
 
       def test_write_query_heuristics_for_arel_and_raw_sql
         adapter = FakeAdapter.new
-        select_intent = QueryIntent.new(adapter: adapter, arel: Arel::Table.new(:users).project(Arel.star))
+        select_intent = QueryIntent.new(adapter: adapter, arel: Arel::Table.new(name: :users).project(Arel.star))
         assert_not select_intent.send(:write_query?)
 
-        insert_manager = Arel::InsertManager.new(Arel::Table.new(:users))
+        insert_manager = Arel::InsertManager.new(Arel::Table.new(name: :users))
         insert_intent = QueryIntent.new(adapter: adapter, arel: insert_manager)
         assert insert_intent.send(:write_query?)
 

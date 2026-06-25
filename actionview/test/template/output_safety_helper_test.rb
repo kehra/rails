@@ -35,6 +35,17 @@ class OutputSafetyHelperTest < ActionView::TestCase
     assert_equal "&quot;a&quot; &lt;br/&gt; &lt;b&gt; &lt;br/&gt; &lt;c&gt;", joined
   end
 
+  test "safe_join default separator is not affected by $," do
+    separator_was = $,
+    silence_warnings do
+      $, = "|"
+    end
+
+    assert_equal "onetwo", safe_join(["one", "two"])
+  ensure
+    $, = separator_was
+  end
+
   test "to_sentence should escape non-html_safe values" do
     assert_equal "", to_sentence([])
     assert_predicate to_sentence([]), :html_safe?
