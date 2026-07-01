@@ -47,7 +47,12 @@ class MemoryStoreTest < StoreTest
   def test_cleanup_with_local_cache_clears_local_entries
     @cache.with_local_cache do
       @cache.write("name", "local")
-      @cache.send(:bypass_local_cache) { @cache.write("name", "remote") }
+      @cache.unset_local_cache
+      @cache.write("name", "remote")
+      @cache.new_local_cache
+      local_key = @cache.send(:normalize_key, "name", {})
+      local_entry = @cache.send(:serialize_entry, ActiveSupport::Cache::Entry.new("local"))
+      @cache.local_cache.write_entry(local_key, local_entry)
 
       @cache.cleanup
 

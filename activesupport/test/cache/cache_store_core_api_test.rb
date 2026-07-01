@@ -226,7 +226,7 @@ class CacheStoreCoreApiTest < ActiveSupport::TestCase
     store = ActiveSupport::Cache::Store.new
 
     ActiveSupport::Cache::Store.stub(:logger, logger) do
-      store.send(:_instrument, :custom) { }
+      store.send(:instrument, :custom, nil) { }
     end
 
     assert_includes output.string, "Cache custom"
