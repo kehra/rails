@@ -1,9 +1,14 @@
 # frozen_string_literal: true
 
+require "active_support/dependencies/autoload"
+
 module ActiveSupport
   # Shims for +Ractor+ shareability methods so framework code can call them
   # unconditionally regardless of the Ruby version.
   module Ractors # :nodoc:
+    extend ActiveSupport::Autoload
+    autoload :Logger
+
     class << self
       attr_accessor :unshareable_proc_action
 
