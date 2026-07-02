@@ -204,7 +204,7 @@ class LookupContextTest < ActiveSupport::TestCase
     assert_equal @lookup_context.view_paths, prepended.view_paths
     assert_equal @lookup_context.prefixes, prepended.prefixes
 
-    assert_same ActionView::LookupContext::DetailsKey.view_context_class, ActionView::LookupContext::DetailsKey.view_context_class
+    assert_same ActionView::LookupContext.view_context_class, ActionView::LookupContext.view_context_class
   end
 
   test "details key normalizes invalid requested formats" do

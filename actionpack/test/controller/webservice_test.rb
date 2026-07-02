@@ -112,6 +112,17 @@ class WebServiceTest < ActionDispatch::IntegrationTest
     end
   end
 
+  def test_parameter_parsers_are_frozen_when_assigned
+    original_parsers = ActionDispatch::Request.parameter_parsers
+
+    ActionDispatch::Request.parameter_parsers = { Mime[:json] => Proc.new { |data| ActiveSupport::JSON.decode(data) } }
+
+    assert_equal [:json], ActionDispatch::Request.parameter_parsers.keys
+    assert_predicate ActionDispatch::Request.parameter_parsers, :frozen?
+  ensure
+    ActionDispatch::Request.parameter_parsers = original_parsers
+  end
+
   private
     def with_params_parsers(parsers = {})
       old_session = @integration_session

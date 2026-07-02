@@ -22,13 +22,9 @@ class ActionDispatchTest < ActiveSupport::TestCase
 
   test "eager_load loads routing after autoloads" do
     loaded = []
-    loader = Class.new do
-      include ActiveSupport::Autoload
-      include ActionDispatch
-    end.new
 
     ActionDispatch::Routing.stub(:eager_load!, -> { loaded << :routing }) do
-      assert_equal [:routing], loader.eager_load!
+      ActionDispatch.eager_load!
     end
 
     assert_equal [:routing], loaded

@@ -1876,7 +1876,7 @@ class RequestCoreAccessors < BaseRequestTest
     request = stub_request
     request.session_options = options
 
-    assert_same options, ActionDispatch::Request::Session::Options.find(request)
+    assert_same options, request.get_header("rack.session.options")
   end
 
   test "post falls back to rack hash when flat parameter pairs are unavailable" do
