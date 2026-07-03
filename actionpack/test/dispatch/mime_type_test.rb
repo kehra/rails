@@ -56,7 +56,7 @@ class MimeTypeTest < ActiveSupport::TestCase
   end
 
   test "parse single" do
-    Mime::LOOKUP.each_key do |mime_type|
+    Mime.lookup_by_string.each_key do |mime_type|
       unless mime_type == "image/*"
         assert_equal [Mime::Type.lookup(mime_type)], Mime::Type.parse(mime_type)
       end
@@ -78,6 +78,12 @@ class MimeTypeTest < ActiveSupport::TestCase
     ensure
       Mime::Type.unregister :mobile
     end
+  end
+
+  test "Mime::SET, Mime::LOOKUP and Mime::EXTENSION_LOOKUP are deprecated" do
+    assert_deprecated("Mime::SET", ActionDispatch.deprecator) { Mime::SET.symbols }
+    assert_deprecated("Mime::LOOKUP", ActionDispatch.deprecator) { Mime::LOOKUP.key?("text/html") }
+    assert_deprecated("Mime::EXTENSION_LOOKUP", ActionDispatch.deprecator) { Mime::EXTENSION_LOOKUP["html"] }
   end
 
   test "parse text with trailing star at the beginning" do
@@ -178,6 +184,21 @@ class MimeTypeTest < ActiveSupport::TestCase
     Mime::Type.unregister(:foo)
   end
 
+  test "extensions enumerates every registered extension, including synonyms" do
+    assert_includes Mime.extensions, "html"
+    assert_includes Mime.extensions, "jpg"
+    assert_includes Mime.extensions, "jpeg"
+  end
+
+  test "extensions includes custom extension aliases" do
+    Mime::Type.register "text/foobar", :foobar, [], [:foo, "bar"]
+    assert_includes Mime.extensions, "foobar"
+    assert_includes Mime.extensions, "foo"
+    assert_includes Mime.extensions, "bar"
+  ensure
+    Mime::Type.unregister(:foobar)
+  end
+
   test "custom type with type aliases" do
     Mime::Type.register "text/foobar", :foobar, ["text/foo", "text/bar"]
     %w[text/foobar text/foo text/bar].each do |type|
@@ -211,7 +232,7 @@ class MimeTypeTest < ActiveSupport::TestCase
   test "custom type with extension aliases" do
     Mime::Type.register "text/foobar", :foobar, [], [:foo, "bar"]
     %w[foobar foo bar].each do |extension|
-      assert_equal Mime[:foobar], Mime::EXTENSION_LOOKUP[extension]
+      assert_equal Mime[:foobar], Mime[extension]
     end
   ensure
     Mime::Type.unregister(:foobar)
@@ -219,7 +240,7 @@ class MimeTypeTest < ActiveSupport::TestCase
 
   test "register alias" do
     Mime::Type.register_alias "application/xhtml+xml", :foobar
-    assert_equal Mime[:html], Mime::EXTENSION_LOOKUP["foobar"]
+    assert_equal Mime[:html], Mime["foobar"]
   ensure
     Mime::Type.unregister(:foobar)
   end
@@ -230,7 +251,7 @@ class MimeTypeTest < ActiveSupport::TestCase
   end
 
   test "type convenience methods" do
-    types = Mime::SET.symbols.uniq - [:iphone]
+    types = Mime.symbols.uniq - [:iphone]
 
     types.each do |type|
       mime = Mime[type]
@@ -342,9 +363,9 @@ class MimeTypeTest < ActiveSupport::TestCase
   end
 
   test "holds a reference to mime symbols" do
-    old_symbols = Mime::SET.symbols
+    old_symbols = Mime.symbols
     Mime::Type.register_alias "application/xhtml+xml", :foobar
-    new_symbols = Mime::SET.symbols
+    new_symbols = Mime.symbols
 
     assert_same(old_symbols, new_symbols)
   ensure
