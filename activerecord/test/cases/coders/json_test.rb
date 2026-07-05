@@ -25,6 +25,11 @@ module ActiveRecord
 
         assert_equal ActiveSupport::JSON.encode("html" => "<tag>"), coder.dump("html" => "<tag>")
       end
+
+      def test_dump_does_not_html_escape
+        coder = JSON.new
+        assert_equal '{"k":"<>&"}', coder.dump({ "k" => "<>&" })
+      end
     end
   end
 end
