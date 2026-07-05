@@ -22,8 +22,9 @@ module ActiveRecord
 
       def test_dump_encodes_values_with_active_support_json_encoder
         coder = JSON.new
+        encoder = ActiveSupport::JSON::Encoding.json_encoder.new(escape: false)
 
-        assert_equal ActiveSupport::JSON.encode("html" => "<tag>"), coder.dump("html" => "<tag>")
+        assert_equal encoder.encode("html" => "<tag>"), coder.dump("html" => "<tag>")
       end
 
       def test_dump_does_not_html_escape
