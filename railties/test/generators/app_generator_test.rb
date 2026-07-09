@@ -1707,7 +1707,7 @@ class AppGeneratorTest < Rails::Generators::TestCase
       assert_includes compose_config["services"]["rails-app"]["depends_on"], "mysql"
 
       expected_mysql_config = {
-        "image" => "mysql/mysql-server:8.0",
+        "image" => "mysql:9.7",
         "restart" => "unless-stopped",
         "environment" => {
           "MYSQL_ALLOW_EMPTY_PASSWORD" => "true",
@@ -1736,7 +1736,7 @@ class AppGeneratorTest < Rails::Generators::TestCase
     assert_compose_file do |compose_config|
       assert_includes compose_config["services"]["rails-app"]["depends_on"], "mysql"
       expected_mysql_config = {
-        "image" => "mysql/mysql-server:8.0",
+        "image" => "mysql:9.7",
         "restart" => "unless-stopped",
         "environment" => {
           "MYSQL_ALLOW_EMPTY_PASSWORD" => "true",
