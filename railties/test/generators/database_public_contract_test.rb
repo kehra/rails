@@ -76,7 +76,7 @@ class DatabasePublicContractTest < ActiveSupport::TestCase
     assert_equal "default-libmysqlclient-dev", mysql2.build_package
     assert_equal "ghcr.io/rails/devcontainer/features/mysql-client", mysql2.feature_name
     assert_equal "mysql-data", mysql2.volume
-    assert_equal "mysql/mysql-server:8.0", mysql2.service["image"]
+    assert_equal "mysql:9.7", mysql2.service["image"]
 
     assert_equal "config/databases/trilogy.yml", trilogy.template
     assert_equal ["trilogy", ["~> 2.7"]], trilogy.gem

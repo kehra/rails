@@ -215,6 +215,33 @@ class MemCacheStoreTest < ActiveSupport::TestCase
     end
   end
 
+  def test_write_multi_uses_set_multi_when_available
+    cache = lookup_store(namespace: nil)
+    set_multi_args = nil
+
+    client(cache).stub(:set_multi, ->(*args) { set_multi_args = args }) do
+      cache.write_multi({ "foo" => "bar", "baz" => "qux" }, expires_in: 60)
+    end
+
+    entries, expires_in, options = set_multi_args
+    assert_equal ["baz", "foo"], entries.keys.sort
+    assert_equal "bar", cache.send(:deserialize_entry, entries["foo"]).value
+    assert_equal "qux", cache.send(:deserialize_entry, entries["baz"]).value
+    assert_equal 60, expires_in
+    assert_equal 60, options[:expires_in]
+  end
+
+  def test_write_multi_with_race_condition_ttl_extends_memcache_expiry
+    cache = lookup_store(namespace: nil)
+    set_multi_args = nil
+
+    client(cache).stub(:set_multi, ->(*args) { set_multi_args = args }) do
+      cache.write_multi({ "foo" => "bar" }, expires_in: 60, race_condition_ttl: 5)
+    end
+
+    assert_equal 60 + 5.minutes, set_multi_args[1]
+  end
+
   def test_write_with_unless_exist
     assert_equal true, @cache.write("foo", 1)
     assert_equal false, @cache.write("foo", 1, unless_exist: true)
