@@ -270,7 +270,7 @@ class GeneratedAttributeTest < Rails::Generators::TestCase
 
     assert_equal({ null: false }, att.attr_options)
     assert_equal ", null: false", att.inject_options
-    assert_equal "title:string{null}", att.to_s
+    assert_equal "title:string!", att.to_s
   end
 
   def test_parse_required_attribute_with_index_false_when_belongs_to_required_by_default_global_config_is_false
