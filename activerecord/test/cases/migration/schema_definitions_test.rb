@@ -435,10 +435,10 @@ module ActiveRecord
             schema_migration = Struct.new(:table_name) do
               def versions = ["20240101010101", "20240202020202"]
             end.new("schema_migrations")
-            migration_context = Struct.new(:all_versions, :migration_versions) do
+            migration_context = Struct.new(:schema_migration, :all_versions, :migration_versions) do
               def get_all_versions = all_versions
               def migrations = migration_versions.map { |version| Struct.new(:version).new(version) }
-            end.new([20240101010101], [20230101010101, 20240101010101])
+            end.new(schema_migration, [20240101010101], [20230101010101, 20240101010101])
             @pool = Struct.new(:schema_migration, :migration_context).new(schema_migration, migration_context)
           end
 
@@ -531,10 +531,10 @@ module ActiveRecord
             schema_migration = Struct.new(:table_name) do
               def versions = ["20240101010101", "20240202020202"]
             end.new("schema_migrations")
-            migration_context = Struct.new(:all_versions, :migration_versions) do
+            migration_context = Struct.new(:schema_migration, :all_versions, :migration_versions) do
               def get_all_versions = all_versions
               def migrations = migration_versions.map { |version| Struct.new(:version).new(version) }
-            end.new([20240101010101], [20230101010101, 20240101010101])
+            end.new(schema_migration, [20240101010101], [20230101010101, 20240101010101])
             @pool = Struct.new(:schema_migration, :migration_context).new(schema_migration, migration_context)
           end
           def execute(sql) = (@executed_sql << sql; sql)
@@ -762,10 +762,10 @@ module ActiveRecord
             schema_migration = Struct.new(:table_name) do
               def versions = []
             end.new("schema_migrations")
-            migration_context = Struct.new(:all_versions, :migration_versions) do
+            migration_context = Struct.new(:schema_migration, :all_versions, :migration_versions) do
               def get_all_versions = all_versions
               def migrations = migration_versions.map { |version| Struct.new(:version).new(version) }
-            end.new([20240101010101], [20240101010101])
+            end.new(schema_migration, [20240101010101], [20240101010101])
             @pool = Struct.new(:schema_migration, :migration_context).new(schema_migration, migration_context)
           end
 
