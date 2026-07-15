@@ -1,3 +1,8 @@
+*   `connected_to_all_shards` now raises `ArgumentError` when called on a model
+    that is not connected to any shards, rather than silently doing nothing.
+
+    *Eileen M. Alayce*
+
 *   Honor foreign key names on SQLite3.
 
     SQLite3 did not read foreign key names, so `remove_foreign_key(name:)`
@@ -412,8 +417,10 @@
     `FixtureSet.create_fixtures` to ensure all referenced rows are present when
     enforcement is restored.
 
-    `check_all_foreign_keys_valid!` skips `NOT ENFORCED` constraints on PostgreSQL 18.4+,
-    as `VALIDATE CONSTRAINT` cannot be applied to them.
+    `check_all_foreign_keys_valid!` revalidates foreign keys with the same
+    `NOT ENFORCED`/`ENFORCED` toggle on PostgreSQL 18.4+, likewise requiring only
+    table ownership rather than superuser privileges. Intentionally `NOT ENFORCED`
+    constraints are left unchecked.
 
     Unlike `SET CONSTRAINTS ALL DEFERRED` (the approach attempted in rails/rails#27636
     and reverted), `NOT ENFORCED` also suppresses referential actions such as
@@ -610,7 +617,7 @@
     Use `schema_search_path` instead. The `schema_order` alias will be
     removed in Rails 8.3.
 
-    *Eileen M. Uchitelle*
+    *Eileen M. Alayce*
 
 *   Deprecate the `strict` option in MySQL database configurations.
 
@@ -621,7 +628,7 @@
 
     `strict: false` can be replaced with `variables: { sql_mode: "" }`, and `strict: :default` can be replaced with `variables: { sql_mode: :default }`.
 
-    *Eileen M. Uchitelle*
+    *Eileen M. Alayce*
 
 *   Allow configuring `SET` queriers for the PostgreSQL and MySQL adapters.
 
@@ -653,7 +660,7 @@
     Also deprecates `set_standard_conforming_strings` — it is now handled
     automatically through the consolidated settings hash.
 
-    *Eileen M. Uchitelle*, *Matthew Draper*
+    *Eileen M. Alayce*, *Matthew Draper*
 
 *   MySQL error 1046 (`ER_NO_DB_ERROR: No database selected`) is now retryable as a `ConnectionFailed` exception
 
