@@ -20,116 +20,40 @@ class Workshop
   end
 end
 
-class UrlHelperDefaultUrlForTest < ActiveSupport::TestCase
-  class Context
-    include ActionView::Helpers::UrlHelper
-
-    attr_accessor :controller
-  end
-
-  def setup
-    @context = Context.new
-  end
-
-  def test_default_url_for_handles_back_and_rejects_hashes
-    request = Struct.new(:env).new({ "HTTP_REFERER" => "http://example.com/back" })
-    @context.controller = Struct.new(:request).new(request)
-
-    assert_equal "/literal", @context.url_for("/literal")
-    assert_equal "http://example.com/back", @context.url_for(:back)
-    assert_raises(ArgumentError) { @context.url_for(controller: "posts") }
-  end
-end
-
-class UrlHelperTest < ActiveSupport::TestCase
+class NavigationHelperTest < ActiveSupport::TestCase
   # In a few cases, the helper proxies to 'controller'
   # or request.
   #
   # In those cases, we'll set up a simple mock
   attr_accessor :controller, :request
 
+  cattr_accessor :request_forgery, default: false
+
   routes = ActionDispatch::Routing::RouteSet.new
   routes.draw do
     get "/" => "foo#bar"
     get "/other" => "foo#other"
+    get "/article/:id" => "foo#article", :as => :article
+    get "/category/:category" => "foo#category"
+    resources :sessions
+    resources :workshops do
+      resources :sessions
+    end
   end
 
-  include ActionView::Helpers::UrlHelper
+  include ActionView::Helpers::NavigationHelper
   include routes.url_helpers
 
   include Rails::Dom::Testing::Assertions::DomAssertions
   include RenderERBUtils
 
+  setup { ActionView::Helpers::NavigationHelper.button_to_generates_button_tag = @button_to_generates_button_tag = true }
+  teardown { ActionView::Helpers::NavigationHelper.button_to_generates_button_tag = @button_to_generates_button_tag }
+
   def hash_for(options = {})
     { controller: "foo", action: "bar" }.merge!(options)
   end
-
-  def test_url_for_does_not_escape_urls
-    assert_equal "/?a=b&c=d", url_for(hash_for(a: :b, c: :d))
-  end
-
-  def test_url_for_does_not_include_empty_hashes
-    assert_equal "/", url_for(hash_for(a: {}))
-  end
-
-  def test_url_for_with_back
-    referer = "http://www.example.com/referer"
-    @controller = Struct.new(:request).new(Struct.new(:env).new({ "HTTP_REFERER" => referer }))
-
-    assert_equal "http://www.example.com/referer", url_for(:back)
-  end
-
-  def test_url_for_with_back_and_no_referer
-    @controller = Struct.new(:request).new(Struct.new(:env).new({}))
-    assert_equal "javascript:history.back()", url_for(:back)
-  end
-
-  def test_url_for_with_back_and_no_controller
-    @controller = nil
-    assert_equal "javascript:history.back()", url_for(:back)
-  end
-
-  def test_url_for_with_back_and_javascript_referer
-    referer = "javascript:alert(document.cookie)"
-    @controller = Struct.new(:request).new(Struct.new(:env).new({ "HTTP_REFERER" => referer }))
-    assert_equal "javascript:history.back()", url_for(:back)
-  end
-
-  def test_url_for_with_invalid_referer
-    referer = "THIS IS NOT A URL"
-    @controller = Struct.new(:request).new(Struct.new(:env).new({ "HTTP_REFERER" => referer }))
-    assert_equal "javascript:history.back()", url_for(:back)
-  end
-
-  def test_url_for_with_array_defaults_to_only_path_true
-    assert_equal "/other", url_for([:other, { controller: "foo" }])
-  end
-
-  def test_url_for_with_array_and_only_path_set_to_false
-    default_url_options[:host] = "http://example.com"
-    assert_equal "http://example.com/other", url_for([:other, { controller: "foo", only_path: false }])
-  end
-
-  def test_url_for_with_symbol_and_class_polymorphic_options
-    assert_equal "/sessions", url_for(:sessions)
-    assert_equal "/workshops", url_for(Workshop)
-  end
-
-  def test_url_for_uses_polymorphic_url_when_paths_are_not_generated_by_default
-    default_url_options[:host] = "example.com"
-    singleton_class.define_method(:_generate_paths_by_default) { false }
-
-    assert_equal "http://example.com/workshops", url_for(Workshop)
-  ensure
-    singleton_class.remove_method(:_generate_paths_by_default) if singleton_class.method_defined?(:_generate_paths_by_default)
-  end
-
-  def test_routing_url_for_routes_context_is_controller
-    @controller = Struct.new(:request).new(nil)
-
-    assert_same controller, __send__(:_routes_context)
-    assert_equal true, ActionView::RoutingUrlFor.instance_method(:_generate_paths_by_default).bind(self).call
-  end
+  alias url_hash hash_for
 
   def test_to_form_params_with_hash
     assert_equal(
@@ -414,15 +338,15 @@ class UrlHelperTest < ActiveSupport::TestCase
   end
 
   def test_button_to_generates_input_when_button_to_generates_button_tag_false
-    old_value = ActionView::Helpers::UrlHelper.button_to_generates_button_tag
-    ActionView::Helpers::UrlHelper.button_to_generates_button_tag = false
+    old_value = ActionView::Helpers::NavigationHelper.button_to_generates_button_tag
+    ActionView::Helpers::NavigationHelper.button_to_generates_button_tag = false
 
     assert_dom_equal(
       %{<form method="post" action="http://www.example.com" class="button_to"><input type="submit" value="Save"/></form>},
       button_to("Save", "http://www.example.com")
     )
   ensure
-    ActionView::Helpers::UrlHelper.button_to_generates_button_tag = old_value
+    ActionView::Helpers::NavigationHelper.button_to_generates_button_tag = old_value
   end
 
   def test_button_to_with_content_exfiltration_prevention
@@ -873,251 +797,6 @@ class UrlHelperTest < ActiveSupport::TestCase
     assert_equal "Fallback", link_to_unless(true, "Listing", url_hash) { "Fallback" }
   end
 
-  def test_mail_to
-    assert_dom_equal %{<a href="mailto:david@loudthinking.com">david@loudthinking.com</a>}, mail_to("david@loudthinking.com")
-    assert_dom_equal %{<a href="mailto:david@loudthinking.com">David Heinemeier Hansson</a>}, mail_to("david@loudthinking.com", "David Heinemeier Hansson")
-    assert_dom_equal(
-      %{<a class="admin" href="mailto:david@loudthinking.com">David Heinemeier Hansson</a>},
-      mail_to("david@loudthinking.com", "David Heinemeier Hansson", "class" => "admin")
-    )
-    assert_equal mail_to("david@loudthinking.com", "David Heinemeier Hansson", "class" => "admin"),
-                 mail_to("david@loudthinking.com", "David Heinemeier Hansson", class: "admin")
-  end
-
-  def test_mail_to_with_special_characters
-    assert_dom_equal(
-      %{<a href="mailto:%23%21%24%25%26%27%2A%2B-%2F%3D%3F%5E_%60%7B%7D%7C@example.org">#!$%&amp;&#39;*+-/=?^_`{}|@example.org</a>},
-      mail_to("#!$%&'*+-/=?^_`{}|@example.org")
-    )
-  end
-
-  def test_mail_to_with_options
-    assert_dom_equal(
-      %{<a href="mailto:me@example.com?cc=ccaddress%40example.com&amp;bcc=bccaddress%40example.com&amp;body=This%20is%20the%20body%20of%20the%20message.&amp;subject=This%20is%20an%20example%20email&amp;reply-to=foo%40bar.com">My email</a>},
-      mail_to("me@example.com", "My email", cc: "ccaddress@example.com", bcc: "bccaddress@example.com", subject: "This is an example email", body: "This is the body of the message.", reply_to: "foo@bar.com")
-    )
-
-    assert_dom_equal(
-      %{<a href="mailto:me@example.com?cc=ccaddress%40example.com&amp;bcc=bccaddress%40example.com&amp;body=This%20is%20the%20body%20of%20the%20message.&amp;subject=This%20is%20an%20example%20email&amp;reply-to=foo%40bar.com">me@example.com</a>},
-      mail_to("me@example.com", cc: "ccaddress@example.com", bcc: "bccaddress@example.com", subject: "This is an example email", body: "This is the body of the message.", reply_to: "foo@bar.com")
-    )
-
-    assert_dom_equal(
-      %{<a href="mailto:me@example.com?body=This%20is%20the%20body%20of%20the%20message.&amp;subject=This%20is%20an%20example%20email">My email</a>},
-      mail_to("me@example.com", "My email", cc: "", bcc: "", subject: "This is an example email", body: "This is the body of the message.")
-    )
-  end
-
-  def test_mail_to_with_img
-    assert_dom_equal %{<a href="mailto:feedback@example.com"><img src="/feedback.png" /></a>},
-      mail_to("feedback@example.com", raw('<img src="/feedback.png" />'))
-  end
-
-  def test_mail_to_with_html_safe_string
-    assert_dom_equal(
-      %{<a href="mailto:david@loudthinking.com">david@loudthinking.com</a>},
-      mail_to(raw("david@loudthinking.com"))
-    )
-  end
-
-  def test_mail_to_with_nil
-    assert_dom_equal(
-      %{<a href="mailto:"></a>},
-      mail_to(nil)
-    )
-  end
-
-  def test_mail_to_returns_html_safe_string
-    assert_predicate mail_to("david@loudthinking.com"), :html_safe?
-  end
-
-  def test_mail_to_with_block
-    assert_dom_equal %{<a href="mailto:me@example.com"><span>Email me</span></a>},
-      mail_to("me@example.com") { content_tag(:span, "Email me") }
-  end
-
-  def test_mail_to_with_block_and_options
-    assert_dom_equal %{<a class="special" href="mailto:me@example.com?cc=ccaddress%40example.com"><span>Email me</span></a>},
-      mail_to("me@example.com", cc: "ccaddress@example.com", class: "special") { content_tag(:span, "Email me") }
-  end
-
-  def test_mail_to_does_not_modify_html_options_hash
-    options = { class: "special" }
-    mail_to "me@example.com", "ME!", options
-    assert_equal({ class: "special" }, options)
-  end
-
-  def test_sms_to
-    assert_dom_equal %{<a href="sms:15155555785;">15155555785</a>}, sms_to("15155555785")
-    assert_dom_equal %{<a href="sms:15155555785;">Jim Jones</a>}, sms_to("15155555785", "Jim Jones")
-    assert_dom_equal(
-      %{<a class="admin" href="sms:15155555785;">Jim Jones</a>},
-      sms_to("15155555785", "Jim Jones", "class" => "admin")
-    )
-    assert_equal sms_to("15155555785", "Jim Jones", "class" => "admin"),
-                 sms_to("15155555785", "Jim Jones", class: "admin")
-  end
-
-  def test_sms_to_with_options
-    assert_dom_equal(
-      %{<a class="simple-class" href="sms:+015155555785;?&body=Hello%20from%20Jim">Text me</a>},
-      sms_to("5155555785", "Text me", class: "simple-class", country_code: "01", body: "Hello from Jim")
-    )
-
-    assert_dom_equal(
-      %{<a class="simple-class" href="sms:+015155555785;?&body=Hello%20from%20Jim">5155555785</a>},
-      sms_to("5155555785", class: "simple-class", country_code: "01", body: "Hello from Jim")
-    )
-
-    assert_dom_equal(
-      %{<a href="sms:5155555785;?&body=This%20is%20the%20body%20of%20the%20message.">Text me</a>},
-      sms_to("5155555785", "Text me", body: "This is the body of the message.")
-    )
-  end
-
-  def test_sms_to_with_img
-    assert_dom_equal %{<a href="sms:15155555785;"><img src="/feedback.png" /></a>},
-      sms_to("15155555785", raw('<img src="/feedback.png" />'))
-  end
-
-  def test_sms_to_with_html_safe_string
-    assert_dom_equal(
-      %{<a href="sms:1%2B5155555785;">1+5155555785</a>},
-      sms_to(raw("1+5155555785"))
-    )
-  end
-
-  def test_sms_to_with_nil
-    assert_dom_equal(
-      %{<a href="sms:;"></a>},
-      sms_to(nil)
-    )
-  end
-
-  def test_sms_to_returns_html_safe_string
-    assert_predicate sms_to("15155555785"), :html_safe?
-  end
-
-  def test_sms_to_with_block
-    assert_dom_equal %{<a href="sms:15155555785;"><span>Text me</span></a>},
-      sms_to("15155555785") { content_tag(:span, "Text me") }
-  end
-
-  def test_sms_to_with_block_and_options
-    assert_dom_equal %{<a class="special" href="sms:15155555785;?&body=Hello%20from%20Jim"><span>Text me</span></a>},
-      sms_to("15155555785", body: "Hello from Jim", class: "special") { content_tag(:span, "Text me") }
-  end
-
-  def test_sms_to_does_not_modify_html_options_hash
-    options = { class: "special" }
-    sms_to "15155555785", "ME!", options
-    assert_equal({ class: "special" }, options)
-  end
-
-  def test_phone_to
-    assert_dom_equal %{<a href="tel:1234567890">1234567890</a>},
-      phone_to("1234567890")
-    assert_dom_equal %{<a href="tel:1234567890">Bob</a>},
-      phone_to("1234567890", "Bob")
-    assert_dom_equal(
-      %{<a class="phoner" href="tel:1234567890">Bob</a>},
-      phone_to("1234567890", "Bob", "class" => "phoner")
-    )
-    assert_equal phone_to("1234567890", "Bob", "class" => "admin"),
-                 phone_to("1234567890", "Bob", class: "admin")
-  end
-
-  def test_phone_to_with_options
-    assert_dom_equal(
-      %{<a class="example-class" href="tel:+011234567890">Phone</a>},
-      phone_to("1234567890", "Phone", class: "example-class", country_code: "01")
-    )
-
-    assert_dom_equal(
-      %{<a class="example-class" href="tel:+011234567890">1234567890</a>},
-      phone_to("1234567890", class: "example-class", country_code: "01")
-    )
-
-    assert_dom_equal(
-      %{<a href="tel:+011234567890">Phone</a>},
-      phone_to("1234567890", "Phone", country_code: "01")
-    )
-  end
-
-  def test_phone_to_with_img
-    assert_dom_equal %{<a href="tel:1234567890"><img src="/feedback.png" /></a>},
-      phone_to("1234567890", raw('<img src="/feedback.png" />'))
-  end
-
-  def test_phone_to_with_html_safe_string
-    assert_dom_equal(
-      %{<a href="tel:1%2B234567890">1+234567890</a>},
-      phone_to(raw("1+234567890"))
-    )
-  end
-
-  def test_phone_to_with_nil
-    assert_dom_equal(
-      %{<a href="tel:"></a>},
-      phone_to(nil)
-    )
-  end
-
-  def test_phone_to_returns_html_safe_string
-    assert_predicate phone_to("1234567890"), :html_safe?
-  end
-
-  def test_phone_to_with_block
-    assert_dom_equal %{<a href="tel:1234567890"><span>Phone</span></a>},
-      phone_to("1234567890") { content_tag(:span, "Phone") }
-  end
-
-  def test_phone_to_with_block_and_options
-    assert_dom_equal %{<a class="special" href="tel:+011234567890"><span>Phone</span></a>},
-      phone_to("1234567890", country_code: "01", class: "special") { content_tag(:span, "Phone") }
-  end
-
-  def test_phone_to_does_not_modify_html_options_hash
-    options = { class: "special" }
-    phone_to "1234567890", "ME!", options
-    assert_equal({ class: "special" }, options)
-  end
-
-  def test_link_to_if_with_full_arity_block
-    assert_equal "Fallback Showing / custom", link_to_if(false, "Showing", url_hash, class: "custom") { |name, options, html_options|
-      "Fallback #{name} #{url_for(options)} #{html_options[:class]}"
-    }
-  end
-
-  def test_link_to_with_remote_options_without_html_options
-    assert_dom_equal %{<a data-remote="true" href="/">Remote</a>}, link_to("Remote", hash_for(remote: true), nil)
-  end
-
-  def test_current_page_without_request_raises
-    @request = nil
-    assert_raises(RuntimeError) { current_page?(url_hash) }
-  end
-
-  def test_url_helper_hidden_fields_can_omit_autocomplete
-    old_remove_hidden_field_autocomplete = ActionView::Base.remove_hidden_field_autocomplete
-    ActionView::Base.remove_hidden_field_autocomplete = true
-    self.request_forgery = true
-
-    assert_dom_equal %{<form method="post" action="http://www.example.com" class="button_to"><input type="hidden" name="_method" value="delete" /><button type="submit">Destroy</button><input name="form_token" type="hidden" value="secret" /><input type="hidden" name="nested[value]" value="1" /></form>},
-      button_to("Destroy", "http://www.example.com", method: :delete, params: { nested: { value: 1 } })
-  ensure
-    ActionView::Base.remove_hidden_field_autocomplete = old_remove_hidden_field_autocomplete
-    self.request_forgery = false
-  end
-
-  def test_url_helper_private_method_branches_used_by_public_helpers
-    assert_equal :post, send(:method_for_options, Struct.new(:to_model).new(Workshop.new(nil)))
-    assert_equal false, send(:method_not_get_method?, nil)
-    html_options = { "rel" => "nofollow" }
-    send(:add_method_to_attributes!, html_options, :delete)
-    assert_equal "nofollow", html_options["rel"]
-  end
-
   def protect_against_forgery?
     request_forgery
   end
@@ -1141,132 +820,174 @@ class UrlHelperTest < ActiveSupport::TestCase
     end
 end
 
-class UrlHelperControllerTest < ActionController::TestCase
-  class UrlHelperController < ActionController::Base
-    ROUTES = test_routes do
-      get "url_helper_controller_test/url_helper/show/:id",
-        to: "url_helper_controller_test/url_helper#show",
-        as: :show
-
-      get "url_helper_controller_test/url_helper/profile/:name",
-        to: "url_helper_controller_test/url_helper#show",
-        as: :profile
-
-      get "url_helper_controller_test/url_helper/show_named_route",
-        to: "url_helper_controller_test/url_helper#show_named_route",
-        as: :show_named_route
-
-      ActionDispatch.deprecator.silence do
-        get "/:controller(/:action(/:id))"
-      end
-
-      get "url_helper_controller_test/url_helper/normalize_recall_params",
-        to: UrlHelperController.action(:normalize_recall),
-        as: :normalize_recall_params
-
-      get "/url_helper_controller_test/url_helper/override_url_helper/default",
-        to: "url_helper_controller_test/url_helper#override_url_helper",
-        as: :override_url_helper
-    end
-
-    def show
-      if params[:name]
-        render inline: "ok"
-      else
-        redirect_to profile_path(params[:id])
-      end
-    end
-
-    def show_url_for
-      render inline: "<%= url_for controller: 'url_helper_controller_test/url_helper', action: 'show_url_for' %>"
-    end
-
-    def show_named_route
-      render inline: "<%= show_named_route_#{params[:kind]} %>"
-    end
-
-    def nil_url_for
-      render inline: "<%= url_for(nil) %>"
-    end
-
-    def normalize_recall_params
-      render inline: "<%= normalize_recall_params_path %>"
-    end
-
-    def recall_params_not_changed
-      render inline: "<%= url_for(action: :show_url_for) %>"
-    end
-
-    def override_url_helper
-      render inline: "<%= override_url_helper_path %>"
-    end
-
-    def override_url_helper_path
-      "/url_helper_controller_test/url_helper/override_url_helper/override"
-    end
-    helper_method :override_url_helper_path
+class TasksController < ActionController::Base
+  ROUTES = test_routes do
+    resources :tasks
   end
+
+  def index
+    render_default
+  end
+
+  def show
+    render_default
+  end
+
+  private
+    def render_default
+      render inline: "<%= link_to_unless_current('tasks', tasks_path) %>\n" \
+        "<%= link_to_unless_current('tasks', tasks_url) %>"
+    end
+end
+
+class LinkToUnlessCurrentWithControllerTest < ActionController::TestCase
+  tests TasksController
 
   def setup
     super
-    @routes = UrlHelperController::ROUTES
+    @routes = TasksController::ROUTES
   end
 
-  tests UrlHelperController
-
-  def test_url_for_shows_only_path
-    get :show_url_for
-    assert_equal "/url_helper_controller_test/url_helper/show_url_for", @response.body
+  def test_link_to_unless_current_to_current
+    get :index
+    assert_equal "tasks\ntasks", @response.body
   end
 
-  def test_named_route_url_shows_host_and_path
-    get :show_named_route, params: { kind: "url" }
-    assert_equal "http://test.host/url_helper_controller_test/url_helper/show_named_route",
+  def test_link_to_unless_current_shows_link
+    get :show, params: { id: 1 }
+    assert_equal %{<a href="/tasks">tasks</a>\n} +
+      %{<a href="#{@request.protocol}#{@request.host_with_port}/tasks">tasks</a>},
       @response.body
   end
+end
 
-  def test_named_route_path_shows_only_path
-    get :show_named_route, params: { kind: "path" }
-    assert_equal "/url_helper_controller_test/url_helper/show_named_route", @response.body
+class Session
+  extend ActiveModel::Naming
+  include ActiveModel::Conversion
+  attr_accessor :id, :workshop_id
+
+  def initialize(id)
+    @id = id
   end
 
-  def test_url_for_nil_returns_current_path
-    get :nil_url_for
-    assert_equal "/url_helper_controller_test/url_helper/nil_url_for", @response.body
+  def persisted?
+    id.present?
   end
 
-  def test_named_route_should_show_host_and_path_using_controller_default_url_options
-    class << @controller
-      def default_url_options
-        { host: "testtwo.host" }
-      end
+  def to_s
+    id.to_s
+  end
+end
+
+class WorkshopsController < ActionController::Base
+  ROUTES = test_routes do
+    resources :workshops do
+      resources :sessions
     end
-
-    get :show_named_route, params: { kind: "url" }
-    assert_equal "http://testtwo.host/url_helper_controller_test/url_helper/show_named_route", @response.body
   end
 
-  def test_recall_params_should_be_normalized
-    get :normalize_recall_params
-    assert_equal "/url_helper_controller_test/url_helper/normalize_recall_params", @response.body
+  def index
+    @workshop = Workshop.new(nil)
+    render inline: "<%= url_for(@workshop) %>\n<%= link_to('Workshop', @workshop) %>"
   end
 
-  def test_recall_params_should_not_be_changed
-    get :recall_params_not_changed
-    assert_equal "/url_helper_controller_test/url_helper/show_url_for", @response.body
+  def show
+    @workshop = Workshop.new(params[:id])
+    render inline: "<%= url_for(@workshop) %>\n<%= link_to('Workshop', @workshop) %>"
   end
 
-  def test_recall_params_should_normalize_id
-    get :show, params: { id: "123" }
-    assert_equal 302, @response.status
-    assert_equal "http://test.host/url_helper_controller_test/url_helper/profile/123", @response.location
+  def edit
+    @workshop = Workshop.new(params[:id])
+    render inline: "<%= current_page?(@workshop) %>"
+  end
+end
 
-    get :show, params: { name: "123" }
-    assert_equal "ok", @response.body
+class SessionsController < ActionController::Base
+  ROUTES = test_routes do
+    resources :workshops do
+      resources :sessions
+    end
   end
 
-  def test_url_helper_can_be_overridden
-    get :override_url_helper
-    assert_equal "/url_helper_controller_test/url_helper/override_url_helper/override", @response.body
+  def index
+    @workshop = Workshop.new(params[:workshop_id])
+    @session = Session.new(nil)
+    render inline: "<%= url_for([@workshop, @session]) %>\n<%= link_to('Session', [@workshop, @session]) %>"
+  end
+
+  def show
+    @workshop = Workshop.new(params[:workshop_id])
+    @session = Session.new(params[:id])
+    render inline: "<%= url_for([@workshop, @session]) %>\n<%= link_to('Session', [@workshop, @session]) %>"
+  end
+
+  def edit
+    @workshop = Workshop.new(params[:workshop_id])
+    @session = Session.new(params[:id])
+    @url = [@workshop, @session, format: params[:format]]
+    render inline: "<%= url_for(@url) %>\n<%= link_to('Session', @url) %>"
+  end
+end
+
+class PolymorphicControllerTest < ActionController::TestCase
+  def setup
+    super
+    @routes = WorkshopsController::ROUTES
+  end
+
+  def test_index_resource
+    @controller = WorkshopsController.new
+
+    get :index
+    assert_equal %{/workshops\n<a href="/workshops">Workshop</a>}, @response.body
+  end
+
+  def test_existing_resource
+    @controller = WorkshopsController.new
+
+    get :show, params: { id: 1 }
+    assert_equal %{/workshops/1\n<a href="/workshops/1">Workshop</a>}, @response.body
+  end
+
+  def test_existing_cpk_resource
+    @controller = WorkshopsController.new
+
+    get :show, params: { id: "1-27" }
+    assert_equal %{/workshops/1-27\n<a href="/workshops/1-27">Workshop</a>}, @response.body
+  end
+
+  def test_current_page_when_options_does_not_respond_to_to_hash
+    @controller = WorkshopsController.new
+
+    get :edit, params: { id: 1 }
+    assert_equal "false", @response.body
+  end
+end
+
+class PolymorphicSessionsControllerTest < ActionController::TestCase
+  def setup
+    super
+    @routes = SessionsController::ROUTES
+  end
+
+  def test_new_nested_resource
+    @controller = SessionsController.new
+
+    get :index, params: { workshop_id: 1 }
+    assert_equal %{/workshops/1/sessions\n<a href="/workshops/1/sessions">Session</a>}, @response.body
+  end
+
+  def test_existing_nested_resource
+    @controller = SessionsController.new
+
+    get :show, params: { workshop_id: 1, id: 1 }
+    assert_equal %{/workshops/1/sessions/1\n<a href="/workshops/1/sessions/1">Session</a>}, @response.body
+  end
+
+  def test_existing_nested_resource_with_params
+    @controller = SessionsController.new
+
+    get :edit, params: { workshop_id: 1, id: 1, format: "json"  }
+    assert_equal %{/workshops/1/sessions/1.json\n<a href="/workshops/1/sessions/1.json">Session</a>}, @response.body
   end
 end
