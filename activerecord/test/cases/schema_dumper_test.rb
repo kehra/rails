@@ -65,6 +65,7 @@ class SchemaDumperTest < ActiveRecord::TestCase
     assert_equal({}, dumper.send(:column_spec_for_primary_key, bigint_column))
 
     virtual_connection = Object.new
+    virtual_connection.define_singleton_method(:pool) { connection.pool }
     virtual_connection.define_singleton_method(:supports_virtual_columns?) { true }
     virtual_connection.define_singleton_method(:native_database_types) { connection.native_database_types }
     virtual_dumper = ActiveRecord::ConnectionAdapters::SchemaDumper.create(virtual_connection, {})

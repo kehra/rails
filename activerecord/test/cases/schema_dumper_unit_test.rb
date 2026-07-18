@@ -4,7 +4,8 @@ require "cases/helper"
 
 class SchemaDumperUnitTest < ActiveRecord::TestCase
   FakeMigrationContext = Struct.new(:current_version)
-  FakePool = Struct.new(:migration_context)
+  FakeDatabaseConfig = Struct.new(:dump_schema_migrations?)
+  FakePool = Struct.new(:migration_context, :db_config)
 
   class FakeConnection
     attr_reader :pool
@@ -15,7 +16,7 @@ class SchemaDumperUnitTest < ActiveRecord::TestCase
       :supports_unique_constraints_value
 
     def initialize(version: nil)
-      @pool = FakePool.new(FakeMigrationContext.new(version))
+      @pool = FakePool.new(FakeMigrationContext.new(version), FakeDatabaseConfig.new(false))
       @indexes_for_table = []
       @check_constraints_for_table = []
       @foreign_keys_for_table = []
@@ -75,10 +76,10 @@ class SchemaDumperUnitTest < ActiveRecord::TestCase
   def test_formatted_version_and_define_params
     timestamped = build_dumper(FakeConnection.new(version: 20240102030405))
     assert_equal "2024_01_02_030405", timestamped.send(:formatted_version)
-    assert_equal "version: 2024_01_02_030405", timestamped.send(:define_params)
+    assert_equal "(version: 2024_01_02_030405)", timestamped.send(:define_arglist)
 
     unversioned = build_dumper(FakeConnection.new(version: nil))
-    assert_equal "", unversioned.send(:define_params)
+    assert_equal "", unversioned.send(:define_arglist)
   end
 
   def test_remove_prefix_and_suffix_only_when_options_are_present

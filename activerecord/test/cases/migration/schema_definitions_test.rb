@@ -528,9 +528,10 @@ module ActiveRecord
 
           def initialize
             @executed_sql = []
-            schema_migration = Struct.new(:table_name) do
+            schema_migration = Struct.new(:table_name, :created_versions) do
               def versions = ["20240101010101", "20240202020202"]
-            end.new("schema_migrations")
+              def create_versions(versions) = created_versions.concat(versions)
+            end.new("schema_migrations", [])
             migration_context = Struct.new(:schema_migration, :all_versions, :migration_versions) do
               def get_all_versions = all_versions
               def migrations = migration_versions.map { |version| Struct.new(:version).new(version) }
@@ -593,7 +594,7 @@ module ActiveRecord
 
         assert_match(/INSERT INTO/, connection.dump_schema_versions)
         connection.assume_migrated_upto_version(20240202020202)
-        assert connection.executed_sql.any? { |sql| sql.include?("20240202020202") }
+        assert_equal ["20230101010101"], connection.pool.migration_context.schema_migration.created_versions
 
         duplicate_connection = connection_class.new
         duplicate_connection.pool.migration_context.migration_versions.replace([20230101010101, 20230101010101])
@@ -641,6 +642,7 @@ module ActiveRecord
           def supports_nulls_not_distinct? = false
           def supports_exclusion_constraints? = false
           def supports_unique_constraints? = false
+          def pool = ActiveRecord::Base.connection_pool
           def index_name_length = 64
           def allowed_index_name_length = 64
           def table_name_length = 64
