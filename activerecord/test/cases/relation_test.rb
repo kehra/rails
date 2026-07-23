@@ -300,6 +300,12 @@ module ActiveRecord
       end
     end
 
+    def test_merge_rejects_extra_arguments
+      relation = Relation.new(FakeKlass)
+
+      assert_raises(ArgumentError) { relation.merge(Relation.new(FakeKlass), :legacy) }
+    end
+
     def test_respond_to_for_non_selected_element
       post = Post.select(:title).first
       assert_not_respond_to post, :body, "post should not respond_to?(:body) since invoking it raises exception"

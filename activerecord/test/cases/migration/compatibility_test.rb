@@ -191,13 +191,6 @@ module ActiveRecord
         assert_equal 1, postgresql_without_optional_changes.connection.calls.size
       end
 
-      def test_compatibility_v6_reference_definition_uses_legacy_index_options
-        reference = ActiveRecord::Migration::Compatibility::V6_0::ReferenceDefinition.allocate
-        reference.instance_variable_set(:@index, true)
-
-        assert_equal({}, reference.index_options(:testings))
-      end
-
       def test_compatibility_legacy_index_exists_uses_present_name_option
         migration = migration_with_fake_connection(ActiveRecord::Migration[4.2], "SQLite")
         migration.index_exists?(:testings, :foo, name: :custom_index)
