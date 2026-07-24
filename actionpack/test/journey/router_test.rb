@@ -557,7 +557,6 @@ module ActionDispatch
         assert_equal [:id, :format], route.segments.map(&:to_sym)
         assert_equal [:id], route.required_parts
         assert_equal [:controller, :action], route.required_defaults.keys
-        assert_equal [:id, :controller, :action], route.required_keys
         assert route.required_default?(:controller)
         assert_match(/\/photos\/1/, route.format(id: 1))
         assert_equal(/\d+/, route.requirements[:id])

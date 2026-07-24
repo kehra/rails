@@ -185,9 +185,9 @@ END
         end
       end
 
-      def test_runtime_errors_from_rendering_are_wrapped_as_format_errors
+      def test_runtime_errors_from_rendering_are_propagated
         tmp_yaml ["raising", "yml"], "<% raise 'boom' %>\n" do |t|
-          error = assert_raises(ActiveRecord::Fixture::FormatError) do
+          error = assert_raises(RuntimeError) do
             File.open(t.path) { |fh| fh.to_a }
           end
 

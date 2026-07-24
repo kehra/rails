@@ -68,7 +68,7 @@ class ConfigurationFileTest < ActiveSupport::TestCase
       file.write("foo:\n\tbar: baz")
       file.flush
 
-      error = assert_raises(RuntimeError) do
+      error = assert_raises(ActiveSupport::ConfigurationFile::FormatError) do
         ActiveSupport::ConfigurationFile.parse(file.path)
       end
 

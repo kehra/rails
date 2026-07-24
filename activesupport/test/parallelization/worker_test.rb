@@ -135,7 +135,7 @@ class ParallelizationWorkerTest < ActiveSupport::TestCase
       end
     end
     assert_equal [[worker.instance_variable_get(:@id), Process.pid]], queue.started
-    assert_equal [[worker.instance_variable_get(:@id), Process.pid]], queue.stopped
+    assert_equal [worker.instance_variable_get(:@id)], queue.stopped
   end
 
   test "start interrupts queue on interrupt" do
@@ -192,8 +192,8 @@ class ParallelizationWorkerTest < ActiveSupport::TestCase
         @started << [id, pid]
       end
 
-      def stop_worker(id, pid)
-        @stopped << [id, pid]
+      def stop_worker(id)
+        @stopped << id
       end
 
       def interrupt

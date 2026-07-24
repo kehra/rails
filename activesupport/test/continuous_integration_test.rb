@@ -326,7 +326,7 @@ class ContinuousIntegrationTest < ActiveSupport::TestCase
     group.define_singleton_method(:execute_task) { |_type, title, _payload| executed << title; title != "Fail" }
 
     with_argv(["-f"]) do
-      assert_equal false, group.send(:execute_group, "Subgroup", proc do
+      assert_equal false, group.send(:execute_group, proc do
         step "Fail", "false"
         step "After fail", "true"
       end)
@@ -337,7 +337,7 @@ class ContinuousIntegrationTest < ActiveSupport::TestCase
     executed = []
     group.define_singleton_method(:execute_task) { |_type, title, _payload| executed << title; title != "Fail" }
 
-    assert_equal false, group.send(:execute_group, "Subgroup", proc do
+    assert_equal false, group.send(:execute_group, proc do
       step "Fail", "false"
       step "After fail", "true"
     end)

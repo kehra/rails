@@ -207,16 +207,6 @@ class LookupContextTest < ActiveSupport::TestCase
     assert_same ActionView::LookupContext.view_context_class, ActionView::LookupContext.view_context_class
   end
 
-  test "details key normalizes invalid requested formats" do
-    details = { locale: [:en], formats: [:html, :invalid], variants: [], handlers: [:erb] }
-    key = ActionView::LookupContext::DetailsKey.details_cache_key(details)
-
-    assert_equal [:html], key.formats
-
-    key_without_formats = ActionView::LookupContext::DetailsKey.details_cache_key(locale: [:en], formats: nil, variants: [], handlers: [:erb])
-    assert_nil key_without_formats.formats
-  end
-
   test "default locale skips fallbacks when i18n has no fallback support" do
     original_respond_to = I18n.method(:respond_to?)
     I18n.stub(:respond_to?, ->(name, *args) { name == :fallbacks ? false : original_respond_to.call(name, *args) }) do

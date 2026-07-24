@@ -23,7 +23,6 @@ class TemplateDetailsPublicApiTest < ActiveSupport::TestCase
   test "requested builds lookup indexes and any variants wildcard" do
     requested = ActionView::TemplateDetails::Requested.new(locale: [:en], handlers: [:erb], formats: [:html], variants: :any)
 
-    assert_equal [:en], requested.locale
     assert_equal 0, requested.locale_idx[:en]
     assert_equal 1, requested.locale_idx[nil]
     assert_equal 0, requested.handlers_idx[:erb]

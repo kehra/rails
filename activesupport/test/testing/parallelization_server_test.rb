@@ -65,7 +65,7 @@ class ParallelizationServerTest < ActiveSupport::TestCase
     assert_not server.active_workers?
 
     server.start_worker(2, 789)
-    server.stop_worker(2, 789)
+    server.stop_worker(2)
     assert_not server.active_workers?
   end
 

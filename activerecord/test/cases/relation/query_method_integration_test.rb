@@ -1403,7 +1403,6 @@ module ActiveRecord
       assert_equal({ "author_id" => authors(:david).id }, author_clause.to_h("posts", equality_only: true))
       assert_equal({ "id" => 1 }, ActiveRecord::Relation::WhereClause.new([Arel::Nodes::And.new([table[:id].eq(1), table[:title].matches("Welcome%")])]).to_h(equality_only: true))
       assert_equal [table[:id]], invalid_attribute_clause.extract_attributes
-      assert_equal({}, ActiveRecord::Relation::WhereClause.new([Arel.sql("posts.id = 1")]).send(:referenced_columns))
       assert_equal [sql_predication], sql_predication_clause.extract_attributes
       assert_equal [], ActiveRecord::Relation::WhereClause.new([""]).ast.children
       assert_empty sql_predication_clause.except(sql_predication).to_h

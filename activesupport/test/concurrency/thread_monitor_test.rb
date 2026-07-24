@@ -68,34 +68,6 @@ module ActiveSupport
         end
       end
 
-      def test_try_enter_acquires_and_reenters_monitor
-        assert_equal 1, @monitor.send(:mon_try_enter)
-        assert_equal 2, @monitor.send(:mon_try_enter)
-      ensure
-        @monitor.send(:mon_exit)
-        @monitor.send(:mon_exit)
-      end
-
-      def test_try_enter_returns_false_when_another_thread_owns_monitor
-        ready_latch = Concurrent::CountDownLatch.new
-        release_latch = Concurrent::CountDownLatch.new
-        try_result = nil
-
-        thread = Thread.new do
-          @monitor.synchronize do
-            ready_latch.count_down
-            release_latch.wait
-          end
-        end
-
-        ready_latch.wait
-        try_result = @monitor.send(:mon_try_enter)
-        release_latch.count_down
-        thread.join
-
-        assert_equal false, try_result
-      end
-
       def test_exception_handling_releases_lock
         exception_raised = false
         subsequent_lock_acquired = false

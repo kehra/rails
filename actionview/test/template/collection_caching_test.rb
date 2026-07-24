@@ -16,7 +16,7 @@ class CollectionCachingPublicContractTest < ActiveSupport::TestCase
 
     def callable_cache_key_for_test = send(:callable_cache_key)
     def callable_cache_key_present_for_test = send(:callable_cache_key?)
-    def expanded_cache_key_for_test(key, view, template, digest_path) = send(:expanded_cache_key, key, view, template, digest_path)
+    def expanded_cache_key_for_test(key, view, digest_path) = send(:expanded_cache_key, key, view, digest_path)
     def collection_by_cache_keys_for_test(view, template, collection) = send(:collection_by_cache_keys, view, template, collection)
     def fetch_or_cache_partial_for_test(cached_partials, template, order_by:, &block) = send(:fetch_or_cache_partial, cached_partials, template, order_by:, &block)
 
@@ -69,7 +69,7 @@ class CollectionCachingPublicContractTest < ActiveSupport::TestCase
   test "expanded cache key duplicates frozen keys for mutable cache stores" do
     key = "frozen-key".freeze
 
-    expanded = Probe.new(cached: true).expanded_cache_key_for_test(key, View.new, Template.new("items/_item"), "items/_item")
+    expanded = Probe.new(cached: true).expanded_cache_key_for_test(key, View.new, "items/_item")
 
     assert_equal "frozen-key", expanded
     assert_not_same key, expanded
