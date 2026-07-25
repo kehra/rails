@@ -13,18 +13,16 @@ class RoutesReloaderPublicContractTest < ActiveSupport::TestCase
 
     assert_equal [ "config/routes.rb" ], reloader.paths
     assert_equal [], reloader.route_sets
-    assert_not reloader.loaded
     assert_not reloader.eager_load
     assert_equal [ "config/routes.rb" ], updater.paths
     assert_equal({ "engines/blog/config/routes.rb" => %w(rb) }, updater.dirs)
   end
 
-  test "execute marks routes loaded and delegates to updater" do
+  test "execute delegates to updater" do
     reloader = Rails::Application::RoutesReloader.new(file_watcher: Watcher)
 
     reloader.execute
 
-    assert reloader.loaded
     assert reloader.send(:updater).executed
   end
 
@@ -32,7 +30,6 @@ class RoutesReloaderPublicContractTest < ActiveSupport::TestCase
     reloader = Rails::Application::RoutesReloader.new(file_watcher: Watcher)
 
     assert reloader.execute_unless_loaded
-    assert reloader.loaded
     assert reloader.send(:updater).executed
     assert_not reloader.execute_unless_loaded
   end

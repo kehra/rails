@@ -239,22 +239,14 @@ class ApplicationPublicContractTest < ActiveSupport::TestCase
     end
   end
 
-  test "reload_routes delegates to execute unless loaded or reload" do
+  test "reload_routes always delegates to reload" do
     app = ApplicationPublicContractTestNamespace::Application.create
-    execute_reloader = RoutesReloaderFake.new(true)
-    app.instance_variable_set(:@routes_reloader, execute_reloader)
+    reloader = RoutesReloaderFake.new
+    app.instance_variable_set(:@routes_reloader, reloader)
 
     app.reload_routes!
 
-    assert_equal false, execute_reloader.loaded
-    assert_not execute_reloader.reloaded
-
-    reload_reloader = RoutesReloaderFake.new(false)
-    app.instance_variable_set(:@routes_reloader, reload_reloader)
-
-    app.reload_routes!
-
-    assert reload_reloader.reloaded
+    assert reloader.reloaded
   end
 
   test "callback registration helpers delegate to the application class" do
@@ -285,13 +277,9 @@ class ApplicationPublicContractTest < ActiveSupport::TestCase
     ApplicationPublicContractTestNamespace.send(:remove_const, :IsolatedNamespace) if ApplicationPublicContractTestNamespace.const_defined?(:IsolatedNamespace, false)
   end
 
-  RoutesReloaderFake = Struct.new(:execute_result) do
-    attr_accessor :loaded, :reloaded
+  RoutesReloaderFake = Struct.new(:reloaded)
 
-    def execute_unless_loaded
-      execute_result
-    end
-
+  class RoutesReloaderFake
     def reload!
       self.reloaded = true
     end

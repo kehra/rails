@@ -189,7 +189,7 @@ class ApplicationConfigurationPublicContractTest < ActiveSupport::TestCase
   test "database configuration wraps parse errors with configuration context" do
     write_database_configuration "development: ["
 
-    error = assert_raises(RuntimeError) { @config.database_configuration }
+    error = assert_raises(ActiveSupport::ConfigurationFile::FormatError) { @config.database_configuration }
 
     assert_match(/Cannot load database configuration:/, error.message)
   end

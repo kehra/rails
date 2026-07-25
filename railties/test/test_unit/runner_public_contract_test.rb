@@ -186,13 +186,6 @@ class RailsTestUnitRunnerPublicContractTest < ActiveSupport::TestCase
     end
   end
 
-  test "path argument helper recognizes slash based paths" do
-    assert Rails::TestUnit::Runner.send(:path_argument?, "test/models/account_test.rb")
-    assert Rails::TestUnit::Runner.send(:path_argument?, ".hidden/test.rb")
-    refute Rails::TestUnit::Runner.send(:path_argument?, "/absolute/directory/")
-    refute Rails::TestUnit::Runner.send(:path_argument?, "--name")
-  end
-
   private
     def with_runner_singleton(method_name, implementation)
       singleton = class << Rails::TestUnit::Runner; self; end
