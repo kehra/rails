@@ -398,7 +398,7 @@ module ActiveRecord
         assert_match(/cannot be used simultaneously/, force_error.message)
 
         join_definition = connection.build_create_join_table_definition(:music_artists, :music_records)
-        assert_equal :music_artists_records, join_definition.name
+        assert_equal "music_artists_records", join_definition.name
         connection.create_join_table(:authors, :posts)
         assert connection.executed_sql.any? { |sql| sql.include?("authors_posts") }
         connection.drop_join_table(:authors, :posts)
@@ -857,7 +857,7 @@ module ActiveRecord
 
         join_yielded = false
         connection.create_join_table(:a, :b) { |td| join_yielded = td.name }
-        assert_equal :a_b, join_yielded
+        assert_equal "a_b", join_yielded
         connection.change_table(:posts, bulk: true) { |t| t.string :headline }
         assert connection.executed_sql.any? { |sql| sql.include?("ADD \"headline\" varchar(255)") }
         connection.add_column(:posts, :seen_at, :datetime)
