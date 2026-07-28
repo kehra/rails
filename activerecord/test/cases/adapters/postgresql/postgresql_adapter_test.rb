@@ -583,6 +583,12 @@ module ActiveRecord
         end
       end
 
+      def test_use_insert_returning_is_deprecated
+        assert_deprecated(ActiveRecord.deprecator) do
+          assert @connection.use_insert_returning?
+        end
+      end
+
       def test_exec_insert_with_returning_disabled
         connection_without_insert_returning do |connection|
           result = assert_deprecated(ActiveRecord.deprecator) do
