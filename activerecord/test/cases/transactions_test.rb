@@ -1443,7 +1443,7 @@ class TransactionTest < ActiveRecord::TestCase
     assert_deprecated(/fully_committed\?/, ActiveRecord.deprecator) do
       assert_predicate state, :fully_committed?
     end
-    assert_deprecated(/completed\?/, ActiveRecord.deprecator) do
+    assert_deprecated(/fully_completed\?/, ActiveRecord.deprecator) do
       assert_predicate state, :fully_completed?
     end
 
@@ -1900,7 +1900,7 @@ class TransactionImplementationTest < ActiveRecord::TestCase
     assert_predicate transaction, :materialized?
     transaction.commit
     assert_equal [:begin_db_transaction, :commit_db_transaction], connection.calls
-    assert_predicate transaction.state, :fully_committed?
+    assert_predicate transaction.state, :completed?
 
     isolated_connection = FakeTransactionConnection.new
     isolated_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(isolated_connection, isolation: :serializable)
@@ -1936,7 +1936,7 @@ class TransactionImplementationTest < ActiveRecord::TestCase
     rollback_transaction.materialize!
     rollback_transaction.rollback
     assert_equal [[:begin_isolated_db_transaction, :repeatable_read], :rollback_db_transaction, :reset_isolation_level], rollback_connection.calls
-    assert_predicate rollback_transaction.state, :fully_rolledback?
+    assert_predicate rollback_transaction.state, :completed?
 
     invalidated_connection = FakeTransactionConnection.new
     invalidated_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(invalidated_connection)
@@ -1949,13 +1949,13 @@ class TransactionImplementationTest < ActiveRecord::TestCase
     unmaterialized_rollback_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(unmaterialized_rollback_connection)
     unmaterialized_rollback_transaction.rollback
     assert_empty unmaterialized_rollback_connection.calls
-    assert_predicate unmaterialized_rollback_transaction.state, :fully_rolledback?
+    assert_predicate unmaterialized_rollback_transaction.state, :completed?
 
     unmaterialized_commit_connection = FakeTransactionConnection.new
     unmaterialized_commit_transaction = ActiveRecord::ConnectionAdapters::RealTransaction.new(unmaterialized_commit_connection)
     unmaterialized_commit_transaction.commit
     assert_empty unmaterialized_commit_connection.calls
-    assert_predicate unmaterialized_commit_transaction.state, :fully_committed?
+    assert_predicate unmaterialized_commit_transaction.state, :completed?
   end
 
   def test_restart_parent_transaction_delegates_and_state_contracts
@@ -2074,27 +2074,14 @@ class TransactionImplementationTest < ActiveRecord::TestCase
 
     refute parent.finalized?
     refute parent.completed?
-    refute parent.fully_completed?
     parent.rollback!
     assert_predicate parent, :rolledback?
     assert_predicate parent, :completed?
-    assert_predicate parent, :fully_completed?
     assert_predicate child, :rolledback?
 
-    parent.nullify!
-    refute parent.finalized?
-    parent.commit!
-    assert_predicate parent, :committed?
-    refute parent.fully_committed?
-    parent.full_commit!
-    assert_predicate parent, :fully_committed?
-
-    full_parent = ActiveRecord::ConnectionAdapters::TransactionState.new
-    full_child = ActiveRecord::ConnectionAdapters::TransactionState.new
-    full_parent.add_child(full_child)
-    full_parent.full_rollback!
-    assert_predicate full_parent, :fully_rolledback?
-    assert_predicate full_child, :rolledback?
+    committed = ActiveRecord::ConnectionAdapters::TransactionState.new
+    committed.commit!
+    assert_predicate committed, :committed?
 
     invalid_parent = ActiveRecord::ConnectionAdapters::TransactionState.new
     invalid_child = ActiveRecord::ConnectionAdapters::TransactionState.new

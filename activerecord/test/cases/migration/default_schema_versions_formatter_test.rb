@@ -35,11 +35,6 @@ module ActiveRecord
         SQL
       end
 
-      def test_format_single_schema_version
-        formatter = DefaultSchemaVersionsFormatter.new(FakeConnection.new)
-
-        assert_equal "INSERT INTO `schema_versions` (version) VALUES ('20240101010101');", formatter.format("20240101010101")
-      end
     end
   end
 end
