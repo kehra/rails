@@ -1,3 +1,20 @@
+*   Deprecate `ActiveRecord::ConnectionAdapters::TransactionState#fully_committed?`,
+    `#fully_rolledback?`, `#fully_completed?`, and `#nullify!`.
+
+    These methods are no longer used by the framework. Use `#committed?`,
+    `#rolledback?`, and `#completed?` to inspect the transaction state instead.
+
+    *Kenta Ishizaki*
+
+*   Bump the minimum supported SQLite version to 3.35.0.
+
+    SQLite 3.35.0 introduced the `RETURNING` clause, which the SQLite3 adapter
+    has depended on since Rails 7.1 (#49290) for reading auto-populated columns
+    such as the primary key after `INSERT`. Older SQLite versions have been
+    silently broken since then; make the requirement explicit.
+
+    *Ryuta Kamizono*
+
 *   Deprecate the `insert_returning` option in PostgreSQL database
     configurations, and the `PostgreSQLAdapter#use_insert_returning?` method.
 
@@ -5,6 +22,12 @@
     as `insert_all`, `upsert_all`, and RETURNING for `update` already use
     RETURNING when the database supports it, so the option cannot fully
     disable RETURNING and has become vestigial.
+
+    `insert_returning: false` was originally added in #5698 to support
+    trigger-based partitioning tables where a `BEFORE INSERT` trigger
+    makes `RETURNING` yield no rows. Use `prefetch_primary_key?` (also
+    used by the Oracle enhanced adapter) — which issues `SELECT nextval`
+    before the INSERT — as a replacement.
 
     *Ryuta Kamizono*
 
