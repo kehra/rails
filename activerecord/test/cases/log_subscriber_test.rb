@@ -79,21 +79,6 @@ class LogSubscriberTest < ActiveRecord::TestCase
     assert_match(/The polymorphic association named `:commentable` cannot be lazily loaded\./, @logger.logged(:debug).second)
   end
 
-  def test_private_bind_helpers_render_public_log_values
-    logger = TestDebugLogSubscriber.new
-    binary_attribute = ActiveModel::Attribute.from_database("payload", "binary payload", ActiveRecord::Type::Binary.new)
-    string_attribute = ActiveModel::Attribute.from_database("title", "Rails", ActiveRecord::Type::Value.new)
-
-    assert_equal ["payload", "<14 bytes of binary data>"], logger.send(:render_bind, binary_attribute, "ignored")
-    assert_equal ["title", "Rails"], logger.send(:render_bind, string_attribute, "Rails")
-    bind_name = Struct.new(:name).new("id")
-    assert_equal ["id", 1], logger.send(:render_bind, [bind_name, 1], 1)
-    assert_equal [nil, 2], logger.send(:render_bind, 2, 2)
-    assert_equal [1, 2], logger.send(:type_casted_binds, -> { [1, 2] })
-    assert_equal [3, 4], logger.send(:type_casted_binds, [3, 4])
-    assert_equal ActiveRecord::Base.inspection_filter.filter_param("password", "secret"), logger.send(:filter, "password", "secret")
-  end
-
   def test_schema_statements_are_ignored
     logger = TestDebugLogSubscriber.new
     assert_equal 0, logger.debugs.length

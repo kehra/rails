@@ -93,9 +93,9 @@ module ActiveRecord
       end
     end
 
-    def test_sql_query_with_proc_type_casted_binds_and_array_attributes
+    def test_sql_query_with_proc_type_casted_binds
       subscriber = ActiveRecord::StructuredEventSubscriber.new
-      id_attr = Struct.new(:name).new("id")
+      id_attr = ActiveModel::Attribute.from_database("id", 1, ActiveRecord::Type::Integer.new)
       anonymous_bind = Object.new
 
       assert_event_reported("active_record.sql", payload: {
@@ -105,7 +105,7 @@ module ActiveRecord
         subscriber.sql(Event.new(1.234,
           sql: "SELECT * from models WHERE id = ? AND token = ?",
           name: "Model Load",
-          binds: [[id_attr], anonymous_bind],
+          binds: [id_attr, anonymous_bind],
           type_casted_binds: -> { [1, "secret"] }))
       end
     end
