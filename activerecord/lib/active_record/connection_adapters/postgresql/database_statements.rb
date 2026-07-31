@@ -4,8 +4,9 @@ module ActiveRecord
   module ConnectionAdapters
     module PostgreSQL
       module DatabaseStatements
-        def explain(arel, binds = [], options = [])
-          sql    = build_explain_clause(options) + " " + to_sql(arel, binds)
+        def explain(arel_or_sql, binds = [], options = [])
+          sql, binds = to_sql_and_binds(arel_or_sql, binds)
+          sql = build_explain_clause(options) + " " + sql
           result = select_all(sql, "EXPLAIN", binds)
           PostgreSQL::ExplainPrettyPrinter.new.pp(result)
         end
@@ -29,8 +30,8 @@ module ActiveRecord
           !READ_QUERY.match?(sql.b)
         end
 
-        def insert(arel, name = nil, pk = nil, id_value = nil, sequence_name = nil, binds = [], returning: nil) # :nodoc:
-          sequence_name, pk = resolve_currval_for_insert(arel, pk, sequence_name, returning)
+        def insert(arel_or_sql, name = nil, pk = nil, id_value = nil, sequence_name = nil, binds = [], returning: nil) # :nodoc:
+          sequence_name, pk = resolve_currval_for_insert(arel_or_sql, pk, sequence_name, returning)
           super
         end
 
@@ -146,17 +147,9 @@ module ActiveRecord
             return [sequence_name, pk] if @use_insert_returning
             return [sequence_name, pk] if !returning.nil? || pk == false
 
-            if sequence_name.nil?
-              table_ref = if arel_or_sql.is_a?(String)
-                extract_table_ref_from_insert_sql(arel_or_sql)
-              elsif arel_or_sql.respond_to?(:ast) && arel_or_sql.ast.respond_to?(:relation)
-                arel_or_sql.ast.relation.name
-              end
-              if table_ref
-                effective_pk = pk || schema_cache.primary_keys(table_ref)
-                effective_pk = suppress_composite_primary_key(effective_pk)
-                sequence_name = default_sequence_name(table_ref, effective_pk) if effective_pk
-              end
+            if sequence_name.nil? && (table_ref = table_ref_for_insert(arel_or_sql))
+              effective_pk = pk || schema_cache.primary_keys(table_ref)
+              sequence_name = default_sequence_name(table_ref, effective_pk) if effective_pk
             end
 
             [sequence_name, nil]
@@ -273,10 +266,6 @@ module ActiveRecord
 
           def build_truncate_statements(table_names)
             ["TRUNCATE TABLE #{table_names.map(&method(:quote_table_name)).join(", ")}"]
-          end
-
-          def suppress_composite_primary_key(pk)
-            pk unless pk.is_a?(Array)
           end
 
           def handle_warnings(result, sql)
