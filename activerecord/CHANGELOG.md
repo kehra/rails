@@ -1,3 +1,47 @@
+*   Deprecate the `pk`, `id_value`, and `sequence_name` positional arguments to
+    `ActiveRecord::ConnectionAdapters::DatabaseStatements#insert`.
+
+    * `pk` — pass `returning:` instead. `insert(arel, name, "id")` becomes
+      `insert(arel, name, returning: "id")` (still a single value return).
+
+    * `id_value` — the caller usually already knows this value and can use it
+      directly rather than reading it back from `insert`'s return value.
+
+    * `sequence_name` — only used by PostgreSQL's `use_insert_returning?`
+      currval fallback, which is deprecated on its own.
+
+    *Ryuta Kamizono*
+
+*   Allow for prepared statements to remain enabled with query logs tags.
+
+    To keep prepared_statements enabled in conjunction with query log tags,
+    `config.active_record.disable_prepared_statements = false`.
+
+    *Brad Schrag*
+
+*   When `dump_schema_migrations` is enabled, the trailer gets now exactly the
+    versions present in the `schema_migrations` table, without filtering by
+    what's on disk.
+
+    *Xavier Noria*
+
+*   Improve bind parameter rendering for casted binds in SQL logs and EXPLAIN output.
+
+    Queries built with casted binds (an array of values instead of
+    `ActiveModel::Attribute`s) previously rendered the position as `nil`:
+
+    ```
+    SELECT * FROM topics WHERE title = $1  [[nil, "abcd"]]
+    ```
+
+    They now render the position as a numbered parameter marker:
+
+    ```
+    SELECT * FROM topics WHERE title = $1  [["$1", "abcd"]]
+    ```
+
+    *Ryuta Kamizono*
+
 *   Deprecate passing `binds` to
     `ActiveRecord::ConnectionAdapters::DatabaseStatements#to_sql`.
 
