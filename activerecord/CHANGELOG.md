@@ -1,3 +1,27 @@
+*   Deprecate passing `binds` to `#insert`, `#update`, and `#delete` on
+    `ActiveRecord::ConnectionAdapters::DatabaseStatements`.
+
+    The `binds` positional was restored in #29944 to keep raw-SQL callers
+    working after bind parameters moved into the Arel AST. Now that
+    `Arel.sql(sql_with_placeholders, *binds)` wraps SQL and its binds
+    together as an `Arel::Nodes::BoundSqlLiteral` — the same idiom
+    `Model.where("... = ?", value)` already uses — the separate positional
+    is no longer needed:
+
+    ```ruby
+    # Before
+    connection.insert("INSERT INTO topics (title) VALUES (?)", nil, nil, nil, nil, ["hello"])
+    connection.update("UPDATE topics SET title = ? WHERE id = 1", nil, ["hi"])
+    connection.delete("DELETE FROM topics WHERE id = ?", nil, [1])
+
+    # After
+    connection.insert(Arel.sql("INSERT INTO topics (title) VALUES (?)", "hello"))
+    connection.update(Arel.sql("UPDATE topics SET title = ? WHERE id = 1", "hi"))
+    connection.delete(Arel.sql("DELETE FROM topics WHERE id = ?", 1))
+    ```
+
+    *Ryuta Kamizono*
+
 *   Deprecate the `pk`, `id_value`, and `sequence_name` positional arguments to
     `ActiveRecord::ConnectionAdapters::DatabaseStatements#insert`.
 
@@ -728,13 +752,13 @@
 *   Deprecate the `schema_order` option in PostgreSQL database configurations.
 
     Use `schema_search_path` instead. The `schema_order` alias will be
-    removed in Rails 8.3.
+    removed in Rails 9.0.
 
     *Eileen M. Alayce*
 
 *   Deprecate the `strict` option in MySQL database configurations.
 
-    The `strict` option for MySQL will be removed in Rails 8.3 because it is the default behavior.
+    The `strict` option for MySQL will be removed in Rails 9.0 because it is the default behavior.
 
     To change the default behavior of `strict`, use `variables: { sql_mode: "..." }` to configure `sql_mode` directly.
 
