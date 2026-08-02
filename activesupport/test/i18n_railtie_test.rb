@@ -8,7 +8,9 @@ require "pathname"
 class I18nRailtieTest < ActiveSupport::TestCase
   include ActiveSupport::Testing::ConstantStubbing
 
-  FakePath = Struct.new(:existent, :absolute_current, :extensions)
+  FakePath = Struct.new(:existent, :absolute_current, :extensions) do
+    alias_method :expanded_files, :existent
+  end
 
   class FakeFileWatcher
     attr_reader :load_path, :directories, :block, :executed
