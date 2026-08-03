@@ -67,7 +67,7 @@ module ActiveRecord
         end.new
         block = Proc.new { :from_block }
 
-        @recorder.record :create_table, [:system_settings], &block
+        @recorder.create_table(:system_settings, &block)
         @recorder.replay(migration)
 
         assert_equal [[:create_table, [:system_settings], :from_block]], migration.calls

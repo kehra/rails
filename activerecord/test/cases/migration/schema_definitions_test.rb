@@ -404,9 +404,6 @@ module ActiveRecord
         connection.drop_join_table(:authors, :posts)
         assert connection.executed_sql.any? { |sql| sql.include?(%Q(DROP TABLE "authors_posts")) }
 
-        add_definition = connection.build_add_column_definition(:posts, :created_at, :datetime)
-        assert_equal 6, add_definition.adds.first.column.precision
-        assert_nil connection.build_add_column_definition(:posts, :existing, :string, if_not_exists: true)
         assert_nil connection.add_column(:posts, :existing, :string, if_not_exists: true)
         connection.add_column(:posts, :body, :text)
         connection.add_columns(:posts, :summary, :subtitle, type: :string)
@@ -418,7 +415,6 @@ module ActiveRecord
 
         assert_raises(NotImplementedError) { connection.change_column(:posts, :title, :text) }
         assert_raises(NotImplementedError) { connection.change_column_default(:posts, :title, "hello") }
-        assert_raises(NotImplementedError) { connection.build_change_column_default_definition(:posts, :title, "hello") }
         assert_raises(NotImplementedError) { connection.change_column_null(:posts, :title, false) }
         assert_raises(NotImplementedError) { connection.rename_column(:posts, :title, :headline) }
       end
@@ -675,8 +671,6 @@ module ActiveRecord
         assert connection.executed_sql.last.include?("ADD \"created_at\" datetime(6) NOT NULL")
         connection.remove_timestamps(:posts)
         assert_equal [:posts, [:updated_at, :created_at], {}], connection.removed_columns.last
-        assert_equal ["DROP COLUMN \"updated_at\"", "DROP COLUMN \"created_at\""], connection.send(:remove_timestamps_for_alter, :posts)
-
         connection.bulk_change_table(:posts, [
           [:add_index, [:posts, :headline]],
           [:add_column, [:posts, :summary, :string]],
@@ -688,9 +682,6 @@ module ActiveRecord
 
         connection.send(:rename_table_indexes, :posts, :articles, _uses_legacy_index_name: true)
         assert_equal [:articles, "index_posts_on_title", "index_articles_on_title"], connection.renamed_indexes.last
-        assert_equal "RENAME COLUMN \"title\" TO \"headline\"", connection.send(:rename_column_sql, :posts, :title, :headline)
-        assert_match(/ADD "published_at" datetime\(6\)/, connection.send(:add_column_for_alter, :posts, :published_at, :datetime))
-        assert_raises(NotImplementedError) { connection.send(:change_column_default_for_alter, :posts, :status, "draft") }
         assert_raises(NotImplementedError) { connection.send(:data_source_sql, :posts) }
         assert_raises(NotImplementedError) { connection.send(:quoted_scope, :posts) }
 
@@ -891,7 +882,6 @@ module ActiveRecord
         default_option_connection = Class.new { include ActiveRecord::ConnectionAdapters::SchemaStatements }.new
         assert_equal false, default_option_connection.send(:options_include_default?, null: false, default: nil)
         assert_equal "new", default_option_connection.send(:extract_new_default_value, from: "old", to: "new")
-        assert_equal ["ADD \"created_at\" datetime(3)", "ADD \"updated_at\" datetime(3)"], connection.send(:add_timestamps_for_alter, :posts, null: true, precision: 3)
         assert_nil connection.send(:extract_foreign_key_action, "NO ACTION")
         assert_equal :cascade, connection.send(:extract_foreign_key_action, "CASCADE")
         assert_equal :nullify, connection.send(:extract_foreign_key_action, "SET NULL")

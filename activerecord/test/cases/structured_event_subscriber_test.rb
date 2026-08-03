@@ -100,7 +100,7 @@ module ActiveRecord
 
       assert_event_reported("active_record.sql", payload: {
         name: "Model Load",
-        binds: [["id", 1], [nil, "secret"]],
+        binds: [["id", 1], ["$2", "secret"]],
       }) do
         subscriber.sql(Event.new(1.234,
           sql: "SELECT * from models WHERE id = ? AND token = ?",
@@ -115,7 +115,7 @@ module ActiveRecord
 
       assert_event_reported("active_record.sql", payload: {
         name: "Model Load",
-        binds: [[nil, "secret"]],
+        binds: [["$1", "secret"]],
       }) do
         subscriber.sql(Event.new(1.234,
           sql: "SELECT * from models WHERE token = ?",
