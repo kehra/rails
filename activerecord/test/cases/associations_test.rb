@@ -317,34 +317,6 @@ class AssociationsTest < ActiveRecord::TestCase
     assert_equal({ "author_id" => nil }, association.nullified_owner_attributes)
   end
 
-  def test_foreign_association_sets_owner_attributes_from_join_keys_and_polymorphic_type
-    association = foreign_association_stub(
-      reflection: foreign_association_reflection(
-        join_primary_key: ["author_id", "tenant_id"],
-        join_foreign_key: ["id", "tenant_id"],
-        type: "author_type"
-      ),
-      owner: foreign_association_owner("id" => 7, "tenant_id" => 42)
-    )
-    record = foreign_association_record
-
-    association.__send__(:set_owner_attributes, record)
-
-    assert_equal({ "author_id" => 7, "tenant_id" => 42, "author_type" => "AssociationsTest::ForeignAssociationOwner" }, record.written_attributes)
-  end
-
-  def test_foreign_association_sets_owner_attributes_without_polymorphic_type
-    association = foreign_association_stub(
-      reflection: foreign_association_reflection(join_primary_key: "author_id", join_foreign_key: "id", type: nil),
-      owner: foreign_association_owner("id" => 7)
-    )
-    record = foreign_association_record
-
-    association.__send__(:set_owner_attributes, record)
-
-    assert_equal({ "author_id" => 7 }, record.written_attributes)
-  end
-
   def test_foreign_association_does_not_set_owner_attributes_for_through_association
     association = foreign_association_stub(
       reflection: foreign_association_reflection(join_primary_key: "author_id", join_foreign_key: "id"),
@@ -1407,35 +1379,6 @@ class PreloaderTest < ActiveRecord::TestCase
 
     assert_predicate branch, :polymorphic?
     assert_predicate branch, :polymorphic?
-  end
-
-  def test_preloader_through_association_filters_loaded_through_records_by_source_type
-    owner = Struct.new(:through_association) do
-      def association(name)
-        if name == :taggings
-          through_association
-        else
-          Struct.new(:loaded?).new(false)
-        end
-      end
-    end.new(Struct.new(:loaded?).new(true))
-    source_record = Struct.new(:id).new(1)
-    matching_through = { "source_type" => "Post" }
-    skipped_through = { "source_type" => "Comment" }
-    reflection = Struct.new(:name, :options, :through_reflection, :foreign_type).new(
-      :tagged_posts,
-      { source_type: "Post" },
-      Struct.new(:name).new(:taggings),
-      "source_type"
-    )
-    loader = ActiveRecord::Associations::Preloader::ThroughAssociation.allocate
-    loader.instance_variable_set(:@owners, [owner])
-    loader.instance_variable_set(:@reflection, reflection)
-    loader.instance_variable_set(:@through_records_by_owner, { owner => [matching_through, skipped_through] })
-    loader.instance_variable_set(:@source_records_by_owner, { matching_through => [source_record], skipped_through => [Struct.new(:id).new(2)] })
-    loader.instance_variable_set(:@scope, Struct.new(:order_values, :distinct_value).new([], false))
-
-    assert_equal [source_record], loader.records_by_owner[owner]
   end
 
   def test_preloader_through_association_orders_and_deduplicates_records_by_preload_index

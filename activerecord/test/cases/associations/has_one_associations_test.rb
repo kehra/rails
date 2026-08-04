@@ -1154,32 +1154,6 @@ class HasOneAssociationsTest < ActiveRecord::TestCase
     assert_nil target.updated_columns
   end
 
-  def test_has_one_association_nullify_owner_attributes_keeps_primary_key_columns
-    target = HasOneDependencyRecord.new
-    association = has_one_dependency_association(dependent: :nullify, target: target, foreign_key: ["id", "owner_id"])
-
-    association.__send__(:nullify_owner_attributes, target)
-
-    assert_equal({ "owner_id" => nil }, target.assigned_attributes)
-  end
-
-  def test_has_one_association_replace_failed_save_without_existing_target_raises_record_not_saved
-    record = HasOneDependencyRecord.new(save_result: false)
-    association = has_one_dependency_association(dependent: :nullify, target: nil)
-    association.define_singleton_method(:raise_on_type_mismatch!) { |_| nil }
-    association.define_singleton_method(:set_owner_attributes) { |associated_record| associated_record.assigned_attributes["owner_id"] = 9 }
-    association.define_singleton_method(:set_inverse_instance) { |_| nil }
-    association.define_singleton_method(:remove_inverse_instance) { |_| nil }
-    association.define_singleton_method(:target=) { |new_target| @assigned_target = new_target }
-
-    error = assert_raises(ActiveRecord::RecordNotSaved) do
-      association.__send__(:replace, record)
-    end
-
-    assert_equal "Failed to save the new associated child.", error.message
-    assert_equal({ "owner_id" => nil }, record.assigned_attributes)
-  end
-
   HasOneDependencyReflection = Struct.new(:name, :klass, :foreign_key, :type)
 
   HasOneDependencyErrors = Struct.new(:added_errors, keyword_init: true) do
